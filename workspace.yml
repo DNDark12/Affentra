@@ -1,0 +1,114 @@
+workspace('affentra'):
+  description: local workspace for affentra.
+
+command('setup'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker-compose up --build --detach
+
+    printf "\nBackend component setup...\n"
+    docker exec -u 1000 affentra-app composer install
+    docker exec -u 1000 affentra-app php artisan key:generate
+    docker exec -u 1000 affentra-app php artisan migrate
+
+    printf "\nFrontend building...\n"
+    run ws fe build
+
+    printf "\nRestart everything...\n"
+    run ws restart
+
+    printf "\nEverything is done!\n"
+    printf "URL: http://localhost:8000/\n"
+
+command('start'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker-compose start web
+    docker-compose start app
+    docker-compose start mysql
+
+    printf "\nStart updating packages...\n"
+    run ws update
+    printf "\nStart clearing cache...\n"
+    run ws cache:clear
+    printf "Running migrations...\n"
+    run ws migration
+    printf "Building frontend...\n"
+    run ws fe build
+    printf "...done.\n\n"
+
+command('stop'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker-compose stop web
+    docker-compose stop app
+    docker-compose stop mysql
+
+command('destroy'):
+  exec: |
+    #!bash(workspace:/)|@
+    run ws stop
+    docker-compose rm -f web
+    docker-compose rm -f app
+    docker-compose rm -f mysql
+    docker-compose down -v
+
+command('restart'):
+  exec: |
+    #!bash(workspace:/)|@
+    run ws stop
+    run ws start
+
+command('console'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec -it affentra-app bash
+
+command('mysql'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec -it affentra-mysql mysql -u affentra -psecret affentra
+
+command('update'):
+  exec: |
+    #!bash(workspace:/)|=
+    docker exec affentra-app composer install
+
+command('migration'):
+  exec: |
+    #!bash(workspace:/)|=
+    docker exec affentra-app php artisan migrate
+
+command('cache:clear'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec affentra-app php artisan cache:clear
+
+command('fe build'):
+  exec: |
+    #!bash(workspace:/)|=
+    docker exec affentra-app php artisan view:clear
+    docker exec affentra-app php artisan route:clear
+    docker exec affentra-app npm install
+    docker exec affentra-app npm run build
+
+command('fe watch'):
+  exec: |
+    #!bash(workspace:/)|=
+    docker exec affentra-app npm install
+    docker exec affentra-app npm run dev
+
+command('test'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec affentra-app composer test
+
+command('test-unit'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec affentra-app composer test-unit
+
+command('test-cs'):
+  exec: |
+    #!bash(workspace:/)|@
+    docker exec affentra-app composer test-cs

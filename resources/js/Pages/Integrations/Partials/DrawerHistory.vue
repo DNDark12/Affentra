@@ -1,0 +1,171 @@
+<template>
+    <div v-if="isOpen" class="fixed inset-0 z-50 flex justify-end">
+        <!-- Backdrop -->
+        <transition enter-active-class="transition-opacity ease-linear duration-300"
+                    enter-from-class="opacity-0" enter-to-class="opacity-100"
+                    leave-active-class="transition-opacity ease-linear duration-300"
+                    leave-from-class="opacity-100" leave-to-class="opacity-0">
+            <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="close"></div>
+        </transition>
+
+        <!-- Slide Slide-over panel -->
+        <transition enter-active-class="transform transition ease-in-out duration-300"
+                    enter-from-class="translate-x-full" enter-to-class="translate-x-0"
+                    leave-active-class="transform transition ease-in-out duration-300"
+                    leave-from-class="translate-x-0" leave-to-class="translate-x-full">
+            <div class="relative w-[560px] max-w-full flex shadow-2xl h-full bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800">
+                <div class="flex flex-col h-full w-full" v-if="activeRun">
+                    
+                    <!-- Header -->
+                    <div class="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                        <div class="flex flex-col gap-1">
+                            <h2 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Chi tiết đồng bộ</h2>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="text-[13px] text-zinc-500 dark:text-zinc-400">
+                                    Chạy lúc {{ formatTime(activeRun.started_at) }}
+                                </span>
+                                <div class="px-2 py-0.5 rounded-full flex items-center gap-1.5"
+                                     :class="statusBadgeClass(activeRun.status)">
+                                    <i :class="statusIcon(activeRun.status)" class="text-[12px]"></i>
+                                    <span class="text-[11px] font-semibold uppercase tracking-wide">{{ activeRun.status }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button @click="close" class="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 transition-colors">
+                            <i class="ph ph-x"></i>
+                        </button>
+                    </div>
+
+                    <!-- Body -->
+                    <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+                        <!-- Metrics Grid -->
+                        <div class="grid grid-cols-3 gap-4">
+                            <!-- Fetched -->
+                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Sản phẩm lấy về</span>
+                                <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_fetched ?? '-' }}</span>
+                            </div>
+                            <!-- Inserted -->
+                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Thêm mới/Cập nhật</span>
+                                <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_upserted ?? '-' }}</span>
+                            </div>
+                            <!-- Error count or Duration -->
+                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Trạng thái lỗi</span>
+                                <span class="text-xl font-bold" :class="String(activeRun.status).startsWith('failed') ? 'text-red-600' : 'text-zinc-900 dark:text-zinc-100'">
+                                    {{ String(activeRun.status).startsWith('failed') ? 'Có lỗi' : 'Không có' }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Details List -->
+                        <div class="flex flex-col gap-3">
+                            <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Chi tiết Execution</h3>
+                            
+                            <div class="rounded-lg border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-zinc-900 overflow-hidden text-[13px]">
+                                <!-- Row: Platform -->
+                                <div class="flex justify-between items-center px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
+                                    <span class="text-zinc-500 dark:text-zinc-400">Nền tảng:</span>
+                                    <div class="flex items-center gap-1.5 font-medium text-zinc-900 dark:text-zinc-100">
+                                        <i class="ph ph-plugs-connected text-indigo-500"></i>
+                                        <span class="capitalize">{{ connectionInfo?.name || connectionInfo?.platform || 'Unknown' }}</span>
+                                    </div>
+                                </div>
+                                <!-- Row: Sync ID -->
+                                <div class="flex justify-between items-center px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
+                                    <span class="text-zinc-500 dark:text-zinc-400">ID Yêu cầu:</span>
+                                    <span class="font-mono text-zinc-900 dark:text-zinc-100 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-[12px]">{{ activeRun.id }}</span>
+                                </div>
+                                <!-- Row: End Time -->
+                                <div class="flex justify-between items-center px-4 py-3 border-b border-zinc-100 dark:border-zinc-800" v-if="activeRun.finished_at">
+                                    <span class="text-zinc-500 dark:text-zinc-400">Đã xong lúc:</span>
+                                    <span class="font-medium text-zinc-900 dark:text-zinc-100">{{ formatTime(activeRun.finished_at) }}</span>
+                                </div>
+                                
+                                <!-- Log Output -->
+                                <div class="flex flex-col gap-2 p-4 bg-zinc-50 dark:bg-zinc-800/50">
+                                    <span class="text-zinc-500 dark:text-zinc-400 font-medium">Output Log</span>
+                                    <div class="bg-zinc-900 rounded-md p-3 max-h-[250px] overflow-y-auto">
+                                        <pre class="text-[12px] font-mono whitespace-pre-wrap rounded leading-relaxed" 
+                                             :class="String(activeRun.status).startsWith('failed') ? 'text-red-400' : 'text-emerald-400'"
+                                        >{{ activeRun.error_message || "Execution completed normally. No system errors recorded." }}</pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    
+                </div>
+            </div>
+        </transition>
+    </div>
+</template>
+
+<script setup>
+import { computed, watch } from 'vue';
+
+const props = defineProps({
+    isOpen: Boolean,
+    selectedRun: Object,     // Single history record
+    runs: {
+        type: Array,
+        default: () => [],
+    },
+    connectionInfo: Object,  // The parent connection item for display context
+});
+
+const emit = defineEmits(['close']);
+
+function close() {
+    emit('close');
+}
+
+const displayedRuns = computed(() => {
+    if (Array.isArray(props.runs) && props.runs.length) {
+        return props.runs;
+    }
+
+    return props.selectedRun ? [props.selectedRun] : [];
+});
+
+const activeRun = computed(() => {
+    if (!displayedRuns.value.length) {
+        return null;
+    }
+
+    if (props.selectedRun?.id) {
+        const selected = displayedRuns.value.find((run) => run.id === props.selectedRun.id);
+        if (selected) return selected;
+    }
+
+    return displayedRuns.value[0];
+});
+
+watch(() => props.isOpen, (val) => {
+    if (val) {
+        document.body.style.overflow = 'hidden';
+    } else {
+        document.body.style.overflow = '';
+    }
+});
+
+function formatTime(isoString) {
+    if (!isoString) return '--';
+    const d = new Date(isoString);
+    return d.toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function statusBadgeClass(status) {
+    if (status === 'completed') return 'bg-emerald-100/80 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400';
+    if (String(status).startsWith('failed')) return 'bg-red-100/80 text-red-700 dark:bg-red-500/10 dark:text-red-400';
+    return 'bg-amber-100/80 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400';
+}
+
+function statusIcon(status) {
+    if (status === 'completed') return 'ph-check-circle-fill text-emerald-600 dark:text-emerald-500';
+    if (String(status).startsWith('failed')) return 'ph-warning-circle-fill text-red-600 dark:text-red-500';
+    return 'ph-spinner-gap animate-spin text-amber-600 dark:text-amber-500';
+}
+</script>

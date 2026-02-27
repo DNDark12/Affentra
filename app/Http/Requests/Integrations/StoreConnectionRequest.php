@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests\Integrations;
+
+use App\Services\Integration\IntegrationFactory;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreConnectionRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true; 
+    }
+
+    public function rules(): array
+    {
+        return [
+            'platform'   => ['required', 'string', Rule::in(IntegrationFactory::supportedPlatforms())],
+            'method'     => ['required', 'string', Rule::in($this->allowedMethods())],
+            
+            // Open API Rules
+            'app_id'     => ['required_if:method,open_api', 'nullable', 'string', 'max:255'],
+            'app_secret' => ['required_if:method,open_api', 'nullable', 'string', 'max:255'],
+
+            // Cookie Rules
+            'cookie_header'        => [
+                'nullable',
+                'string',
+                Rule::requiredIf(fn (): bool => $this->input('method') === 'cookie' && blank($this->input('curl_command'))),
+            ],
+            'curl_command'         => [
+                'nullable',
+                'string',
+                Rule::requiredIf(fn (): bool => $this->input('method') === 'cookie' && blank($this->input('cookie_header'))),
+            ],
+            'consent_acknowledged' => ['nullable', 'boolean', 'accepted_if:method,cookie'],
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function allowedMethods(): array
+    {
+        $methods = ['open_api', 'portal_export'];
+
+        if ($this->canUseCookieMethod()) {
+            $methods[] = 'cookie';
+        }
+
+        return $methods;
+    }
+
+    private function canUseCookieMethod(): bool
+    {
+        $user = $this->user();
+
+        return (bool) config('integrations.enable_cookie_method', false)
+            && $user !== null
+            && ($user->isOwner() || $user->isLeader());
+    }
+}
