@@ -289,11 +289,12 @@
                                                 <span>{{ runStatusLabel(run.status) }}</span>
                                             </div>
                                         </td>
-                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[120px]">
+                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[150px]">
                                             <div class="leading-tight">
-                                                <div>{{ run.records_upserted ?? 0 }} / {{ run.records_fetched ?? 0 }}</div>
-                                                <div v-if="Number(run.records_failed ?? 0) > 0" class="text-[11px] text-red-500 dark:text-red-400">
-                                                    fail {{ run.records_failed }}
+                                                <div class="text-[11px]">fetched {{ run.records_fetched ?? 0 }}</div>
+                                                <div class="text-[11px]">upserted {{ run.records_upserted ?? 0 }}</div>
+                                                <div class="text-[11px]" :class="Number(run.records_failed ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'">
+                                                    failed {{ run.records_failed ?? 0 }}
                                                 </div>
                                             </div>
                                         </td>
@@ -799,11 +800,15 @@ async function switchMethod(connection, newMethod) {
 
     try {
         const payload = { method: newMethod };
-        if (newMethod === 'portal_export') {
+        const hasExistingCreds = (newMethod === 'portal_export' || 
+                                 (newMethod === 'cookie' && connection.has_cookie) || 
+                                 (newMethod === 'open_api' && connection.has_open_api));
+        
+        if (hasExistingCreds) {
             payload.status = 'active';
         }
 
-        await axios.patch(`/api/v1/integrations/connections/${connection.id}`, payload);
+        await axios.patch(route('api.integrations.update', connection.id), payload);
         
         // Reload only relevant data
         router.reload({ only: ['connections'] });

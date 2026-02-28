@@ -14,6 +14,7 @@ use App\Models\PlatformConnection;
 use App\Models\SyncRun;
 use App\Models\TrackingLink;
 use App\Models\User;
+use App\Support\TrackingLinkIdentity;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -525,14 +526,10 @@ class OrderService
             ->get(['id', 'user_id', 'campaign_id', 'destination_url', 'meta']);
 
         foreach ($links as $link) {
-            $productKey = $this->extractShopProductKeyFromUrl($link->destination_url);
-            if ($productKey === null && is_array($link->meta)) {
-                $shopId = trim((string) ($link->meta['offer_shop_id'] ?? ''));
-                $itemId = trim((string) ($link->meta['offer_item_id'] ?? ''));
-                if ($shopId !== '' && $itemId !== '') {
-                    $productKey = "{$shopId}:{$itemId}";
-                }
-            }
+            $productKey = TrackingLinkIdentity::extractShopeeProductKey(
+                $link->destination_url,
+                is_array($link->meta) ? $link->meta : null,
+            );
             if ($productKey === null) {
                 continue;
             }
@@ -572,33 +569,6 @@ class OrderService
         }
 
         return "{$shopId}:{$productId}";
-    }
-
-    private function extractShopProductKeyFromUrl(?string $destinationUrl): ?string
-    {
-        if ($destinationUrl === null || trim($destinationUrl) === '') {
-            return null;
-        }
-
-        $url = trim($destinationUrl);
-        $path = parse_url($url, PHP_URL_PATH) ?: '';
-
-        if (preg_match('~/(?:product|i)/(?:[^/]+/)?(\d+)/(\d+)~', $path, $matches) === 1) {
-            return "{$matches[1]}:{$matches[2]}";
-        }
-
-        if (preg_match('~/product/(\d+)/(\d+)~', $url, $matches) === 1) {
-            return "{$matches[1]}:{$matches[2]}";
-        }
-
-        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
-        $shopId = trim((string) ($query['shopid'] ?? $query['shop_id'] ?? ''));
-        $itemId = trim((string) ($query['itemid'] ?? $query['item_id'] ?? ''));
-        if ($shopId !== '' && $itemId !== '') {
-            return "{$shopId}:{$itemId}";
-        }
-
-        return null;
     }
 
     private function normalizeSubId(mixed $value): ?string

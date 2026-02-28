@@ -658,13 +658,16 @@ async function submitCreate() {
     createErrors.value = {};
 
     try {
-        await apiRequest(route('api.links.store'), {
+        const response = await apiRequest(route('api.links.store'), {
             method: 'POST',
             body: JSON.stringify(createForm.value),
         });
 
         showCreate.value = false;
-        feedback.value = { type: 'success', message: 'Tracking link created.' };
+        feedback.value = {
+            type: 'success',
+            message: response.message || 'Tracking link created.',
+        };
         router.reload({ only: ['links', 'summary'] });
     } catch (error) {
         createErrors.value = error.payload?.errors || {};

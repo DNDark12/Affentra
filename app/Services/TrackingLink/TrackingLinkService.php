@@ -11,6 +11,7 @@ use App\Enums\LinkStatus;
 use App\Enums\Platform;
 use App\Models\DailyStat;
 use App\Models\TrackingLink;
+use App\Support\TrackingLinkIdentity;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -169,12 +170,36 @@ class TrackingLinkService
             $this->assertCampaignVisible($user, (int) $data['campaign_id']);
         }
 
+        $data['platform'] = $data['platform'] ?? Platform::Shopee;
+        $platform = $data['platform'] instanceof Platform
+            ? $data['platform']->value
+            : (string) $data['platform'];
+        $incomingMeta = is_array($data['meta'] ?? null) ? $data['meta'] : null;
+        $destinationUrl = (string) ($data['destination_url'] ?? '');
+
+        $existing = $this->findExistingEquivalentLink(
+            user: $user,
+            platform: $platform,
+            destinationUrl: $destinationUrl,
+            meta: $incomingMeta,
+        );
+
+        if ($existing !== null) {
+            Log::info('tracking_links.reused_existing', [
+                'actor_id' => $user->id,
+                'tracking_link_id' => $existing->id,
+                'platform' => $platform,
+                'short_code' => $existing->short_code,
+            ]);
+
+            return $existing;
+        }
+
         if (empty($data['short_code'])) {
             $data['short_code'] = $this->generateUniqueCode();
         }
 
         $data['user_id']  = $user->id;
-        $data['platform'] = $data['platform'] ?? Platform::Shopee;
         $data['status']   = LinkStatus::Active;
         $created = $this->trackingLinkRepository->createLink($data);
 
@@ -197,6 +222,23 @@ class TrackingLinkService
     {
         $link = $this->findOrFailForUser($user, $trackingLinkId);
         $normalized = $this->normalizePayload($data);
+
+        if (array_key_exists('destination_url', $normalized)) {
+            $incomingMeta = is_array($normalized['meta'] ?? null)
+                ? $normalized['meta']
+                : (is_array($link->meta) ? $link->meta : null);
+            $duplicate = $this->findExistingEquivalentLink(
+                user: $user,
+                platform: $link->platform->value,
+                destinationUrl: (string) $normalized['destination_url'],
+                meta: $incomingMeta,
+                excludeId: $link->id,
+            );
+
+            if ($duplicate !== null) {
+                throw new \DomainException("Tracking link already exists ({$duplicate->short_code}).");
+            }
+        }
 
         if (array_key_exists('campaign_id', $normalized) && $normalized['campaign_id'] !== null) {
             $this->assertCampaignVisible($user, (int) $normalized['campaign_id']);
@@ -333,6 +375,45 @@ class TrackingLinkService
     private function normalizeStatus(string $status): string
     {
         return $status === 'inactive' ? LinkStatus::Paused->value : $status;
+    }
+
+    private function findExistingEquivalentLink(
+        User $user,
+        string $platform,
+        string $destinationUrl,
+        ?array $meta = null,
+        ?int $excludeId = null,
+    ): ?TrackingLink {
+        $incomingIdentity = TrackingLinkIdentity::identityKey($platform, $destinationUrl, $meta);
+        if ($incomingIdentity === null) {
+            return null;
+        }
+
+        $query = TrackingLink::query()
+            ->where('user_id', $user->id)
+            ->where('platform', $platform)
+            ->where('status', '!=', LinkStatus::Archived->value);
+
+        if ($excludeId !== null) {
+            $query->where('id', '!=', $excludeId);
+        }
+
+        $candidates = $query->get();
+
+        foreach ($candidates as $candidate) {
+            $candidateMeta = is_array($candidate->meta) ? $candidate->meta : null;
+            $candidateIdentity = TrackingLinkIdentity::identityKey(
+                $platform,
+                $candidate->destination_url,
+                $candidateMeta,
+            );
+
+            if ($candidateIdentity === $incomingIdentity) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function assertCampaignVisible(User $user, int $campaignId): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\PlatformConnection;
+use App\Models\TrackingLink;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -135,5 +136,52 @@ class OfferControllerTest extends TestCase
 
         $response->assertStatus(404);
         $this->assertDatabaseCount('tracking_links', 0);
+    }
+
+    public function test_get_link_reuses_existing_tracking_link_for_same_product(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id' => $user->id,
+            'platform' => 'shopee',
+            'app_id' => 'test_app',
+            'app_secret' => 'test_secret',
+        ]);
+
+        $existing = TrackingLink::create([
+            'user_id' => $user->id,
+            'short_code' => 'sameprod',
+            'destination_url' => 'https://shopee.vn/product/1663031317/46553051070',
+            'platform' => 'shopee',
+            'sub_id' => 'offer_existing',
+            'status' => 'active',
+        ]);
+
+        Http::fake([
+            '*graphql' => Http::response([
+                'data' => [
+                    'generateShortLink' => [
+                        'shortLink' => 'https://s.shopee.vn/9AAbbCCdd',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)->postJson('/api/offers/get-link', [
+            'connection_id' => $conn->id,
+            'offer_id'      => 'offer_123',
+            'offer_link'    => 'https://shopee.vn/product/1663031317/46553051070',
+            'item_id'       => '46553051070',
+            'shop_id'       => '1663031317',
+            'product_name'  => 'Fake Item',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.id', $existing->id)
+            ->assertJsonPath('data.short_code', $existing->short_code)
+            ->assertJsonPath('data.reused_existing', true)
+            ->assertJsonPath('data.sub_id', 'offer_existing');
+
+        $this->assertDatabaseCount('tracking_links', 1);
     }
 }

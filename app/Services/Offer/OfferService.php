@@ -117,7 +117,8 @@ class OfferService
             'short_code'      => $trackingLink->short_code,
             'destination_url' => $trackingLink->destination_url,
             'track_url'       => route('redirect', $trackingLink->short_code),
-            'sub_id'          => $subId,
+            'sub_id'          => $trackingLink->sub_id,
+            'reused_existing' => ! ((bool) ($trackingLink->wasRecentlyCreated ?? false)),
         ];
     }
 

@@ -98,7 +98,12 @@ class TrackingLinkController extends Controller
             return ApiResponse::error($e->getMessage(), [], 422);
         }
 
-        return ApiResponse::success($link, 'Tracking link created.', 201);
+        $wasCreated = (bool) ($link->wasRecentlyCreated ?? false);
+        $message = $wasCreated
+            ? 'Tracking link created.'
+            : 'Tracking link already exists. Reused existing link.';
+
+        return ApiResponse::success($link, $message, $wasCreated ? 201 : 200);
     }
 
     /**

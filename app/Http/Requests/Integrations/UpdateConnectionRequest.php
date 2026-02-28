@@ -23,7 +23,7 @@ class UpdateConnectionRequest extends FormRequest
             'app_secret' => ['sometimes', 'nullable', 'string', 'max:255'],
             'cookie_header' => ['nullable', 'string'],
             'curl_command' => ['nullable', 'string'],
-            'consent_acknowledged' => ['nullable', 'boolean', 'accepted_if:method,cookie'],
+            'consent_acknowledged' => ['nullable', 'boolean'],
             'sync_mode'  => ['sometimes', 'required', 'string', Rule::in(['manual', 'scheduled'])],
             'status'     => ['sometimes', 'required', 'string', Rule::in(['active', 'inactive', 'error', 'disabled', 'expired'])],
         ];
