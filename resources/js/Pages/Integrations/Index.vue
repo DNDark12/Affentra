@@ -147,7 +147,7 @@
                             <div class="flex flex-col gap-1">
                                 <div class="flex items-center gap-2">
                                     <h3 class="font-semibold text-[15px] text-zinc-900 dark:text-zinc-100">
-                                        {{ getPlatform(connection.platform).name }}
+                                        {{ connection.label || getPlatform(connection.platform).name }}
                                     </h3>
                                     <span
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
@@ -166,10 +166,45 @@
                                         {{ cap }}
                                     </span>
                                 </div>
+
                             </div>
                         </div>
 
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 font-medium">
+                            <!-- Method Switcher Dropdown -->
+                            <div class="relative">
+                                <button
+                                    @click.stop="activeDropdownId = activeDropdownId === connection.id ? null : connection.id"
+                                    class="h-8 px-2.5 rounded-md border border-zinc-200 bg-white text-zinc-700 text-[11px] font-medium hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 flex items-center gap-1.5 min-w-[115px] justify-center active:scale-95 shadow-sm"
+                                >
+                                    <span class="text-[10px] text-zinc-400 font-normal uppercase mr-0.5">Mode:</span>
+                                    <span class="uppercase font-bold tracking-tight">
+                                        {{ connection.method === 'open_api' ? 'API' : (connection.method === 'cookie' ? 'Cookie' : 'Portal') }}
+                                    </span>
+                                    <i class="ph ph-caret-down text-[10px] opacity-60 ml-0.5"></i>
+                                </button>
+                                <div 
+                                    v-if="activeDropdownId === connection.id" 
+                                    class="absolute left-0 mt-1 w-44 origin-top-left rounded-lg bg-white dark:bg-zinc-900 shadow-xl ring-1 ring-black/5 dark:ring-white/5 focus:outline-none z-30 border border-zinc-200 dark:border-zinc-800 py-1"
+                                >
+                                    <button 
+                                        v-for="m in ['open_api', 'cookie', 'portal_export']" 
+                                        :key="m"
+                                        @click.stop="switchMethod(connection, m); activeDropdownId = null"
+                                        class="flex items-center justify-between w-full px-3 py-2 text-[12px] text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                                        :class="connection.method === m ? 'bg-indigo-50/50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold' : ''"
+                                    >
+                                        <span class="flex items-center gap-2">
+                                            <i v-if="m === 'open_api'" class="ph ph-globe text-sm opacity-70"></i>
+                                            <i v-if="m === 'cookie'" class="ph ph-cookie text-sm opacity-70"></i>
+                                            <i v-if="m === 'portal_export'" class="ph ph-file-csv text-sm opacity-70"></i>
+                                            {{ m === 'open_api' ? 'Open API' : (m === 'cookie' ? 'Cookie' : 'Portal Export') }}
+                                        </span>
+                                        <i v-if="(m === 'open_api' && connection.has_open_api) || (m === 'cookie' && connection.has_cookie)" class="ph ph-check-circle text-[10px] text-emerald-500"></i>
+                                    </button>
+                                </div>
+                            </div>
+
                             <button
                                 @click="secondaryAction(connection)"
                                 class="h-8 px-3 rounded-md border border-zinc-200 bg-white text-zinc-700 text-[12px] font-medium hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -254,12 +289,17 @@
                                                 <span>{{ runStatusLabel(run.status) }}</span>
                                             </div>
                                         </td>
-                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[100px]">
-                                            {{ run.records_upserted ?? 0 }} / {{ run.records_fetched ?? 0 }}
+                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[120px]">
+                                            <div class="leading-tight">
+                                                <div>{{ run.records_upserted ?? 0 }} / {{ run.records_fetched ?? 0 }}</div>
+                                                <div v-if="Number(run.records_failed ?? 0) > 0" class="text-[11px] text-red-500 dark:text-red-400">
+                                                    fail {{ run.records_failed }}
+                                                </div>
+                                            </div>
                                         </td>
                                         <td class="py-2.5 px-4 text-right w-[70px]">
                                             <button
-                                                @click="openRunDetailsDrawer(getPlatform(connection.platform), run, getRecentRuns(connection))"
+                                                @click="openRunDetailsDrawer(connection, run, getRecentRuns(connection))"
                                                 class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
                                             >
                                                 {{ runActionLabel(run.status) }}
@@ -329,7 +369,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AppShell from '@/Layouts/AppShell.vue';
@@ -436,6 +476,13 @@ const calloutConfig = computed(() => {
 const syncingAll = ref(false);
 const testingConnection = ref(null);
 const syncingConnection = ref(null);
+const activeDropdownId = ref(null);
+
+onMounted(() => {
+    window.addEventListener('click', () => {
+        activeDropdownId.value = null;
+    });
+});
 
 const isConfigOpen = ref(false);
 const editConnection = ref(null);
@@ -577,6 +624,7 @@ function normalizeRunPayload(run) {
     return {
         ...run,
         records_upserted: run.records_upserted ?? run.records_inserted ?? 0,
+        records_failed: run.records_failed ?? 0,
         finished_at: run.finished_at ?? run.completed_at ?? null,
     };
 }
@@ -643,9 +691,14 @@ function deleteConnection(connection) {
     }
 }
 
-function openRunDetailsDrawer(platform, run, runs = []) {
-    const platformId = platform?.id ?? platform?.platform;
-    selectedDetailedPlatform.value = getPlatform(platformId);
+function openRunDetailsDrawer(connection, run, runs = []) {
+    const platformId = connection?.platform;
+    const platform = getPlatform(platformId);
+    
+    selectedDetailedPlatform.value = {
+        ...platform,
+        label: connection?.label || platform.name
+    };
     selectedDetailedRun.value = normalizeRunPayload(run);
     selectedDetailedRuns.value = Array.isArray(runs) ? runs.map(normalizeRunPayload) : [];
 
@@ -677,7 +730,7 @@ async function openHistoryModal(connection) {
             alert('Chưa có lịch sử đồng bộ cho kết nối này.');
             return;
         }
-        openRunDetailsDrawer(getPlatform(connection.platform), runs[0], runs);
+        openRunDetailsDrawer(connection, runs[0], runs);
     } catch (error) {
         console.error('Load history failed', error);
         const fallbackRuns = getRecentRuns(connection);
@@ -691,7 +744,6 @@ async function openHistoryModal(connection) {
 }
 
 function secondaryActionLabel(connection) {
-    if (connection.status === 'error') return 'Re-auth';
     if (connection.method === 'portal_export') return 'Upload Data';
     return 'Test kết nối';
 }
@@ -703,10 +755,6 @@ function primaryActionLabel(connection) {
 }
 
 function secondaryAction(connection) {
-    if (connection.status === 'error') {
-        openConfigModal(getPlatform(connection.platform), connection);
-        return;
-    }
     if (connection.method === 'portal_export') {
         openUploadModal(connection);
         return;
@@ -729,6 +777,39 @@ async function testConnection(connection) {
         alert(`Lỗi: ${error.response?.data?.message || 'Lỗi hệ thống.'}`);
     } finally {
         testingConnection.value = null;
+    }
+}
+
+async function switchMethod(connection, newMethod) {
+    if (connection.method === newMethod) return;
+
+    if (newMethod === 'open_api' && !connection.has_open_api) {
+        if (confirm('Cấu hình Open API chưa đầy đủ. Bạn có muốn mở bảng Cấu hình để thiết lập?')) {
+            openConfigModal(getPlatform(connection.platform), connection);
+        }
+        return;
+    }
+    
+    if (newMethod === 'cookie' && !connection.has_cookie) {
+        if (confirm('Cấu hình Cookie chưa đầy đủ. Bạn có muốn mở bảng Cấu hình để thiết lập?')) {
+            openConfigModal(getPlatform(connection.platform), connection);
+        }
+        return;
+    }
+
+    try {
+        const payload = { method: newMethod };
+        if (newMethod === 'portal_export') {
+            payload.status = 'active';
+        }
+
+        await axios.patch(`/api/v1/integrations/connections/${connection.id}`, payload);
+        
+        // Reload only relevant data
+        router.reload({ only: ['connections'] });
+    } catch (error) {
+        console.error('Switch method failed', error);
+        alert('Không thể chuyển đổi phương thức. Vui lòng thử lại.');
     }
 }
 

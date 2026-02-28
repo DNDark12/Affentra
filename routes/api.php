@@ -58,6 +58,9 @@ Route::middleware(['auth'])->group(function () {
     |----------------------------------------------------------------------
     */
     Route::prefix('campaigns')->name('api.campaigns.')->group(function () {
+        Route::post('/sync', [CampaignController::class, 'syncFromShopee'])
+            ->name('sync')
+            ->middleware('throttle:3,1');
         Route::post('/', [CampaignController::class, 'store'])->name('store');
         Route::patch('/{campaign}', [CampaignController::class, 'update'])->name('update');
     });

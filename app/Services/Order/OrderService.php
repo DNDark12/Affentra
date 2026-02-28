@@ -256,7 +256,10 @@ class OrderService
         $affectedPartitions = [];
 
         // Preload tracking links for sub_id mapping
-        $subIds = array_filter(array_column($orders, 'sub_id'));
+        $subIds = array_values(array_unique(array_filter(
+            array_map(fn (array $row): ?string => $this->normalizeSubId($row['sub_id'] ?? null), $orders),
+            static fn (?string $subId): bool => $subId !== null,
+        )));
         $linksBySubId = [];
         if (! empty($subIds)) {
             $linksBySubId = TrackingLink::whereIn('sub_id', array_unique($subIds))
@@ -264,6 +267,7 @@ class OrderService
                 ->keyBy('sub_id')
                 ->all();
         }
+        $linksByProductKey = $this->buildLinksByProductKey($connection);
 
         $chunks = array_chunk($orders, $chunkSize);
 
@@ -273,6 +277,7 @@ class OrderService
                     $chunk,
                     $connection,
                     $linksBySubId,
+                    $linksByProductKey,
                     &$totalUpserted,
                     &$affectedPartitions,
                 ) {
@@ -297,7 +302,18 @@ class OrderService
                         // Check if record exists with same hash (skip unchanged)
                         $existing = Order::where('platform', $order['platform'])
                             ->whereIn('order_code', $candidateOrderCodes)
-                            ->first(['id', 'order_code', 'raw_payload_hash', 'ordered_at', 'user_id']);
+                            ->first([
+                                'id',
+                                'order_code',
+                                'raw_payload_hash',
+                                'ordered_at',
+                                'user_id',
+                                'campaign_id',
+                                'tracking_link_id',
+                                'sub_id',
+                                'missing_sub_id',
+                                'source_meta',
+                            ]);
 
                         // One-time normalization for historical data that used legacy order_id as order_code.
                         if ($existing && $existing->order_code !== $canonicalOrderCode) {
@@ -315,24 +331,71 @@ class OrderService
                             }
                         }
 
-                        if ($existing && $existing->raw_payload_hash === $hash) {
-                            continue; // Skip — no changes
-                        }
-
                         // Map sub_id to tracking link ownership
                         $userId = $connection->user_id;
                         $campaignId = null;
                         $trackingLinkId = null;
                         $missingSubId = false;
+                        $attributionSource = 'direct';
+                        $attributionDetail = null;
 
-                        $subId = $order['sub_id'] ?? null;
+                        $subId = $this->normalizeSubId($order['sub_id'] ?? null);
                         if (! empty($subId) && isset($linksBySubId[$subId])) {
                             $link = $linksBySubId[$subId];
                             $userId = $link->user_id;
                             $campaignId = $link->campaign_id;
                             $trackingLinkId = $link->id;
+                            $attributionSource = 'sub_id';
+                            $attributionDetail = $subId;
                         } elseif (! empty($subId)) {
                             $missingSubId = true;
+                            $attributionSource = 'missing_sub_id';
+                            $attributionDetail = $subId;
+                        }
+
+                        $productKey = null;
+                        if ($trackingLinkId === null) {
+                            $productKey = $this->buildOrderProductKey($order);
+                            if ($productKey !== null && isset($linksByProductKey[$productKey])) {
+                                $link = $linksByProductKey[$productKey];
+                                if (($link['ambiguous'] ?? false) === true) {
+                                    $attributionSource = 'ambiguous_product';
+                                    $attributionDetail = $productKey;
+                                } else {
+                                    $userId = $link['user_id'];
+                                    $campaignId = $link['campaign_id'];
+                                    $trackingLinkId = $link['id'];
+                                    $missingSubId = false;
+                                    $attributionSource = 'product_key';
+                                    $attributionDetail = $productKey;
+                                }
+                            } elseif ($productKey !== null && $attributionSource === 'direct') {
+                                $attributionSource = 'unmatched_product';
+                                $attributionDetail = $productKey;
+                            }
+                        }
+
+                        $sourceMeta = is_array($order['source_meta'] ?? null) ? $order['source_meta'] : [];
+                        $sourceMeta['attribution_source'] = $attributionSource;
+                        if ($attributionDetail !== null) {
+                            $sourceMeta['attribution_detail'] = $attributionDetail;
+                        }
+                        $sourceMeta['missing_sub_id'] = $missingSubId;
+
+                        $existingSourceMeta = is_array($existing?->source_meta ?? null) ? $existing->source_meta : [];
+                        $attributionUnchanged = (string) ($existingSourceMeta['attribution_source'] ?? '') === $attributionSource
+                            && (string) ($existingSourceMeta['attribution_detail'] ?? '') === (string) ($attributionDetail ?? '');
+
+                        $mappingUnchanged = $existing
+                            && (int) $existing->user_id === $userId
+                            && (string) ($existing->campaign_id ?? '') === (string) ($campaignId ?? '')
+                            && (string) ($existing->tracking_link_id ?? '') === (string) ($trackingLinkId ?? '')
+                            && (string) ($existing->sub_id ?? '') === (string) ($subId ?? '')
+                            && (bool) $existing->missing_sub_id === $missingSubId
+                            && $attributionUnchanged;
+
+                        if ($existing && $existing->raw_payload_hash === $hash && $mappingUnchanged) {
+                            continue; // Skip — no payload or ownership changes
                         }
 
                         $now = now()->toDateTimeString();
@@ -369,24 +432,25 @@ class OrderService
                             'synced_at'          => now(),
                             'raw_payload_hash'   => $hash,
                             'missing_sub_id'     => $missingSubId,
-                            'source_meta'        => isset($order['source_meta'])
-                                ? json_encode($order['source_meta'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-                                : null,
+                            'source_meta'        => json_encode($sourceMeta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                             'created_at'         => $now,
                             'updated_at'         => $now,
                         ];
 
                         // Track affected partitions for incremental aggregation
-                        $orderedDate = Carbon::parse($order['ordered_at'])->toDateString();
-                        $affectedPartitions[] = [
-                            'date'     => $orderedDate,
-                            'user_id'  => $userId,
-                            'platform' => $order['platform'],
-                        ];
+                        $orderedDate = null;
+                        if (! empty($order['ordered_at'])) {
+                            $orderedDate = Carbon::parse($order['ordered_at'])->toDateString();
+                            $affectedPartitions[] = [
+                                'date'     => $orderedDate,
+                                'user_id'  => $userId,
+                                'platform' => $order['platform'],
+                            ];
+                        }
 
-                        if (isset($order['approved_at'])) {
+                        if (! empty($order['approved_at'])) {
                             $approvedDate = Carbon::parse($order['approved_at'])->toDateString();
-                            if ($approvedDate !== $orderedDate) {
+                            if (! isset($orderedDate) || $approvedDate !== $orderedDate) {
                                 $affectedPartitions[] = [
                                     'date'     => $approvedDate,
                                     'user_id'  => $userId,
@@ -401,9 +465,11 @@ class OrderService
                             $upsertRows,
                             ['platform', 'order_code'],
                             [
+                                'user_id', 'campaign_id', 'tracking_link_id', 'connection_id',
+                                'sub_id', 'missing_sub_id',
                                 'status', 'order_amount', 'listed_amount', 'commission',
                                 'commission_platform', 'commission_brand', 'commission_other',
-                                'approved_at', 'source_updated_at', 'synced_at',
+                                'ordered_at', 'approved_at', 'source_updated_at', 'synced_at',
                                 'external_order_id', 'shop_id', 'shop_name',
                                 'product_id', 'product_model_id', 'product_name', 'product_link', 'product_quantity',
                                 'click_at', 'completed_at', 'source_meta',
@@ -434,7 +500,7 @@ class OrderService
                     platform: $platform,
                     minDate: $dates->min(),
                     maxDate: $dates->max(),
-                );
+                )->onQueue('sync');
             }
         }
 
@@ -443,6 +509,116 @@ class OrderService
             'failed'              => $totalFailed,
             'affected_partitions' => $affectedPartitions,
         ];
+    }
+
+    /**
+     * @return array<string, array{id?: int, user_id?: int, campaign_id?: int|null, ambiguous?: bool}>
+     */
+    private function buildLinksByProductKey(PlatformConnection $connection): array
+    {
+        $map = [];
+        $ambiguousKeys = [];
+
+        $links = TrackingLink::query()
+            ->where('platform', $connection->platform)
+            ->where('user_id', $connection->user_id)
+            ->get(['id', 'user_id', 'campaign_id', 'destination_url', 'meta']);
+
+        foreach ($links as $link) {
+            $productKey = $this->extractShopProductKeyFromUrl($link->destination_url);
+            if ($productKey === null && is_array($link->meta)) {
+                $shopId = trim((string) ($link->meta['offer_shop_id'] ?? ''));
+                $itemId = trim((string) ($link->meta['offer_item_id'] ?? ''));
+                if ($shopId !== '' && $itemId !== '') {
+                    $productKey = "{$shopId}:{$itemId}";
+                }
+            }
+            if ($productKey === null) {
+                continue;
+            }
+
+            if (
+                isset($map[$productKey])
+                && (($map[$productKey]['ambiguous'] ?? false) === true
+                    || ($map[$productKey]['id'] ?? null) !== $link->id)
+            ) {
+                $ambiguousKeys[$productKey] = true;
+                $map[$productKey] = ['ambiguous' => true];
+                continue;
+            }
+
+            if (isset($ambiguousKeys[$productKey])) {
+                $map[$productKey] = ['ambiguous' => true];
+                continue;
+            }
+
+            $map[$productKey] = [
+                'id' => $link->id,
+                'user_id' => $link->user_id,
+                'campaign_id' => $link->campaign_id,
+            ];
+        }
+
+        return $map;
+    }
+
+    private function buildOrderProductKey(array $order): ?string
+    {
+        $shopId = trim((string) ($order['shop_id'] ?? ''));
+        $productId = trim((string) ($order['product_id'] ?? ''));
+
+        if ($shopId === '' || $productId === '') {
+            return null;
+        }
+
+        return "{$shopId}:{$productId}";
+    }
+
+    private function extractShopProductKeyFromUrl(?string $destinationUrl): ?string
+    {
+        if ($destinationUrl === null || trim($destinationUrl) === '') {
+            return null;
+        }
+
+        $url = trim($destinationUrl);
+        $path = parse_url($url, PHP_URL_PATH) ?: '';
+
+        if (preg_match('~/(?:product|i)/(?:[^/]+/)?(\d+)/(\d+)~', $path, $matches) === 1) {
+            return "{$matches[1]}:{$matches[2]}";
+        }
+
+        if (preg_match('~/product/(\d+)/(\d+)~', $url, $matches) === 1) {
+            return "{$matches[1]}:{$matches[2]}";
+        }
+
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $shopId = trim((string) ($query['shopid'] ?? $query['shop_id'] ?? ''));
+        $itemId = trim((string) ($query['itemid'] ?? $query['item_id'] ?? ''));
+        if ($shopId !== '' && $itemId !== '') {
+            return "{$shopId}:{$itemId}";
+        }
+
+        return null;
+    }
+
+    private function normalizeSubId(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $subId = trim((string) $value);
+        if ($subId === '') {
+            return null;
+        }
+
+        $normalized = mb_strtolower($subId);
+        $invalidTokens = ['-', '--', '---', '----', 'n/a', 'na', 'none', 'null', '(not set)', 'undefined'];
+        if (in_array($normalized, $invalidTokens, true)) {
+            return null;
+        }
+
+        return $subId;
     }
 
     /**

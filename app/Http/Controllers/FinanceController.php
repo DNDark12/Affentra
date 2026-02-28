@@ -17,15 +17,16 @@ class FinanceController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        $canViewAll = $user !== null && method_exists($user, 'isOwner') && $user->isOwner();
         
         $billings = AffiliateBilling::query()
-            ->when($user->role !== 'admin', fn($q) => $q->where('user_id', $user->id))
+            ->when(! $canViewAll, fn($q) => $q->where('user_id', $user->id))
             ->orderBy('period_start', 'desc')
             ->paginate(20)
             ->withQueryString();
 
         $payouts = AffiliatePayout::query()
-            ->when($user->role !== 'admin', fn($q) => $q->where('user_id', $user->id))
+            ->when(! $canViewAll, fn($q) => $q->where('user_id', $user->id))
             ->orderBy('payout_at', 'desc')
             ->paginate(20)
             ->withQueryString();
@@ -54,7 +55,7 @@ class FinanceController extends Controller
         }
 
         foreach ($connections as $connection) {
-            SyncPaymentDataJob::dispatch($connection);
+            SyncPaymentDataJob::dispatch($connection)->onQueue('sync');
         }
 
         return back()->with('success', 'Đã bắt đầu tiến trình đồng bộ dữ liệu tài chính.');

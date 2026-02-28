@@ -20,6 +20,7 @@ class CampaignRepository extends BaseRepository implements CampaignRepositoryInt
     {
         $query = $this->model->newQuery()
             ->withCount('trackingLinks as links_count')
+            ->orderByDesc('synced_at')
             ->latest();
 
         if ($scopeUserIds !== null) {
@@ -32,7 +33,10 @@ class CampaignRepository extends BaseRepository implements CampaignRepositoryInt
 
         if (! empty($filters['search'])) {
             $term = '%' . trim((string) $filters['search']) . '%';
-            $query->where('name', 'LIKE', $term);
+            $query->where(function ($subQuery) use ($term): void {
+                $subQuery->where('name', 'LIKE', $term)
+                    ->orWhere('external_id', 'LIKE', $term);
+            });
         }
 
         return $query->paginate($perPage);

@@ -158,10 +158,10 @@ class CampaignSyncService
             'clicks' => (int) ($row['campaignClickNum'] ?? $row['campaign_click_num'] ?? 0),
             'banner_image_id' => $this->nullableString($row['bannerImageId'] ?? $row['banner_image_id'] ?? null),
             'synced_at' => $now,
-            'source_meta' => [
+            'source_meta' => json_encode([
                 'campaignId' => $row['campaignId'] ?? null,
                 'campaignStatus' => $externalStatus,
-            ],
+            ], JSON_THROW_ON_ERROR),
             'created_at' => $now,
             'updated_at' => $now,
         ];

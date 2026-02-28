@@ -140,8 +140,16 @@
                             <td class="px-4 py-3">
                                 <div v-if="o.tracking_link_id">
                                     <p class="text-sm font-medium" style="color: var(--text-primary)">Link #{{ o.tracking_link_id }}</p>
+                                    <p v-if="attributionLabel(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
+                                        {{ attributionLabel(o) }}
+                                    </p>
                                 </div>
-                                <span v-else class="text-xs" style="color: var(--text-muted)">Trực tiếp</span>
+                                <div v-else>
+                                    <span class="text-xs" style="color: var(--text-muted)">{{ sourceLinkLabel(o) }}</span>
+                                    <p v-if="attributionLabel(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
+                                        {{ attributionLabel(o) }}
+                                    </p>
+                                </div>
                             </td>
                             
                             <td class="px-4 py-3">
@@ -174,12 +182,18 @@
                             </td>
                             
                             <td class="px-4 py-3 text-center">
-                                <span v-if="o.paid_at" class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center gap-1 w-max mx-auto">
+                                <span v-if="o.payout_status === 'paid' || o.paid_at" class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-500/10 text-green-500 flex items-center justify-center gap-1 w-max mx-auto">
                                     <Check :size="12" /> Đã chi trả
+                                </span>
+                                <span v-else-if="o.payout_status === 'processing'" class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center gap-1 w-max mx-auto">
+                                    Đang đối soát
                                 </span>
                                 <span v-else class="text-xs font-medium px-2 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-muted)">
                                     Chưa thanh toán
                                 </span>
+                                <p v-if="o.paid_at" class="text-[11px] mt-1" style="color: var(--text-muted)">
+                                    {{ formatDateTimeSeconds(o.paid_at) }}
+                                </p>
                             </td>
 
                             <td class="px-4 py-3 text-right text-xs">
@@ -465,6 +479,31 @@ function formatDateTimeSeconds(ds) {
     } catch (e) {
         return ds;
     }
+}
+
+function attributionSource(order) {
+    return order?.source_meta?.attribution_source || null;
+}
+
+function attributionLabel(order) {
+    const source = attributionSource(order);
+    const labels = {
+        sub_id: 'Gắn theo Sub ID',
+        product_key: 'Gắn theo sản phẩm',
+        missing_sub_id: 'Thiếu Sub ID từ Shopee',
+        ambiguous_product: 'Nhiều link trùng sản phẩm',
+        unmatched_product: 'Chưa map được link sản phẩm',
+    };
+
+    return labels[source] || null;
+}
+
+function sourceLinkLabel(order) {
+    if (attributionSource(order) === 'ambiguous_product') {
+        return 'Không xác định';
+    }
+
+    return 'Trực tiếp';
 }
 
 function statusLabel(s) {

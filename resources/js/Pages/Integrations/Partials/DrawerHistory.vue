@@ -42,22 +42,26 @@
                         <div class="grid grid-cols-3 gap-4">
                             <!-- Fetched -->
                             <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Sản phẩm lấy về</span>
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi API lấy về</span>
                                 <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_fetched ?? '-' }}</span>
                             </div>
                             <!-- Inserted -->
                             <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Thêm mới/Cập nhật</span>
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Đã thêm/cập nhật</span>
                                 <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_upserted ?? '-' }}</span>
                             </div>
-                            <!-- Error count or Duration -->
+                            <!-- Failed -->
                             <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Trạng thái lỗi</span>
-                                <span class="text-xl font-bold" :class="String(activeRun.status).startsWith('failed') ? 'text-red-600' : 'text-zinc-900 dark:text-zinc-100'">
-                                    {{ String(activeRun.status).startsWith('failed') ? 'Có lỗi' : 'Không có' }}
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi bỏ qua/lỗi</span>
+                                <span class="text-xl font-bold" :class="Number(activeRun.records_failed || 0) > 0 ? 'text-red-600' : 'text-zinc-900 dark:text-zinc-100'">
+                                    {{ activeRun.records_failed ?? 0 }}
                                 </span>
                             </div>
                         </div>
+
+                        <p class="text-[12px] text-zinc-500 dark:text-zinc-400">
+                            Chỉ số trên là tổng bản ghi đồng bộ (Orders + Clicks hoặc Finance records), không phải số sản phẩm trong Tracking Link.
+                        </p>
 
                         <!-- Details List -->
                         <div class="flex flex-col gap-3">
@@ -69,7 +73,7 @@
                                     <span class="text-zinc-500 dark:text-zinc-400">Nền tảng:</span>
                                     <div class="flex items-center gap-1.5 font-medium text-zinc-900 dark:text-zinc-100">
                                         <i class="ph ph-plugs-connected text-indigo-500"></i>
-                                        <span class="capitalize">{{ connectionInfo?.name || connectionInfo?.platform || 'Unknown' }}</span>
+                                        <span>{{ connectionInfo?.label || connectionInfo?.name || connectionInfo?.platform || 'Unknown' }}</span>
                                     </div>
                                 </div>
                                 <!-- Row: Sync ID -->
@@ -88,7 +92,7 @@
                                     <span class="text-zinc-500 dark:text-zinc-400 font-medium">Output Log</span>
                                     <div class="bg-zinc-900 rounded-md p-3 max-h-[250px] overflow-y-auto">
                                         <pre class="text-[12px] font-mono whitespace-pre-wrap rounded leading-relaxed" 
-                                             :class="String(activeRun.status).startsWith('failed') ? 'text-red-400' : 'text-emerald-400'"
+                                             :class="logTextClass(activeRun)"
                                         >{{ activeRun.error_message || "Execution completed normally. No system errors recorded." }}</pre>
                                     </div>
                                 </div>
@@ -167,5 +171,11 @@ function statusIcon(status) {
     if (status === 'completed') return 'ph-check-circle-fill text-emerald-600 dark:text-emerald-500';
     if (String(status).startsWith('failed')) return 'ph-warning-circle-fill text-red-600 dark:text-red-500';
     return 'ph-spinner-gap animate-spin text-amber-600 dark:text-amber-500';
+}
+
+function logTextClass(run) {
+    if (String(run?.status).startsWith('failed')) return 'text-red-400';
+    if (run?.error_message) return 'text-amber-300';
+    return 'text-emerald-400';
 }
 </script>

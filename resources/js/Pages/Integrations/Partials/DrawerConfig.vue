@@ -33,6 +33,13 @@
                     <div class="flex-1 overflow-y-auto p-6">
                         <form id="configForm" @submit.prevent="submit" class="flex flex-col gap-6">
                             
+                            <!-- Label / Account Name -->
+                            <div class="flex flex-col gap-2">
+                                <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Tên gợi nhớ (Label)</label>
+                                <input type="text" v-model="form.label" placeholder="VD: Shop Mỹ Phẩm, Account 1..." class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
+                                <span v-if="form.errors.label" class="text-xs text-red-500">{{ form.errors.label }}</span>
+                            </div>
+
                             <!-- Platform Select -->
                             <div class="flex flex-col gap-2">
                                 <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chọn Nền Tảng <span class="text-red-500">*</span></label>
@@ -57,9 +64,10 @@
                                         :class="form.method === option.value
                                             ? 'bg-white dark:bg-zinc-900 shadow-sm border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100'
                                             : 'text-zinc-500 hover:text-zinc-700 border-transparent'"
-                                        class="border flex-1 h-8 rounded-md text-[13px] font-medium transition-colors"
+                                        class="border flex-1 h-8 rounded-md text-[13px] font-medium transition-colors flex items-center justify-center gap-1.5"
                                     >
                                         {{ option.label }}
+                                        <i v-if="editConnection && isConfigured(option.value)" class="ph ph-check-circle text-emerald-500 text-[10px]"></i>
                                     </button>
                                 </div>
                             </div>
@@ -67,8 +75,11 @@
                             <!-- OPEN API Flow -->
                             <template v-if="form.method === 'open_api'">
                                 <div class="flex flex-col gap-2">
-                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">App ID <span class="text-zinc-900 dark:text-white">*</span></label>
-                                    <input type="text" v-model="form.app_id" :required="form.method === 'open_api'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
+                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                                        App ID <span v-if="!editConnection" class="text-zinc-900 dark:text-white">*</span>
+                                        <span v-else class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
+                                    </label>
+                                    <input type="text" v-model="form.app_id" :required="!editConnection && form.method === 'open_api'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
                                     <span v-if="form.errors.app_id" class="text-xs text-red-500">{{ form.errors.app_id }}</span>
                                 </div>
                                 <div class="flex flex-col gap-2">
@@ -114,13 +125,25 @@
                                 </div>
 
                                 <div v-if="cookieInputMode === 'curl'" class="flex flex-col gap-2">
-                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Lệnh cURL (Copy as cURL - bash)</label>
-                                    <textarea v-model="form.curl_command" placeholder="curl 'https://affiliate.shopee.vn/api/v3/...' -H 'Cookie: SPC_EC=...'" rows="4" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
+                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                                        Lệnh cURL (Copy as cURL - bash)
+                                        <span v-if="editConnection" class="text-xs opacity-70 font-normal ml-1">(Chỉ cần dán nếu muốn đổi Cookie)</span>
+                                    </label>
+                                    <textarea v-model="form.curl_command" placeholder="Có thể dán nhiều block cURL. Khuyến nghị: billing + payout_record + service_fee_invoice." rows="6" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
+                                    <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+                                        Để đồng bộ Finance đầy đủ, hãy dán cURL từ cả 3 trang:
+                                        <code>/payment/billing</code>,
+                                        <code>/payment/payout_record</code>,
+                                        <code>/payment/service_fee_invoice</code>.
+                                    </p>
                                     <span v-if="form.errors.curl_command" class="text-xs text-red-500">{{ form.errors.curl_command }}</span>
                                 </div>
 
                                 <div v-if="cookieInputMode === 'manual'" class="flex flex-col gap-2">
-                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Cookie String</label>
+                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                                        Cookie String
+                                        <span v-if="editConnection" class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
+                                    </label>
                                     <textarea v-model="form.cookie_header" placeholder="SPC_EC=...; SPC_F=...;" rows="4" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
                                     <span v-if="form.errors.cookie_header" class="text-xs text-red-500">{{ form.errors.cookie_header }}</span>
                                 </div>
@@ -216,8 +239,17 @@ const methodOptions = computed(() => {
         }));
 });
 
+function isConfigured(method) {
+    if (!props.editConnection) return false;
+    if (method === 'open_api') return !!props.editConnection.app_id;
+    if (method === 'cookie') return !!props.editConnection.has_cookie;
+    if (method === 'portal_export') return true;
+    return false;
+}
+
 const form = useForm({
     platform: '',
+    label: '',
     method: 'open_api',
     app_id: '',
     app_secret: '',
@@ -238,6 +270,7 @@ watch(() => props.isOpen, (val) => {
         
         if (props.editConnection) {
             form.platform = props.editConnection.platform;
+            form.label = props.editConnection.label || '';
             const existingMethod = props.editConnection.method || defaultMethod;
             form.method = availableMethods.value.includes(existingMethod) ? existingMethod : defaultMethod;
             form.app_id = props.editConnection.app_id || '';

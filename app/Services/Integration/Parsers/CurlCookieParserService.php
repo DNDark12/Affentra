@@ -10,6 +10,66 @@ use RuntimeException;
 class CurlCookieParserService
 {
     /**
+     * Parse one or many cURL commands from a textarea input.
+     *
+     * @return list<array{
+     *   cookie: string,
+     *   user_agent: string|null,
+     *   af_ac_enc_dat: string|null,
+     *   af_ac_enc_sz_token: string|null,
+     *   affiliate_program_type: string|null,
+     *   csrf_token: string|null,
+     *   x_sap_ri: string|null,
+     *   x_sap_sec: string|null,
+     *   x_sz_sdk_version: string|null,
+     *   request_url: string|null,
+     *   referer: string|null,
+     *   endpoint_key: string|null
+     * }>
+     */
+    public function parseMany(string $input): array
+    {
+        $trimmed = trim($input);
+        if ($trimmed === '') {
+            return [];
+        }
+
+        $blocks = [];
+        $current = [];
+
+        foreach (preg_split('/\R/u', $trimmed) ?: [] as $line) {
+            $lineTrimmed = ltrim($line);
+            if (str_starts_with($lineTrimmed, 'curl ')) {
+                if ($current !== []) {
+                    $blocks[] = implode("\n", $current);
+                    $current = [];
+                }
+            }
+
+            $current[] = $line;
+        }
+
+        if ($current !== []) {
+            $blocks[] = implode("\n", $current);
+        }
+
+        if ($blocks === []) {
+            $blocks = [$trimmed];
+        }
+
+        $parsed = [];
+        foreach ($blocks as $block) {
+            if (trim($block) === '') {
+                continue;
+            }
+
+            $parsed[] = $this->parse($block);
+        }
+
+        return $parsed;
+    }
+
+    /**
      * Parse a cURL command string to extract Cookie and User-Agent headers.
      *
      * @return array{
@@ -21,7 +81,10 @@ class CurlCookieParserService
      *   csrf_token: string|null,
      *   x_sap_ri: string|null,
      *   x_sap_sec: string|null,
-     *   x_sz_sdk_version: string|null
+     *   x_sz_sdk_version: string|null,
+     *   request_url: string|null,
+     *   referer: string|null,
+     *   endpoint_key: string|null
      * }
      */
     public function parse(string $curlCommand): array
@@ -49,6 +112,9 @@ class CurlCookieParserService
         $xSapRi = $this->extractHeader('x-sap-ri', $curlCommand);
         $xSapSec = $this->extractHeader('x-sap-sec', $curlCommand);
         $xSzSdkVersion = $this->extractHeader('x-sz-sdk-version', $curlCommand);
+        $referer = $this->extractHeader('referer', $curlCommand) ?? $this->extractHeader('Referer', $curlCommand);
+        $requestUrl = $this->extractRequestUrl($curlCommand);
+        $endpointKey = $this->inferEndpointKey($requestUrl, $referer);
 
         if (empty($cookie)) {
             throw new RuntimeException('Failed to extract Cookie from cURL command.');
@@ -69,7 +135,53 @@ class CurlCookieParserService
             'x_sap_ri' => $xSapRi,
             'x_sap_sec' => $xSapSec,
             'x_sz_sdk_version' => $xSzSdkVersion,
+            'request_url' => $requestUrl,
+            'referer' => $referer,
+            'endpoint_key' => $endpointKey,
         ];
+    }
+
+    private function extractRequestUrl(string $command): ?string
+    {
+        if (preg_match('/\bcurl\b\s+[\'"]?(https?:\/\/affiliate\.shopee\.vn[^\s\'"]*)[\'"]?/i', $command, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
+
+    private function inferEndpointKey(?string $requestUrl, ?string $referer): ?string
+    {
+        $haystack = mb_strtolower(trim(($requestUrl ?? '') . ' ' . ($referer ?? '')));
+        if ($haystack === '') {
+            return null;
+        }
+
+        if (str_contains($haystack, '/payment/billing') || str_contains($haystack, 'billing_list')) {
+            return 'billing';
+        }
+
+        if (str_contains($haystack, '/payment/payout_record') || str_contains($haystack, 'q=getpayoutlist')) {
+            return 'payout_record';
+        }
+
+        if (str_contains($haystack, '/payment/service_fee_invoice') || str_contains($haystack, 'getpaymentsummarybillfeeinvoicelist')) {
+            return 'service_fee_invoice';
+        }
+
+        if (str_contains($haystack, '/report/conversion_report') || str_contains($haystack, '/api/v3/report/list')) {
+            return 'conversion_report';
+        }
+
+        if (str_contains($haystack, '/report/click_report') || str_contains($haystack, '/api/v1/click_report/list')) {
+            return 'click_report';
+        }
+
+        if (str_contains($haystack, '/campaign/campaign_list') || str_contains($haystack, 'affiliatecampaigndetaillist')) {
+            return 'campaign_list';
+        }
+
+        return null;
     }
 
     private function extractCookieArgument(string $command): ?string

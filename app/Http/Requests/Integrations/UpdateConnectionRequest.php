@@ -18,18 +18,11 @@ class UpdateConnectionRequest extends FormRequest
     {
         return [
             'method'     => ['sometimes', 'required', 'string', Rule::in($this->allowedMethods())],
-            'app_id'     => ['sometimes', 'required_if:method,open_api', 'nullable', 'string', 'max:255'],
+            'label'      => ['nullable', 'string', 'max:100'],
+            'app_id'     => ['sometimes', 'nullable', 'string', 'max:255'],
             'app_secret' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'cookie_header' => [
-                'nullable',
-                'string',
-                Rule::requiredIf(fn (): bool => $this->input('method') === 'cookie' && blank($this->input('curl_command'))),
-            ],
-            'curl_command' => [
-                'nullable',
-                'string',
-                Rule::requiredIf(fn (): bool => $this->input('method') === 'cookie' && blank($this->input('cookie_header'))),
-            ],
+            'cookie_header' => ['nullable', 'string'],
+            'curl_command' => ['nullable', 'string'],
             'consent_acknowledged' => ['nullable', 'boolean', 'accepted_if:method,cookie'],
             'sync_mode'  => ['sometimes', 'required', 'string', Rule::in(['manual', 'scheduled'])],
             'status'     => ['sometimes', 'required', 'string', Rule::in(['active', 'inactive', 'error', 'disabled', 'expired'])],

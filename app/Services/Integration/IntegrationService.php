@@ -53,9 +53,11 @@ class IntegrationService
 
                 return [
                     'id'               => $connection->id,
+                    'label'            => $connection->label,
                     'platform'         => $connection->platform,
                     'method'           => $connection->method,
                     'app_id'           => $connection->app_id,
+                    'has_open_api'     => !empty($connection->app_id) && !empty($connection->app_secret),
                     'has_cookie'       => !empty($connection->cookie_header),
                     'cookie_source'    => $connection->cookie_source,
                     'status'           => $connection->status,
@@ -77,6 +79,7 @@ class IntegrationService
                             'type' => $run->type,
                             'records_fetched' => $run->records_fetched,
                             'records_upserted' => $run->records_upserted,
+                            'records_failed' => $run->records_failed,
                             // Backward-compatible alias for older UI keys.
                             'records_inserted' => $run->records_upserted,
                             'error_message' => $run->error_message,
@@ -99,6 +102,7 @@ class IntegrationService
             ->filter(static fn (PlatformConnection $connection): bool => IntegrationFactory::supports($connection->platform))
             ->map(static fn (PlatformConnection $connection): array => [
                 'id'           => $connection->id,
+                'label'        => $connection->label,
                 'platform'     => $connection->platform,
                 'method'       => $connection->method,
                 'app_id'       => $connection->app_id,
@@ -125,6 +129,7 @@ class IntegrationService
 
         $payload = [
             'platform'   => $data['platform'],
+            'label'      => $data['label'] ?? null,
             'method'     => $method,
             'status'     => 'inactive',
             'sync_mode'  => 'manual',
@@ -137,19 +142,23 @@ class IntegrationService
             $payload['consent_acknowledged_at'] = now();
             if (!empty($data['curl_command'])) {
                 $parser = new \App\Services\Integration\Parsers\CurlCookieParserService();
-                $parsed = $parser->parse($data['curl_command']);
+                $parsedBlocks = $parser->parseMany((string) $data['curl_command']);
+                if ($parsedBlocks === []) {
+                    throw new RuntimeException('Không parse được cURL command.');
+                }
 
-                $payload['cookie_header'] = json_encode([
-                    'cookie' => $parsed['cookie'],
-                    'af_ac_enc_dat' => $parsed['af_ac_enc_dat'] ?? '',
-                    'af_ac_enc_sz_token' => $parsed['af_ac_enc_sz_token'] ?? '',
-                    'affiliate_program_type' => $parsed['affiliate_program_type'] ?? '1',
-                    'csrf_token' => $parsed['csrf_token'] ?? '',
-                    'x_sap_ri' => $parsed['x_sap_ri'] ?? '',
-                    'x_sap_sec' => $parsed['x_sap_sec'] ?? '',
-                    'x_sz_sdk_version' => $parsed['x_sz_sdk_version'] ?? '',
-                ]);
-                $payload['cookie_user_agent'] = $parsed['user_agent'];
+                $mergedCookieHeader = null;
+                $resolvedUserAgent = null;
+                foreach ($parsedBlocks as $parsed) {
+                    $mergedCookieHeader = $this->mergeCookieCredentialsPayload(
+                        parsed: $parsed,
+                        existingCookieHeader: $mergedCookieHeader,
+                    );
+                    $resolvedUserAgent = $parsed['user_agent'] ?? $resolvedUserAgent;
+                }
+
+                $payload['cookie_header'] = $mergedCookieHeader;
+                $payload['cookie_user_agent'] = $resolvedUserAgent;
                 $payload['cookie_source'] = 'curl';
             } elseif (!empty($data['cookie_header'])) {
                 $payload['cookie_header'] = $data['cookie_header'];
@@ -184,56 +193,37 @@ class IntegrationService
 
         if (array_key_exists('method', $data) && $targetMethod !== $connection->method) {
             $payload['method'] = $targetMethod;
-
-            if ($targetMethod === 'open_api') {
-                $payload['cookie_header'] = null;
-                $payload['cookie_user_agent'] = null;
-                $payload['cookie_source'] = null;
-                $payload['cookie_validated_at'] = null;
-            }
-
-            if ($targetMethod === 'cookie') {
-                $payload['app_id'] = null;
-                $payload['app_secret'] = null;
-                $payload['cookie_validated_at'] = null;
-            }
-
-            if ($targetMethod === 'portal_export') {
-                $payload['app_id'] = null;
-                $payload['app_secret'] = null;
-                $payload['cookie_header'] = null;
-                $payload['cookie_user_agent'] = null;
-                $payload['cookie_source'] = null;
-                $payload['cookie_validated_at'] = null;
-            }
         }
 
-        if ($targetMethod === 'open_api' && array_key_exists('app_id', $data)) {
+        if ($targetMethod === 'open_api' && !empty($data['app_id'])) {
             $payload['app_id'] = $data['app_id'];
         }
         
-        if ($targetMethod === 'open_api' && array_key_exists('app_secret', $data) && !empty($data['app_secret'])) {
+        if ($targetMethod === 'open_api' && !empty($data['app_secret'])) {
             $payload['app_secret'] = $data['app_secret'];
         }
 
         if ($targetMethod === 'cookie') {
-            if (array_key_exists('cookie_header', $data) || array_key_exists('curl_command', $data)) {
+            if (!empty($data['cookie_header']) || !empty($data['curl_command'])) {
                 if (!empty($data['curl_command'])) {
                     $parser = new \App\Services\Integration\Parsers\CurlCookieParserService();
-                    $parsed = $parser->parse($data['curl_command']);
-                    
-                    $payload['cookie_header'] = json_encode([
-                        'cookie' => $parsed['cookie'],
-                        'af_ac_enc_dat' => $parsed['af_ac_enc_dat'] ?? '',
-                        'af_ac_enc_sz_token' => $parsed['af_ac_enc_sz_token'] ?? '',
-                        'affiliate_program_type' => $parsed['affiliate_program_type'] ?? '1',
-                        'csrf_token' => $parsed['csrf_token'] ?? '',
-                        'x_sap_ri' => $parsed['x_sap_ri'] ?? '',
-                        'x_sap_sec' => $parsed['x_sap_sec'] ?? '',
-                        'x_sz_sdk_version' => $parsed['x_sz_sdk_version'] ?? '',
-                    ]);
-                    
-                    $payload['cookie_user_agent'] = $parsed['user_agent'];
+                    $parsedBlocks = $parser->parseMany((string) $data['curl_command']);
+                    if ($parsedBlocks === []) {
+                        throw new RuntimeException('Không parse được cURL command.');
+                    }
+
+                    $mergedCookieHeader = $connection->cookie_header;
+                    $resolvedUserAgent = $connection->cookie_user_agent;
+                    foreach ($parsedBlocks as $parsed) {
+                        $mergedCookieHeader = $this->mergeCookieCredentialsPayload(
+                            parsed: $parsed,
+                            existingCookieHeader: $mergedCookieHeader,
+                        );
+                        $resolvedUserAgent = $parsed['user_agent'] ?? $resolvedUserAgent;
+                    }
+
+                    $payload['cookie_header'] = $mergedCookieHeader;
+                    $payload['cookie_user_agent'] = $resolvedUserAgent;
                     $payload['cookie_source'] = 'curl';
                 } elseif (!empty($data['cookie_header'])) {
                     $payload['cookie_header'] = $data['cookie_header'];
@@ -258,6 +248,10 @@ class IntegrationService
             if ($nextConsentAt === null) {
                 throw new RuntimeException('Consent acknowledgement is required for Cookie method.');
             }
+        }
+
+        if (array_key_exists('label', $data)) {
+            $payload['label'] = $data['label'];
         }
 
         if (array_key_exists('sync_mode', $data)) {
@@ -352,6 +346,64 @@ class IntegrationService
         $adapter = IntegrationFactory::make($connection->platform);
 
         return $adapter->testConnection($connection);
+    }
+
+    /**
+     * @param  array<string, mixed>  $parsed
+     */
+    private function mergeCookieCredentialsPayload(array $parsed, ?string $existingCookieHeader): string
+    {
+        $base = [
+            'cookie' => (string) ($parsed['cookie'] ?? ''),
+            'af_ac_enc_dat' => (string) ($parsed['af_ac_enc_dat'] ?? ''),
+            'af_ac_enc_sz_token' => (string) ($parsed['af_ac_enc_sz_token'] ?? ''),
+            'affiliate_program_type' => (string) ($parsed['affiliate_program_type'] ?? '1'),
+            'csrf_token' => (string) ($parsed['csrf_token'] ?? ''),
+            'x_sap_ri' => (string) ($parsed['x_sap_ri'] ?? ''),
+            'x_sap_sec' => (string) ($parsed['x_sap_sec'] ?? ''),
+            'x_sz_sdk_version' => (string) ($parsed['x_sz_sdk_version'] ?? ''),
+            'profiles' => [],
+        ];
+
+        if ($existingCookieHeader !== null && str_starts_with(trim($existingCookieHeader), '{')) {
+            $existing = json_decode($existingCookieHeader, true);
+            if (is_array($existing)) {
+                // Preserve existing endpoint profiles and fallback values where new cURL omitted headers.
+                $base['profiles'] = is_array($existing['profiles'] ?? null) ? $existing['profiles'] : [];
+
+                foreach ([
+                    'cookie',
+                    'af_ac_enc_dat',
+                    'af_ac_enc_sz_token',
+                    'affiliate_program_type',
+                    'csrf_token',
+                    'x_sap_ri',
+                    'x_sap_sec',
+                    'x_sz_sdk_version',
+                ] as $key) {
+                    if ($base[$key] === '' && isset($existing[$key])) {
+                        $base[$key] = (string) $existing[$key];
+                    }
+                }
+            }
+        }
+
+        $endpointKey = (string) ($parsed['endpoint_key'] ?? '');
+        if ($endpointKey !== '') {
+            $base['profiles'][$endpointKey] = [
+                'af_ac_enc_dat' => (string) ($parsed['af_ac_enc_dat'] ?? ''),
+                'af_ac_enc_sz_token' => (string) ($parsed['af_ac_enc_sz_token'] ?? ''),
+                'affiliate_program_type' => (string) ($parsed['affiliate_program_type'] ?? '1'),
+                'csrf_token' => (string) ($parsed['csrf_token'] ?? ''),
+                'x_sap_ri' => (string) ($parsed['x_sap_ri'] ?? ''),
+                'x_sap_sec' => (string) ($parsed['x_sap_sec'] ?? ''),
+                'x_sz_sdk_version' => (string) ($parsed['x_sz_sdk_version'] ?? ''),
+                'referer' => (string) ($parsed['referer'] ?? ''),
+                'request_url' => (string) ($parsed['request_url'] ?? ''),
+            ];
+        }
+
+        return json_encode($base, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: json_encode($base);
     }
 
     /**

@@ -20,6 +20,7 @@ class StoreConnectionRequest extends FormRequest
         return [
             'platform'   => ['required', 'string', Rule::in(IntegrationFactory::supportedPlatforms())],
             'method'     => ['required', 'string', Rule::in($this->allowedMethods())],
+            'label'      => ['nullable', 'string', 'max:100'],
             
             // Open API Rules
             'app_id'     => ['required_if:method,open_api', 'nullable', 'string', 'max:255'],

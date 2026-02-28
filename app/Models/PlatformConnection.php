@@ -21,6 +21,7 @@ class PlatformConnection extends Model
      */
     protected $fillable = [
         'user_id',
+        'label',
         'platform',
         'method',
         'app_id',

@@ -26,7 +26,9 @@ class ShopeeIntegration extends BaseIntegration
     private const COOKIE_DASHBOARD_REFERER = 'https://affiliate.shopee.vn/dashboard';
     private const COOKIE_CONVERSION_REFERER = 'https://affiliate.shopee.vn/report/conversion_report';
     private const GQL_CAMPAIGN_REFERER = 'https://affiliate.shopee.vn/campaign/campaign_list';
-    private const GQL_PAYMENT_REFERER = 'https://affiliate.shopee.vn/payment/payment_history';
+    private const COOKIE_BILLING_REFERER = 'https://affiliate.shopee.vn/payment/billing';
+    private const GQL_PAYMENT_PAYOUT_REFERER = 'https://affiliate.shopee.vn/payment/payout_record';
+    private const GQL_PAYMENT_SERVICE_FEE_REFERER = 'https://affiliate.shopee.vn/payment/service_fee_invoice';
 
     /**
      * Shopee Affiliate API is GraphQL-based.
@@ -150,6 +152,9 @@ class ShopeeIntegration extends BaseIntegration
     public function testConnection(PlatformConnection $connection): bool
     {
         if ($connection->method === 'portal_export') {
+            if ($connection->status !== 'active') {
+                $connection->update(['status' => 'active']);
+            }
             return true;
         }
 
@@ -390,34 +395,58 @@ class ShopeeIntegration extends BaseIntegration
                 throw new RuntimeException('Missing cookie credentials.');
             }
 
+            $profile = [];
+            $profileKey = $this->inferCookieProfileKeyByReferer($referer);
+            if (
+                $profileKey !== null
+                && is_array($parsed['profiles'] ?? null)
+                && is_array($parsed['profiles'][$profileKey] ?? null)
+            ) {
+                $profile = $parsed['profiles'][$profileKey];
+            }
+
+            $resolved = [
+                'affiliate_program_type' => (string) (
+                    $profile['affiliate_program_type']
+                    ?? $parsed['affiliate_program_type']
+                    ?? '1'
+                ),
+                'af_ac_enc_dat' => (string) ($profile['af_ac_enc_dat'] ?? $parsed['af_ac_enc_dat'] ?? ''),
+                'af_ac_enc_sz_token' => (string) ($profile['af_ac_enc_sz_token'] ?? $parsed['af_ac_enc_sz_token'] ?? ''),
+                'csrf_token' => (string) ($profile['csrf_token'] ?? $parsed['csrf_token'] ?? ''),
+                'x_sap_ri' => (string) ($profile['x_sap_ri'] ?? $parsed['x_sap_ri'] ?? ''),
+                'x_sap_sec' => (string) ($profile['x_sap_sec'] ?? $parsed['x_sap_sec'] ?? ''),
+                'x_sz_sdk_version' => (string) ($profile['x_sz_sdk_version'] ?? $parsed['x_sz_sdk_version'] ?? ''),
+            ];
+
             $headers['Cookie'] = (string) $parsed['cookie'];
 
-            if (! empty($parsed['af_ac_enc_dat'])) {
-                $headers['af-ac-enc-dat'] = (string) $parsed['af_ac_enc_dat'];
+            if ($resolved['affiliate_program_type'] !== '') {
+                $headers['affiliate-program-type'] = $resolved['affiliate_program_type'];
             }
 
-            if (! empty($parsed['af_ac_enc_sz_token'])) {
-                $headers['af-ac-enc-sz-token'] = (string) $parsed['af_ac_enc_sz_token'];
+            if ($resolved['af_ac_enc_dat'] !== '') {
+                $headers['af-ac-enc-dat'] = $resolved['af_ac_enc_dat'];
             }
 
-            if (! empty($parsed['affiliate_program_type'])) {
-                $headers['affiliate-program-type'] = (string) $parsed['affiliate_program_type'];
+            if ($resolved['af_ac_enc_sz_token'] !== '') {
+                $headers['af-ac-enc-sz-token'] = $resolved['af_ac_enc_sz_token'];
             }
 
-            if (! empty($parsed['csrf_token'])) {
-                $headers['csrf-token'] = (string) $parsed['csrf_token'];
+            if ($resolved['csrf_token'] !== '') {
+                $headers['csrf-token'] = $resolved['csrf_token'];
             }
 
-            if (! empty($parsed['x_sap_ri'])) {
-                $headers['x-sap-ri'] = (string) $parsed['x_sap_ri'];
+            if ($resolved['x_sap_ri'] !== '') {
+                $headers['x-sap-ri'] = $resolved['x_sap_ri'];
             }
 
-            if (! empty($parsed['x_sap_sec'])) {
-                $headers['x-sap-sec'] = (string) $parsed['x_sap_sec'];
+            if ($resolved['x_sap_sec'] !== '') {
+                $headers['x-sap-sec'] = $resolved['x_sap_sec'];
             }
 
-            if (! empty($parsed['x_sz_sdk_version'])) {
-                $headers['x-sz-sdk-version'] = (string) $parsed['x_sz_sdk_version'];
+            if ($resolved['x_sz_sdk_version'] !== '') {
+                $headers['x-sz-sdk-version'] = $resolved['x_sz_sdk_version'];
             }
 
             return $headers;
@@ -426,6 +455,71 @@ class ShopeeIntegration extends BaseIntegration
         $headers['Cookie'] = $rawCookie;
 
         return $headers;
+    }
+
+    private function inferCookieProfileKeyByReferer(string $referer): ?string
+    {
+        $normalized = mb_strtolower($referer);
+
+        if (str_contains($normalized, '/payment/billing')) {
+            return 'billing';
+        }
+
+        if (str_contains($normalized, '/payment/payout_record')) {
+            return 'payout_record';
+        }
+
+        if (str_contains($normalized, '/payment/service_fee_invoice')) {
+            return 'service_fee_invoice';
+        }
+
+        if (str_contains($normalized, '/report/conversion_report')) {
+            return 'conversion_report';
+        }
+
+        if (str_contains($normalized, '/report/click_report')) {
+            return 'click_report';
+        }
+
+        if (str_contains($normalized, '/campaign/campaign_list')) {
+            return 'campaign_list';
+        }
+
+        return null;
+    }
+
+    /**
+     * Ensure cookie credentials contain endpoint-specific profiles required for finance sync.
+     */
+    public function assertFinanceCookieProfilesReady(PlatformConnection $connection): void
+    {
+        if ($connection->method !== 'cookie') {
+            return;
+        }
+
+        $rawCookie = trim((string) $connection->cookie_header);
+        if ($rawCookie === '' || ! str_starts_with($rawCookie, '{')) {
+            throw new RuntimeException(
+                'Cookie credentials chưa đủ cho Finance. Vui lòng cập nhật bằng cURL từ 3 trang: billing, payout_record, service_fee_invoice.'
+            );
+        }
+
+        $decoded = json_decode($rawCookie, true);
+        if (! is_array($decoded)) {
+            throw new RuntimeException(
+                'Cookie credentials không hợp lệ. Vui lòng cập nhật bằng cURL từ 3 trang Finance của Shopee.'
+            );
+        }
+
+        $profiles = is_array($decoded['profiles'] ?? null) ? $decoded['profiles'] : [];
+        $required = ['billing', 'payout_record', 'service_fee_invoice'];
+        $missing = array_values(array_filter($required, static fn (string $key): bool => ! is_array($profiles[$key] ?? null)));
+
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Thiếu cURL profile cho Finance: '.implode(', ', $missing).'. Vui lòng mở đúng 3 trang billing/payout_record/service_fee_invoice và cập nhật lại kết nối.'
+            );
+        }
     }
 
     /**
@@ -1698,21 +1792,84 @@ GRAPHQL;
             return [];
         }
 
-        $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_REFERER);
-        $response = Http::withHeaders($headers)
-            ->timeout(30)
-            ->get(self::COOKIE_BILLING_LIST_ENDPOINT, [
-                'order_completed_start_time' => $since->timestamp,
-                'order_completed_end_time' => $until->timestamp,
-                'settlement_cycle' => 4, // Monthly/Standard cycle provided by user
-            ]);
+        $rows = [];
+        $page = 1;
+        $pageSize = 100;
+        $maxPages = 50;
 
-        if (! $response->successful()) {
-            throw new RuntimeException("Shopee billing list API error: HTTP {$response->status()}");
+        while ($page <= $maxPages) {
+            $headers = $this->buildCookieHeaders($connection, self::COOKIE_BILLING_REFERER);
+            $response = Http::withHeaders($headers)
+                ->timeout(30)
+                ->get(self::COOKIE_BILLING_LIST_ENDPOINT, [
+                    'order_completed_start_time' => $since->timestamp,
+                    'order_completed_end_time' => $until->timestamp,
+                    'settlement_cycle' => 4,
+                    'page_num' => $page,
+                    'page_size' => $pageSize,
+                ]);
+
+            if (in_array($response->status(), [401, 403], true)) {
+                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
+                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+            }
+
+            if (! $response->successful()) {
+                throw new RuntimeException("Shopee billing list API error: HTTP {$response->status()}");
+            }
+
+            $payload = $response->json();
+            if (! is_array($payload)) {
+                throw new RuntimeException('Shopee billing list API returned invalid payload.');
+            }
+
+            if (array_key_exists('code', $payload) && (int) $payload['code'] !== 0) {
+                $code = (int) $payload['code'];
+                $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
+
+                if (in_array($code, [401, 403], true)) {
+                    $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
+                    throw new RuntimeException("Cookie authentication failed ({$code}).");
+                }
+
+                throw new RuntimeException("Shopee billing list API returned code {$code}: {$message}");
+            }
+
+            $list = $this->firstValueByPaths($payload, [
+                'data.billing_list',
+                'data.list',
+                'data.rows',
+                'data.items',
+                'billing_list',
+                'list',
+            ]);
+            if (! is_array($list) || ! array_is_list($list)) {
+                $list = [];
+            }
+
+            foreach ($list as $row) {
+                if (is_array($row)) {
+                    $rows[] = $row;
+                }
+            }
+
+            $totalCount = (int) ($this->firstValueByPaths($payload, [
+                'data.pagination.total_count',
+                'data.pagination.totalCount',
+                'data.total_count',
+                'data.total',
+                'total_count',
+                'total',
+            ]) ?? 0);
+
+            if (count($list) < $pageSize || ($totalCount > 0 && ($page * $pageSize) >= $totalCount)) {
+                break;
+            }
+
+            $page++;
         }
 
-        $payload = $response->json();
-        return $payload['data']['list'] ?? [];
+        return $rows;
     }
 
     public function fetchPayouts(PlatformConnection $connection, Carbon $since, Carbon $until): array
@@ -1722,47 +1879,140 @@ GRAPHQL;
         }
 
         $query = <<<'GRAPHQL'
-        query getPayoutList($page_num: Int, $page_size: Int, $payout_time_s: Long, $payout_time_e: Long) {
-            getPayoutList(
-                page_num: $page_num,
-                page_size: $page_size,
-                payout_time_s: $payout_time_s,
-                payout_time_e: $payout_time_e
-            ) {
-                list {
-                    payout_id
-                    payout_time
-                    amount
-                    currency
-                    bank_name
-                    bank_account_number
-                    status
+        query getPaymentPayoutBillingList($pageSize: Int, $pageNum: Int) {
+            getPaymentPayoutBillingList(pageSize: $pageSize, pageNum: $pageNum) {
+                payoutList {
+                    paymentPayout {
+                        payoutCreatedTime
+                        payoutId
+                        totalPaymentAmount
+                        payoutPaymentStatus
+                        paidFailedReasonType
+                        payArrivalTime
+                        transferredToOffline
+                        cancelReason
+                        cancelType
+                        closeReason
+                    }
+                    payoutInvoice {
+                        invoiceStatus
+                        dismissReason
+                    }
+                    payoutExternalInfo {
+                        mergeInvoiceStatus
+                        serviceFeeInvoiceStatus
+                    }
                 }
-                total_count
+                payoutTotalAmount
+                pagination {
+                    pageNum
+                    pageSize
+                    totalCount
+                }
             }
         }
         GRAPHQL;
 
-        // Note: Shopee GQL over cookie usually uses the v3/gql endpoint with operationName
-        $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_REFERER);
-        $response = Http::withHeaders($headers)
-            ->timeout(30)
-            ->post(self::GQL_ENDPOINT . '?q=getPayoutList', [
-                'query' => $query,
-                'variables' => [
-                    'page_num' => 1,
-                    'page_size' => 100,
-                    'payout_time_s' => $since->timestamp,
-                    'payout_time_e' => $until->timestamp,
-                ],
-            ]);
+        $rows = [];
+        $page = 1;
+        $pageSize = 100;
+        $maxPages = 50;
 
-        if (! $response->successful()) {
-            throw new RuntimeException("Shopee payout list API error: HTTP {$response->status()}");
+        while ($page <= $maxPages) {
+            $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_PAYOUT_REFERER);
+            $headers['Content-Type'] = 'application/json; charset=UTF-8';
+            $response = Http::withHeaders($headers)
+                ->timeout(30)
+                ->post(self::GQL_ENDPOINT . '?q=getPayoutList', [
+                    'operationName' => 'getPaymentPayoutBillingList',
+                    'query' => $query,
+                    'variables' => [
+                        'pageNum' => $page,
+                        'pageSize' => $pageSize,
+                    ],
+                ]);
+
+            if (in_array($response->status(), [401, 403], true)) {
+                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
+                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+            }
+
+            if (! $response->successful()) {
+                throw new RuntimeException("Shopee payout list API error: HTTP {$response->status()}");
+            }
+
+            $payload = $response->json();
+            if (! is_array($payload)) {
+                throw new RuntimeException('Shopee payout list API returned invalid payload.');
+            }
+
+            if (! empty($payload['errors']) && is_array($payload['errors'])) {
+                $message = (string) ($payload['errors'][0]['message'] ?? 'GraphQL error');
+                $normalized = mb_strtolower($message);
+                if (
+                    str_contains($normalized, 'unauthorized')
+                    || str_contains($normalized, 'forbidden')
+                    || str_contains($normalized, 'auth')
+                ) {
+                    $this->markCookieAuthFailure($connection, "Cookie authentication failed. {$message}");
+                }
+
+                throw new RuntimeException("Shopee payout list GraphQL error: {$message}");
+            }
+
+            $rootData = $payload['data'] ?? null;
+            if (! is_array($rootData) || ! array_key_exists('getPaymentPayoutBillingList', $rootData)) {
+                throw new RuntimeException(
+                    'Shopee payout response missing data. Hãy lấy lại cURL từ trang payout_record và cập nhật kết nối.'
+                );
+            }
+
+            $list = $this->firstValueByPaths($payload, [
+                'data.getPaymentPayoutBillingList.payoutList',
+                'data.list',
+                'list',
+            ]);
+            if (! is_array($list) || ! array_is_list($list)) {
+                $list = [];
+            }
+
+            foreach ($list as $row) {
+                if (is_array($row)) {
+                    $paymentPayout = is_array($row['paymentPayout'] ?? null) ? $row['paymentPayout'] : [];
+                    $payoutInvoice = is_array($row['payoutInvoice'] ?? null) ? $row['payoutInvoice'] : [];
+                    $payoutExternalInfo = is_array($row['payoutExternalInfo'] ?? null) ? $row['payoutExternalInfo'] : [];
+
+                    $rows[] = [
+                        'payout_id' => $paymentPayout['payoutId'] ?? null,
+                        'payout_time' => $paymentPayout['payoutCreatedTime'] ?? ($paymentPayout['payArrivalTime'] ?? null),
+                        'amount' => $paymentPayout['totalPaymentAmount'] ?? 0,
+                        'status' => $paymentPayout['payoutPaymentStatus'] ?? null,
+                        'currency' => 'VND',
+                        'bank_name' => null,
+                        'bank_account_number' => null,
+                        'invoice_status' => $payoutInvoice['invoiceStatus'] ?? null,
+                        'invoice_dismiss_reason' => $payoutInvoice['dismissReason'] ?? null,
+                        'merge_invoice_status' => $payoutExternalInfo['mergeInvoiceStatus'] ?? null,
+                        'service_fee_invoice_status' => $payoutExternalInfo['serviceFeeInvoiceStatus'] ?? null,
+                        'raw_payload' => $row,
+                    ];
+                }
+            }
+
+            $totalCount = (int) ($this->firstValueByPaths($payload, [
+                'data.getPaymentPayoutBillingList.pagination.totalCount',
+                'data.total_count',
+                'total_count',
+            ]) ?? 0);
+
+            if (count($list) < $pageSize || ($totalCount > 0 && ($page * $pageSize) >= $totalCount)) {
+                break;
+            }
+
+            $page++;
         }
 
-        $payload = $response->json();
-        return $payload['data']['getPayoutList']['list'] ?? [];
+        return $rows;
     }
 
     public function fetchBillFeeInvoices(PlatformConnection $connection, Carbon $since, Carbon $until): array
@@ -1772,44 +2022,143 @@ GRAPHQL;
         }
 
         $query = <<<'GRAPHQL'
-        query getPaymentSummaryBillFeeInvoiceList($page_num: Int, $page_size: Int, $create_time_s: Long, $create_time_e: Long) {
+        query GetPaymentSummaryBillFeeInvoiceListQuery($pageNum: Int, $pageSize: Int, $serviceFeeInvoiceFilter: ServiceFeeInvoiceFilterInput) {
             getPaymentSummaryBillFeeInvoiceList(
-                page_num: $page_num,
-                page_size: $page_size,
-                create_time_s: $create_time_s,
-                create_time_e: $create_time_e
+                pageNum: $pageNum
+                pageSize: $pageSize
+                serviceFeeInvoiceFilter: $serviceFeeInvoiceFilter
             ) {
-                list {
-                    invoice_id
-                    invoice_no
-                    create_time
-                    amount
-                    status
-                    invoice_url
+                pageNum
+                pageSize
+                paymentSummaryBillFeeInvoices {
+                    affiliateId
+                    affiliateName
+                    billFeeStatus
+                    paymentCompletePeriodEndTime
+                    paymentCompletePeriodStartTime
+                    paymentSummaryBillFeeInvoices {
+                        dismissReason
+                        fileUrl
+                        invoiceNumber
+                        invoiceStatus
+                        invoiceType
+                        rejectReason
+                    }
+                    totalServiceFee
+                    validationId
                 }
-                total_count
+                totalCount
             }
         }
         GRAPHQL;
 
-        $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_REFERER);
-        $response = Http::withHeaders($headers)
-            ->timeout(30)
-            ->post(self::GQL_ENDPOINT . '?q=getPaymentSummaryBillFeeInvoiceList', [
-                'query' => $query,
-                'variables' => [
-                    'page_num' => 1,
-                    'page_size' => 100,
-                    'create_time_s' => $since->timestamp,
-                    'create_time_e' => $until->timestamp,
-                ],
-            ]);
+        $rows = [];
+        $page = 1;
+        $pageSize = 100;
+        $maxPages = 50;
 
-        if (! $response->successful()) {
-            throw new RuntimeException("Shopee bill fee invoice list API error: HTTP {$response->status()}");
+        while ($page <= $maxPages) {
+            $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_SERVICE_FEE_REFERER);
+            $headers['Content-Type'] = 'application/json; charset=UTF-8';
+
+            $response = Http::withHeaders($headers)
+                ->timeout(30)
+                ->post(self::GQL_ENDPOINT . '?q=getPaymentSummaryBillFeeInvoiceList', [
+                    'operationName' => 'GetPaymentSummaryBillFeeInvoiceListQuery',
+                    'query' => $query,
+                    'variables' => [
+                        'pageNum' => $page,
+                        'pageSize' => $pageSize,
+                        'serviceFeeInvoiceFilter' => [],
+                    ],
+                ]);
+
+            if (in_array($response->status(), [401, 403], true)) {
+                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
+                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+            }
+
+            if (! $response->successful()) {
+                throw new RuntimeException("Shopee bill fee invoice list API error: HTTP {$response->status()}");
+            }
+
+            $payload = $response->json();
+            if (! is_array($payload)) {
+                throw new RuntimeException('Shopee bill fee invoice list API returned invalid payload.');
+            }
+
+            if (! empty($payload['errors']) && is_array($payload['errors'])) {
+                $message = (string) ($payload['errors'][0]['message'] ?? 'GraphQL error');
+                $normalized = mb_strtolower($message);
+                if (
+                    str_contains($normalized, 'unauthorized')
+                    || str_contains($normalized, 'forbidden')
+                    || str_contains($normalized, 'auth')
+                ) {
+                    $this->markCookieAuthFailure($connection, "Cookie authentication failed. {$message}");
+                }
+
+                throw new RuntimeException("Shopee bill fee invoice GraphQL error: {$message}");
+            }
+
+            $rootData = $payload['data'] ?? null;
+            if (! is_array($rootData) || ! array_key_exists('getPaymentSummaryBillFeeInvoiceList', $rootData)) {
+                throw new RuntimeException(
+                    'Shopee service fee invoice response missing data. Hãy lấy lại cURL từ trang service_fee_invoice và cập nhật kết nối.'
+                );
+            }
+
+            $list = $this->firstValueByPaths($payload, [
+                'data.getPaymentSummaryBillFeeInvoiceList.paymentSummaryBillFeeInvoices',
+                'data.list',
+                'list',
+            ]);
+            if (! is_array($list) || ! array_is_list($list)) {
+                $list = [];
+            }
+
+            foreach ($list as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $invoiceList = is_array($row['paymentSummaryBillFeeInvoices'] ?? null)
+                    ? array_values(array_filter($row['paymentSummaryBillFeeInvoices'], static fn ($invoice): bool => is_array($invoice)))
+                    : [];
+                $primaryInvoice = $invoiceList[0] ?? [];
+
+                $rows[] = [
+                    'validation_id' => $row['validationId'] ?? null,
+                    'affiliate_id' => $row['affiliateId'] ?? null,
+                    'affiliate_name' => $row['affiliateName'] ?? null,
+                    'status' => $row['billFeeStatus'] ?? null,
+                    'period_start' => $row['paymentCompletePeriodStartTime'] ?? null,
+                    'period_end' => $row['paymentCompletePeriodEndTime'] ?? null,
+                    'total_service_fee' => $row['totalServiceFee'] ?? 0,
+                    'invoice_number' => $primaryInvoice['invoiceNumber'] ?? null,
+                    'invoice_status' => $primaryInvoice['invoiceStatus'] ?? null,
+                    'invoice_type' => $primaryInvoice['invoiceType'] ?? null,
+                    'file_url' => $primaryInvoice['fileUrl'] ?? null,
+                    'dismiss_reason' => $primaryInvoice['dismissReason'] ?? null,
+                    'reject_reason' => $primaryInvoice['rejectReason'] ?? null,
+                    'invoices' => $invoiceList,
+                    'raw_payload' => $row,
+                ];
+            }
+
+            $totalCount = (int) ($this->firstValueByPaths($payload, [
+                'data.getPaymentSummaryBillFeeInvoiceList.totalCount',
+                'data.total_count',
+                'total_count',
+            ]) ?? 0);
+
+            if (count($list) < $pageSize || ($totalCount > 0 && ($page * $pageSize) >= $totalCount)) {
+                break;
+            }
+
+            $page++;
         }
 
-        $payload = $response->json();
-        return $payload['data']['getPaymentSummaryBillFeeInvoiceList']['list'] ?? [];
+        return $rows;
     }
 }

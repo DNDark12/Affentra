@@ -119,7 +119,7 @@ class ImportOrdersJob implements ShouldQueue
             ]);
 
             if ($result['upserted'] > 0 && $minDate && $maxDate) {
-                AggregateDailyStatsJob::dispatch($this->platform, $minDate, $maxDate);
+                AggregateDailyStatsJob::dispatch($this->platform, $minDate, $maxDate)->onQueue('sync');
             }
 
             Log::info('Order import completed', [

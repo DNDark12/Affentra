@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
-use App\Models\SyncRun;
+use App\Models\PlatformConnection;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -61,12 +61,76 @@ class HandleInertiaRequests extends Middleware
             },
             'constants' => config('affentra', []),
             'sync_status' => function () use ($request) {
-                if (!$request->user()) return null;
-                $latest = SyncRun::latest('started_at')->first();
-                if (!$latest) return ['status' => 'fresh', 'lastSyncAt' => null];
-                if ($latest->status === 'failed') return ['status' => 'failed', 'lastSyncAt' => $latest->started_at->diffForHumans()];
-                if ($latest->status === 'completed' && $latest->started_at->diffInMinutes(now()) > 60) return ['status' => 'delayed', 'nextSyncIn' => 'soon'];
-                return ['status' => 'fresh', 'lastSyncAt' => $latest->started_at->diffForHumans()];
+                /** @var User|null $user */
+                $user = $request->user();
+                if (! $user) {
+                    return null;
+                }
+
+                $connections = PlatformConnection::query()
+                    ->where('user_id', $user->id)
+                    ->get([
+                        'id',
+                        'status',
+                        'sync_mode',
+                        'last_sync_at',
+                        'last_sync_status',
+                        'last_error_at',
+                    ]);
+
+                if ($connections->isEmpty()) {
+                    return ['status' => 'fresh', 'lastSyncAt' => null];
+                }
+
+                $latestFailureAt = $connections
+                    ->filter(static function (PlatformConnection $connection): bool {
+                        return $connection->status === 'error'
+                            || (
+                                str_starts_with((string) $connection->last_sync_status, 'failed')
+                                && $connection->last_error_at !== null
+                            );
+                    })
+                    ->map(static function (PlatformConnection $connection) {
+                        return $connection->last_error_at ?? $connection->last_sync_at;
+                    })
+                    ->filter()
+                    ->sortDesc()
+                    ->first();
+
+                if ($latestFailureAt !== null && $latestFailureAt->greaterThan(now()->subMinutes(10))) {
+                    return [
+                        'status' => 'failed',
+                        'lastSyncAt' => $latestFailureAt->diffForHumans(),
+                    ];
+                }
+
+                // Delayed warning only applies to active scheduled connections.
+                $scheduledConnections = $connections->filter(static function (PlatformConnection $connection): bool {
+                    return $connection->status === 'active' && $connection->sync_mode === 'scheduled';
+                });
+
+                if ($scheduledConnections->isNotEmpty()) {
+                    $latestScheduledSyncAt = $scheduledConnections
+                        ->pluck('last_sync_at')
+                        ->filter()
+                        ->sortDesc()
+                        ->first();
+
+                    if ($latestScheduledSyncAt === null || $latestScheduledSyncAt->diffInMinutes(now()) > 120) {
+                        return ['status' => 'delayed', 'nextSyncIn' => 'soon'];
+                    }
+                }
+
+                $latestSyncAt = $connections
+                    ->pluck('last_sync_at')
+                    ->filter()
+                    ->sortDesc()
+                    ->first();
+
+                return [
+                    'status' => 'fresh',
+                    'lastSyncAt' => $latestSyncAt?->diffForHumans(),
+                ];
             },
         ]);
     }

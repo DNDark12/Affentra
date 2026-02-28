@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Jobs\Sync\SyncPlatformConnectionJob;
+use App\Models\DailyStat;
 use App\Models\PlatformConnection;
+use App\Models\TrackingLink;
 use App\Models\User;
 use App\Services\Clicks\ClickAnalyticsService;
 use App\Services\Order\OrderService;
@@ -209,5 +211,97 @@ class SyncPlatformConnectionJobTest extends TestCase
             'platform_connection_id' => $connection->id,
             'status' => 'failed_auth',
         ]);
+    }
+
+    public function test_cookie_sync_fallback_maps_order_to_tracking_link_by_product_url(): void
+    {
+        $owner = User::factory()->create(['role' => 'owner']);
+        $connection = PlatformConnection::factory()->create([
+            'user_id' => $owner->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=dummy-cookie-value',
+                'affiliate_program_type' => '1',
+            ], JSON_THROW_ON_ERROR),
+            'cookie_user_agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        ]);
+
+        $trackingLink = TrackingLink::query()->create([
+            'user_id' => $owner->id,
+            'campaign_id' => null,
+            'short_code' => 'abc123xy',
+            'destination_url' => 'https://shopee.vn/product/1663031317/46553051070',
+            'platform' => 'shopee',
+            'status' => 'active',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/report/list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [
+                        [
+                            'purchase_time' => 1767526304,
+                            'conversion_status' => 2,
+                            'sub_id' => '----',
+                            'orders' => [
+                                [
+                                    'order_id' => '221225504217979',
+                                    'order_sn' => '2601046J0HJJUU',
+                                    'order_status' => 'COMPLETED',
+                                    'display_order_status' => 2,
+                                    'items' => [
+                                        [
+                                            'shop_id' => '1663031317',
+                                            'item_id' => '46553051070',
+                                            'item_price' => 55000000000,
+                                            'actual_amount' => 48400000000,
+                                            'item_commission' => 2178000000,
+                                            'capped_brand_commission' => 2904000000,
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'total_count' => 1,
+                ],
+            ], 200),
+            'https://affiliate.shopee.vn/api/v1/click_report/list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [],
+                    'total_count' => 0,
+                ],
+            ], 200),
+        ]);
+
+        $job = new SyncPlatformConnectionJob(
+            connectionId: $connection->id,
+            type: 'manual',
+            userId: $owner->id,
+        );
+
+        $job->handle(
+            app(OrderService::class),
+            app(ClickAnalyticsService::class),
+        );
+
+        $this->assertDatabaseHas('orders', [
+            'connection_id' => $connection->id,
+            'order_code' => '2601046J0HJJUU',
+            'tracking_link_id' => $trackingLink->id,
+            'missing_sub_id' => 0,
+        ]);
+
+        $this->assertDatabaseHas('daily_stats', [
+            'platform' => 'shopee',
+            'tracking_link_id' => $trackingLink->id,
+            'orders' => 1,
+        ]);
+
+        $this->assertSame(1, DailyStat::query()->where('tracking_link_id', $trackingLink->id)->sum('orders'));
     }
 }
