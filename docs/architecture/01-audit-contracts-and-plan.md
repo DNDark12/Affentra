@@ -47,6 +47,8 @@ The system must employ a **unified `ScopeResolver` service** to compute access a
 
 ### 1.5 API Payload Contract (Global Stats & Filters)
 To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must return precise data shapes:
+
+*Dashboard & Analytics Summaries:*
 ```json
 {
   "ok": true,
@@ -60,6 +62,7 @@ To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must retur
   }
 }
 ```
+
 *Finance Global Summary:*
 ```json
 {
@@ -69,12 +72,31 @@ To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must retur
 }
 ```
 
+*Campaigns Global Summary:*
+```json
+{
+  "total_campaigns": 120,
+  "active_campaigns": 85,
+  "total_impressions": 150000,
+  "total_clicks": 25000
+}
+```
+
+*Partners/CTV Global Summary:*
+```json
+{
+  "total_partners": 35,
+  "active_partners": 30,
+  "new_this_month": 5
+}
+```
+
 ---
 
 ## Part 2: Implementation Plan (Phases A0 -> G)
 
 ### Phase A0: Immediate Hotfixes
-- **Partner Creation (`StorePartnerRequest`)**: The business logic is "invite via email". Fix the request validation to make `name` **nullable** (or generate a default placeholder from the email prefix) so the frontend email-only flow succeeds immediately without 422 errors. Wire up the missing search/filters in `Partners/Index.vue`.
+- **Partner Creation (`StorePartnerRequest`)**: The business logic is strictly "invite via email only". Modify `StorePartnerRequest` and `PartnerService` to ONLY send an invitation email. Do NOT insert a row into the `users` table until the invitee completes the registration form. Update the FE to ensure it's purely an email dispatch flow. Wire up the missing search/filters in `Partners/Index.vue`.
 
 ### Phase A: Core Architecture & Setup
 - Commit these contracts to the repo repository (`docs/architecture/`).
@@ -83,7 +105,8 @@ To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must retur
 ### Phase B: Finance Module
 - Implement exact global stats (Earned, Paid, Unpaid) fulfilling the JSON contract.
 - Add robust date filtering adhering to semantics.
-- **Sync Idempotency (Double-Lock)**: Prevent spam logic. Implement `Cache::lock` BOTH in the Controller (before dispatching) and inside the Job's `handle()` method (for multi-node/retry safety). Set TTL (e.g., 5-10 mins). If lock fails, return "already running / skipped" without enqueueing further.
+- **Sync Idempotency (Double-Lock)**: Prevent spam logic. Implement `Cache::lock` BOTH in the Controller (before dispatching) and inside the Job's `handle()` method (for multi-node/retry safety). Set TTL (e.g., 5-10 mins). 
+  - **Lock Fail Response Contract**: If lock acquisition fails in the Controller, the API MUST immediately return HTTP 429 or 409 with payload: `{ "ok": false, "message": "Vui lòng đợi 5 phút", "status": "already_running" }`. This ensures FE polling logic interprets it deterministically instead of treating it as a standard failure.
 - **Migration (Indexes)**: Explicitly add `(user_id, period_end)` / `(user_id, status, period_end)` to `affiliate_billings` and equivalent to payouts.
 
 ### Phase C: Campaigns Module
@@ -98,6 +121,7 @@ To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must retur
 ### Phase E: Payout Approval (Profile Security)
 - **Encryption Update**: Cast banking details as encrypted.
 - **Schema Update**: Add `payout_review_status` (enum: pending, approved, rejected), `payout_reviewed_by`, `payout_reviewed_at`, and `payout_reject_reason` to `user_profiles`. **CRITICAL**: Add database indexes for `payout_review_status`, `payout_reviewed_at`, and `payout_reviewed_by` to support efficient dashboard lists.
+- **Audit Logs Creation**: Create a dedicated `audit_logs` table (and models/migrations) expressly to record state transitions. Payload must include: `actor_id`, `target_id`, `previous_state`, `new_state`, `reason`, `ip_address`, and `created_at`.
 - Implement strictly secure API/UI (enforcing 404/403 rules).
 
 ### Phase F: Tracking Configuration
@@ -115,5 +139,7 @@ To ensure Frontend Anti-Drift during refactoring, aggregate endpoints must retur
 2. **Security Tests**: Validate 404 vs 403 on arbitrary ID insertions across hierarchical bounds.
 3. **Regression Tests**: For pagination and UI contracts.
 4. **Performance Gate (Mandatory)**: 
-    * P95 latency for endpoint list/stats must fall beneath the target threshold (e.g., `< 500ms`) on seeded datasets.
-    * **`EXPLAIN` Plan Validation**: Pull query plans for global aggregate queries during code review/artifacts to prevent query regression and guarantee newly added composite indexes are utilized.
+    * **Benchmark Profile**: P95 latency for `index` (list/stats) endpoints must fall $< 500ms$ locally. 
+        - Dataset definition: 50,000+ Clicks, 5,000+ Orders, 20+ Partners.
+        - Environment: MySQL 8.x (Docker/Sail), warm database cache, cold application cache.
+    * **`EXPLAIN` Plan Validation**: Pull `EXPLAIN` query plans for all global aggregate queries and save them as markdown artifacts. This physically validates that newly added composite indexes are utilized and avoids "filesort" or full table scans.
