@@ -14,8 +14,9 @@ class AggregateDailyClicksCommand extends Command
      * @var string
      */
     protected $signature = 'analytics:aggregate-clicks
+                            {--platform=shopee : Platform to aggregate}
                             {--date= : The specific date to aggregate (Y-m-d)}
-                            {--days=1 : Number of past days to aggregate if date is not provided}';
+                            {--days=7 : Number of past days to aggregate if date is not provided}';
 
     /**
      * The console command description.
@@ -29,6 +30,7 @@ class AggregateDailyClicksCommand extends Command
      */
     public function handle(): void
     {
+        $platform = (string) $this->option('platform');
         $dateOpt = $this->option('date');
         
         if ($dateOpt) {
@@ -40,9 +42,9 @@ class AggregateDailyClicksCommand extends Command
             $minDate = now()->subDays($days)->toDateString();
         }
 
-        $this->info("Dispatching AggregateDailyClicksJob from {$minDate} to {$maxDate}");
-        
-        AggregateDailyClicksJob::dispatchSync($minDate, $maxDate);
+        $this->info("Dispatching AggregateDailyClicksJob for {$platform} from {$minDate} to {$maxDate}");
+
+        AggregateDailyClicksJob::dispatch($platform, $minDate, $maxDate)->onQueue('sync');
 
         $this->info('Done.');
     }

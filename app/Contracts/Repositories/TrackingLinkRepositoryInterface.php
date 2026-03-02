@@ -64,4 +64,12 @@ interface TrackingLinkRepositoryInterface extends RepositoryInterface
      * Validate allowed status transition.
      */
     public function assertStatusTransition(LinkStatus $from, LinkStatus $to): void;
+
+    /**
+     * Recompute clicks_count for specific tracking links in bulk.
+     *
+     * @param  list<int>  $linkIds
+     * @return int affected rows
+     */
+    public function recomputeClicksCountBulk(array $linkIds): int;
 }

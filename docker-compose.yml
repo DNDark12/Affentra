@@ -16,6 +16,38 @@ services:
     networks:
       - affentra-network
 
+  worker-sync:
+    image: affentra-app
+    container_name: affentra-worker-sync
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: >
+      php artisan queue:work database --queue=sync,default
+      --sleep=1 --tries=3 --timeout=120 --memory=256 --no-interaction
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+      - mysql
+      - redis
+    networks:
+      - affentra-network
+
+  scheduler:
+    image: affentra-app
+    container_name: affentra-scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan schedule:work
+    volumes:
+      - ./:/var/www/html
+    depends_on:
+      - app
+      - mysql
+      - redis
+    networks:
+      - affentra-network
+
   web:
     image: nginx:alpine
     container_name: affentra-web

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Integration\IntegrationFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class CampaignSyncService
@@ -80,8 +81,11 @@ class CampaignSyncService
             $now = now();
             $payload = [];
 
+            Log::debug('ShopeeIntegration: fetched campaign rows', ['count' => count($rows), 'first' => $rows[0] ?? null]);
             foreach ($rows as $row) {
+                Log::debug('CampaignSyncService: mapping row', ['row' => $row]);
                 $mapped = $this->mapShopeeCampaign($connection, $row, $now);
+                Log::debug('CampaignSyncService: mapped result', ['mapped' => $mapped]);
                 if ($mapped !== null) {
                     $payload[] = $mapped;
                 }
@@ -128,19 +132,23 @@ class CampaignSyncService
      */
     private function mapShopeeCampaign(PlatformConnection $connection, array $row, Carbon $now): ?array
     {
-        $externalId = trim((string) ($row['campaignId'] ?? $row['campaign_id'] ?? ''));
+        $externalId = trim((string) ($row['campaignId'] ?? $row['campaign_id'] ?? $row['id'] ?? ''));
         if ($externalId === '') {
+            Log::warning('CampaignSyncService: Missing external ID for campaign row.', ['row' => $row]);
             return null;
         }
 
-        $name = trim((string) ($row['campaignName'] ?? $row['campaign_name'] ?? ''));
+        $name = trim((string) ($row['campaignName'] ?? $row['campaign_name'] ?? $row['name'] ?? ''));
         if ($name === '') {
             $name = 'Shopee Campaign #' . $externalId;
         }
 
-        $dateStart = $this->asCarbon($row['campaignStartTime'] ?? $row['campaign_start_time'] ?? null)?->toDateString();
-        $dateEnd = $this->asCarbon($row['campaignEndTime'] ?? $row['campaign_end_time'] ?? null)?->toDateString();
-        $externalStatus = $row['campaignStatus'] ?? $row['campaign_status'] ?? null;
+        $startTime = $row['campaignStartTime'] ?? $row['campaign_start_time'] ?? $row['start_time'] ?? null;
+        $endTime = $row['campaignEndTime'] ?? $row['campaign_end_time'] ?? $row['end_time'] ?? null;
+
+        $dateStart = $this->asCarbon($startTime)?->toDateString();
+        $dateEnd = $this->asCarbon($endTime)?->toDateString();
+        $externalStatus = $row['campaignStatus'] ?? $row['campaign_status'] ?? $row['status'] ?? null;
 
         return [
             'user_id' => $connection->user_id,
@@ -152,15 +160,14 @@ class CampaignSyncService
             'external_status' => $externalStatus !== null ? (string) $externalStatus : null,
             'date_start' => $dateStart,
             'date_end' => $dateEnd,
-            'description' => $this->nullableString($row['campaignDescription'] ?? $row['campaign_description'] ?? null),
-            'campaign_url' => $this->nullableString($row['campaignUrl'] ?? $row['campaign_url'] ?? null),
-            'impressions' => (int) ($row['campaignImpressionNum'] ?? $row['campaign_impression_num'] ?? 0),
-            'clicks' => (int) ($row['campaignClickNum'] ?? $row['campaign_click_num'] ?? 0),
-            'banner_image_id' => $this->nullableString($row['bannerImageId'] ?? $row['banner_image_id'] ?? null),
+            'description' => $this->nullableString($row['campaignDescription'] ?? $row['campaign_description'] ?? $row['description'] ?? null),
+            'campaign_url' => $this->nullableString($row['campaignUrl'] ?? $row['campaign_url'] ?? $row['url'] ?? null),
+            'impressions' => (int) ($row['campaignImpressionNum'] ?? $row['campaign_impression_num'] ?? $row['impressions'] ?? 0),
+            'clicks' => (int) ($row['campaignClickNum'] ?? $row['campaign_click_num'] ?? $row['clicks'] ?? 0),
+            'banner_image_id' => $this->nullableString($row['bannerImageId'] ?? $row['banner_image_id'] ?? $row['image_id'] ?? null),
             'synced_at' => $now,
             'source_meta' => json_encode([
-                'campaignId' => $row['campaignId'] ?? null,
-                'campaignStatus' => $externalStatus,
+                'raw' => $row,
             ], JSON_THROW_ON_ERROR),
             'created_at' => $now,
             'updated_at' => $now,

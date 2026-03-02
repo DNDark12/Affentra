@@ -22,7 +22,7 @@ Schedule::job(new SyncShopeeCampaignsDailyJob, 'sync')
     ->onOneServer();
 
 // Aggregate Clicks into Daily Stats every 15 minutes
-Schedule::command('analytics:aggregate-clicks')
+Schedule::command('analytics:aggregate-clicks --platform=shopee')
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->onOneServer();

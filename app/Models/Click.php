@@ -9,11 +9,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Click extends Model
 {
-    /**
-     * No updated_at — insert-only log table.
-     *
-     * @var bool
-     */
     public $timestamps = false;
 
     /**
@@ -21,10 +16,22 @@ class Click extends Model
      */
     protected $fillable = [
         'tracking_link_id',
+        'connection_id',
         'sub_id',
         'ip',
         'user_agent',
         'referer',
+        'referer_domain',
+        'device_type',
+        'fingerprint_hash',
+        'hash_version',
+        'is_bot',
+        'bot_reason',
+        'owner_id',
+        'leader_id',
+        'ctv_user_id',
+        'attribution_status',
+        'source_meta',
         'created_at',
     ];
 
@@ -34,14 +41,25 @@ class Click extends Model
     protected function casts(): array
     {
         return [
+            'connection_id' => 'integer',
+            'tracking_link_id' => 'integer',
+            'owner_id' => 'integer',
+            'leader_id' => 'integer',
+            'ctv_user_id' => 'integer',
+            'hash_version' => 'integer',
+            'is_bot' => 'boolean',
+            'source_meta' => 'array',
             'created_at' => 'datetime',
         ];
     }
 
-    // ─── Relationships ─────────────────────────────────────────────────────────
-
     public function trackingLink(): BelongsTo
     {
         return $this->belongsTo(TrackingLink::class);
+    }
+
+    public function platformConnection(): BelongsTo
+    {
+        return $this->belongsTo(PlatformConnection::class, 'connection_id');
     }
 }

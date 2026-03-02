@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\DTOs\Clicks\ClickReportFilter;
+use App\Helpers\ApiResponse;
 use App\Http\Requests\Clicks\ClickReportFilterRequest;
+use App\Http\Resources\Clicks\ClickConversionCollection;
+use App\Http\Resources\Clicks\ClickReportCollection;
+use App\Http\Resources\Clicks\ClickSummaryResource;
 use App\Services\Clicks\ClickAnalyticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,8 +28,8 @@ class ClickAnalyticsController extends Controller
         $summary = $this->analyticsService->getSummary($dto, $request->user());
 
         return Inertia::render('Clicks/Overview', [
-            'summary' => $summary,
-            'filters' => $request->all()
+            'summary' => (new ClickSummaryResource($summary))->resolve($request),
+            'filters' => $request->all(),
         ]);
     }
 
@@ -35,8 +39,8 @@ class ClickAnalyticsController extends Controller
         $reportData = $this->analyticsService->getReportData($dto, $request->user());
 
         return Inertia::render('Clicks/Report', [
-            'report' => $reportData,
-            'filters' => $request->all()
+            'report' => (new ClickReportCollection($reportData))->resolve($request),
+            'filters' => $request->all(),
         ]);
     }
 
@@ -46,8 +50,8 @@ class ClickAnalyticsController extends Controller
         $conversionData = $this->analyticsService->getConversionData($dto, $request->user());
 
         return Inertia::render('Clicks/Conversion', [
-            'conversion' => $conversionData,
-            'filters' => $request->all()
+            'conversion' => (new ClickConversionCollection($conversionData))->resolve($request),
+            'filters' => $request->all(),
         ]);
     }
 
@@ -56,7 +60,7 @@ class ClickAnalyticsController extends Controller
         $dto = ClickReportFilter::fromRequest($request->validated());
         $data = $this->analyticsService->getSummary($dto, $request->user());
 
-        return response()->json(['ok' => true, 'data' => $data]);
+        return ApiResponse::success((new ClickSummaryResource($data))->resolve($request));
     }
 
     public function reportData(ClickReportFilterRequest $request): JsonResponse
@@ -64,7 +68,7 @@ class ClickAnalyticsController extends Controller
         $dto = ClickReportFilter::fromRequest($request->validated());
         $data = $this->analyticsService->getReportData($dto, $request->user());
 
-        return response()->json(['ok' => true, 'data' => $data]);
+        return ApiResponse::success((new ClickReportCollection($data))->resolve($request));
     }
 
     public function conversionData(ClickReportFilterRequest $request): JsonResponse
@@ -72,11 +76,11 @@ class ClickAnalyticsController extends Controller
         $dto = ClickReportFilter::fromRequest($request->validated());
         $data = $this->analyticsService->getConversionData($dto, $request->user());
 
-        return response()->json(['ok' => true, 'data' => $data]);
+        return ApiResponse::success((new ClickConversionCollection($data))->resolve($request));
     }
 
     public function exportData(ClickReportFilterRequest $request): JsonResponse
     {
-        return response()->json(['ok' => true, 'data' => []]);
+        return ApiResponse::success([]);
     }
 }

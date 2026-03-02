@@ -337,7 +337,10 @@ class IntegrationService
         )->onQueue('sync');
     }
 
-    public function testConnection(PlatformConnection $connection): bool
+    /**
+     * @return array{valid: bool, checks: array<string, mixed>, message: string}
+     */
+    public function testConnection(PlatformConnection $connection): array
     {
         if (! IntegrationFactory::supports($connection->platform)) {
             throw new RuntimeException('Platform not supported.');
@@ -345,7 +348,24 @@ class IntegrationService
 
         $adapter = IntegrationFactory::make($connection->platform);
 
-        return $adapter->testConnection($connection);
+        if (method_exists($adapter, 'testConnectionDetailed')) {
+            /** @var array{valid: bool, checks?: array<string, mixed>, message?: string} $detailed */
+            $detailed = $adapter->testConnectionDetailed($connection);
+
+            return [
+                'valid' => (bool) ($detailed['valid'] ?? false),
+                'checks' => $detailed['checks'] ?? [],
+                'message' => (string) ($detailed['message'] ?? (($detailed['valid'] ?? false) ? 'Connection valid.' : 'Connection failed.')),
+            ];
+        }
+
+        $valid = $adapter->testConnection($connection);
+
+        return [
+            'valid' => $valid,
+            'checks' => [],
+            'message' => $valid ? 'Connection valid.' : 'Connection failed.',
+        ];
     }
 
     /**

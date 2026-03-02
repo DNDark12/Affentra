@@ -134,7 +134,10 @@ class IntegrationController extends Controller
 
         try {
             $result = $this->integrationService->testConnection($connection);
-            return ApiResponse::success(['valid' => $result], $result ? 'Connection valid.' : 'Connection failed.');
+            return ApiResponse::success([
+                'valid' => (bool) ($result['valid'] ?? false),
+                'checks' => $result['checks'] ?? [],
+            ], (string) ($result['message'] ?? 'Connection test completed.'));
         } catch (\Throwable $e) {
             Log::warning('Connection test failed', [
                 'connection_id' => $connection->id,
@@ -143,7 +146,11 @@ class IntegrationController extends Controller
                 'error_class' => $e::class,
             ]);
 
-            return ApiResponse::error('Connection test failed.', [], 422);
+            return ApiResponse::error(
+                $e->getMessage() !== '' ? $e->getMessage() : 'Connection test failed.',
+                [],
+                422
+            );
         }
     }
 }

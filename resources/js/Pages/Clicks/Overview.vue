@@ -1,150 +1,135 @@
 <template>
     <AppShell>
+        <Head title="Click Analytics Overview" />
+
         <div class="flex flex-col gap-6 p-6">
-            <!-- Header section -->
-            <div class="flex flex-col gap-4">
-                <div>
-                    <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                        Click Analytics
-                    </h1>
-                    <p class="text-[13px] text-zinc-500 dark:text-zinc-400 mt-1">
-                        Funnel and breakdown by campaign, device, referrer and time
-                    </p>
-                </div>
-                
-                <!-- Subnav -->
+            <div class="flex flex-col gap-2">
+                <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                    Click Analytics
+                </h1>
+                <p class="text-[13px] text-zinc-500 dark:text-zinc-400">
+                    Overview from synchronized clicks and orders.
+                </p>
                 <ClicksSubnav />
             </div>
 
-            <!-- Filters -->
-            <div class="flex items-center gap-2 flex-wrap">
-                <div class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-                    Date: 01/02 - 25/02
-                </div>
-                <div class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-                    Campaign: All
-                </div>
-                <div class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-                    Device: All
-                </div>
-                <div class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-                    Referrer: All
-                </div>
-                <div class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-                    Saved View: Top Performers
-                </div>
+            <div class="flex items-center gap-2 flex-wrap text-[12px]">
+                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                    From: {{ filters.date_from || '-' }}
+                </span>
+                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                    To: {{ filters.date_to || '-' }}
+                </span>
+                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                    Campaign: {{ filters.campaign_id || 'All' }}
+                </span>
             </div>
 
-            <!-- KPIs -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-1">
-                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">Funnel</span>
-                    <span class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100">{{ summary.funnel.clicks }} > {{ summary.funnel.orders }} > {{ summary.funnel.approved }}</span>
-                    <div class="flex items-center gap-1 mt-1 text-[10px] text-zinc-500">
-                        <i class="ph ph-funnel"></i> Click to Order to Approved
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Funnel</div>
+                    <div class="text-[18px] font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ summary.funnel.clicks }} > {{ summary.funnel.orders }} > {{ summary.funnel.approved }}
                     </div>
                 </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-1">
-                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">CVR</span>
-                    <span class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100">{{ summary.cvr }}%</span>
-                    <div class="flex items-center gap-1 mt-1 text-[10px] text-green-600">
-                        <i class="ph ph-trend-up"></i> +1.2%
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">CVR</div>
+                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ percent(summary.cvr) }}
                     </div>
                 </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-1">
-                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">Approved Rate</span>
-                    <span class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100">{{ summary.approved_rate }}%</span>
-                    <div class="flex items-center gap-1 mt-1 text-[10px] text-zinc-500">
-                        <i class="ph ph-check-circle"></i> Avg. platform
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Approved Rate</div>
+                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ percent(summary.approved_rate) }}
                     </div>
                 </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-1">
-                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">EPC</span>
-                    <span class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100">₫{{ summary.epc.toLocaleString() }}</span>
-                    <div class="flex items-center gap-1 mt-1 text-[10px] text-green-600">
-                        <i class="ph ph-trend-up"></i> +₫200
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">EPC</div>
+                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ money(summary.epc) }}
                     </div>
                 </div>
             </div>
 
-            <!-- Charts -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[280px]">
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-3 h-full">
-                    <h3 class="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300">Clicks vs Orders (time)</h3>
-                    <div class="h-full rounded-lg bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-700">
-                        <span class="text-zinc-400 text-xs">Chart Placeholder</span>
-                    </div>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4 flex flex-col gap-3 h-full">
-                    <h3 class="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300">Conversion by Campaign</h3>
-                    <div class="h-full rounded-lg bg-zinc-50 dark:bg-zinc-800/50 flex items-center justify-center border border-dashed border-zinc-200 dark:border-zinc-700">
-                        <span class="text-zinc-400 text-xs">Chart Placeholder</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Breakdown -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-3 flex flex-col">
-                    <span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">Device</span>
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 mt-0.5">Mobile 88%</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-3 flex flex-col">
-                    <span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">Referrer</span>
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 mt-0.5">Facebook 52%</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-3 flex flex-col">
-                    <span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">Time</span>
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 mt-0.5">Peak 20:00-22:00</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-3 flex flex-col">
-                    <span class="text-[11px] font-semibold text-zinc-700 dark:text-zinc-300">Campaign</span>
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 mt-0.5">Tet Sale 2026</span>
-                </div>
-            </div>
-
-            <!-- Analytics Table -->
-            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 flex flex-col overflow-hidden">
-                <div class="p-4 border-b border-zinc-200 dark:border-zinc-800">
-                    <h3 class="text-[13px] font-semibold text-zinc-700 dark:text-zinc-300">Analytics Table</h3>
+            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+                <div class="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
+                    <h2 class="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                        Daily Trend
+                    </h2>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-[12px]">
+                    <table class="w-full text-[12px]">
                         <thead>
                             <tr class="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
-                                <th class="py-2.5 px-4 font-medium">Campaign</th>
-                                <th class="py-2.5 px-4 font-medium text-right">Clicks</th>
-                                <th class="py-2.5 px-4 font-medium text-right">Orders</th>
-                                <th class="py-2.5 px-4 font-medium text-right">Approved</th>
-                                <th class="py-2.5 px-4 font-medium text-right">CVR</th>
-                                <th class="py-2.5 px-4 font-medium text-right">EPC</th>
+                                <th class="px-4 py-2.5 text-left font-medium">Date</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Clicks</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Orders</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Approved</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Commission</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <!-- Mock Data Row -->
-                            <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                                <td class="py-3 px-4 text-zinc-900 dark:text-zinc-100 font-medium">Tet Sale 2026</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">6,743</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">534</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">401</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">7.9%</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">₫3,952</td>
+                            <tr
+                                v-for="row in summary.trend_by_day"
+                                :key="row.date"
+                                class="border-b border-zinc-100 dark:border-zinc-800"
+                            >
+                                <td class="px-4 py-2.5 text-zinc-900 dark:text-zinc-100">{{ row.date }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.clicks) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.orders) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.approved) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ money(row.commission) }}</td>
                             </tr>
-                            <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                                <td class="py-3 px-4 text-zinc-900 dark:text-zinc-100 font-medium">Beauty Festival</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">4,210</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">380</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">250</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">9.0%</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">₫4,100</td>
+                            <tr v-if="summary.trend_by_day.length === 0">
+                                <td colspan="5" class="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400">
+                                    No trend data in selected window.
+                                </td>
                             </tr>
-                            <tr class="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                                <td class="py-3 px-4 text-zinc-900 dark:text-zinc-100 font-medium">Default Link</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">3,939</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">333</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">241</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">8.4%</td>
-                                <td class="py-3 px-4 text-zinc-600 dark:text-zinc-300 text-right">₫2,450</td>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+                <div class="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
+                    <h2 class="text-[13px] font-semibold text-zinc-800 dark:text-zinc-200">
+                        Campaign Breakdown
+                    </h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-[12px]">
+                        <thead>
+                            <tr class="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
+                                <th class="px-4 py-2.5 text-left font-medium">Campaign</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Clicks</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Orders</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Approved</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Commission</th>
+                                <th class="px-4 py-2.5 text-right font-medium">CVR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr
+                                v-for="row in summary.campaign_breakdown"
+                                :key="row.campaign_id ?? row.campaign_name"
+                                class="border-b border-zinc-100 dark:border-zinc-800"
+                            >
+                                <td class="px-4 py-2.5 text-zinc-900 dark:text-zinc-100">
+                                    {{ row.campaign_name }}
+                                </td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.clicks) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.orders) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ number(row.approved) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ money(row.commission) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">
+                                    {{ percent(cvrByCampaign(row)) }}
+                                </td>
+                            </tr>
+                            <tr v-if="summary.campaign_breakdown.length === 0">
+                                <td colspan="6" class="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400">
+                                    No campaign rows available.
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -162,11 +147,37 @@ import { Head } from '@inertiajs/vue3'
 const props = defineProps({
     summary: {
         type: Object,
-        required: true
+        default: () => ({
+            funnel: { clicks: 0, orders: 0, approved: 0 },
+            totals: { clicks: 0, unique_clicks: 0, valid_clicks: 0, bot_clicks: 0, orders: 0, approved: 0, commission: 0 },
+            cvr: 0,
+            approved_rate: 0,
+            epc: 0,
+            trend_by_day: [],
+            campaign_breakdown: [],
+        }),
     },
     filters: {
         type: Object,
-        default: () => ({})
-    }
+        default: () => ({}),
+    },
 })
+
+function number(value) {
+    return Number(value || 0).toLocaleString()
+}
+
+function percent(value) {
+    return `${Number(value || 0).toFixed(2)}%`
+}
+
+function money(value) {
+    return `VND ${Number(value || 0).toLocaleString()}`
+}
+
+function cvrByCampaign(row) {
+    const clicks = Number(row.clicks || 0)
+    if (clicks <= 0) return 0
+    return (Number(row.orders || 0) / clicks) * 100
+}
 </script>

@@ -58,7 +58,7 @@ class SyncRun extends Model
 
     public function isCompleted(): bool
     {
-        return $this->status === 'completed';
+        return in_array($this->status, ['completed', 'completed_with_warnings'], true);
     }
 
     public function isFailed(): bool

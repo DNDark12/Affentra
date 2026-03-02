@@ -595,6 +595,7 @@ function backfillLabel(connection) {
 
 function runStatusLabel(status) {
     if (status === 'completed') return 'Completed';
+    if (status === 'completed_with_warnings') return 'Completed (Warnings)';
     if (status === 'failed_auth') return 'Failed Auth';
     if (status === 'rate_limited') return 'Rate Limited';
     if (String(status).startsWith('failed')) return 'Failed';
@@ -604,6 +605,7 @@ function runStatusLabel(status) {
 
 function runStatusClass(status) {
     if (status === 'completed') return 'text-emerald-600 dark:text-emerald-400';
+    if (status === 'completed_with_warnings') return 'text-amber-600 dark:text-amber-400';
     if (status === 'rate_limited') return 'text-amber-600 dark:text-amber-400';
     if (String(status).startsWith('failed')) return 'text-red-500 dark:text-red-400';
     return 'text-zinc-600 dark:text-zinc-300';
@@ -611,6 +613,7 @@ function runStatusClass(status) {
 
 function runStatusIcon(status) {
     if (status === 'completed') return 'ph ph-check-circle';
+    if (status === 'completed_with_warnings') return 'ph ph-warning-circle';
     if (status === 'rate_limited') return 'ph ph-warning-circle';
     if (String(status).startsWith('failed')) return 'ph ph-warning-circle';
     return 'ph ph-clock-counter-clockwise';
@@ -769,10 +772,24 @@ async function testConnection(connection) {
     testingConnection.value = connection.id;
     try {
         const response = await axios.post(route('api.integrations.test', connection.id));
-        if (response.data?.ok && response.data?.data?.valid === true) {
-            alert('Kết nối thành công!');
+        const valid = response.data?.ok && response.data?.data?.valid === true;
+        const checks = response.data?.data?.checks || {};
+        const message = response.data?.message || (valid ? 'Connection valid.' : 'Connection failed.');
+
+        if (valid) {
+            const failed = Object.entries(checks)
+                .filter(([, check]) => check?.ok === false)
+                .map(([name, check]) => `${name}: ${check?.message || 'failed'}`);
+            if (failed.length > 0) {
+                alert(`Kết nối dùng được (partial).\n${message}\n\n${failed.join('\n')}`);
+            } else {
+                alert(`Kết nối thành công.\n${message}`);
+            }
         } else {
-            alert(`Lỗi: ${response.data?.message || 'Không thể xác thực credentials.'}`);
+            const details = Object.entries(checks)
+                .map(([name, check]) => `${name}: ${check?.message || 'failed'}`)
+                .join('\n');
+            alert(`Lỗi: ${message}${details ? `\n\n${details}` : ''}`);
         }
     } catch (error) {
         alert(`Lỗi: ${error.response?.data?.message || 'Lỗi hệ thống.'}`);

@@ -75,32 +75,5 @@ class DatabaseSeeder extends Seeder
                 'path'      => $owner->id . '/' . $leader->id,
             ]
         );
-
-        // ── Campaigns ──────────────────────────────────────────────────────────
-        $campaigns = [
-            ['name' => 'Shopee 9.9 Siêu Sale', 'platform' => Platform::Shopee, 'status' => CampaignStatus::Active, 'goal_amount' => 100_000_000],
-            ['name' => 'Flash Sale Cuối Tuần',  'platform' => Platform::Shopee, 'status' => CampaignStatus::Active, 'goal_amount' =>  50_000_000],
-            ['name' => 'TikTok Shop Oct 2025',  'platform' => Platform::TikTok, 'status' => CampaignStatus::Paused, 'goal_amount' =>  30_000_000],
-        ];
-
-        foreach ($campaigns as $c) {
-            Campaign::updateOrCreate(
-                ['name' => $c['name'], 'user_id' => $owner->id],
-                array_merge($c, ['user_id' => $owner->id, 'date_start' => now()->subDays(10), 'date_end' => now()->addDays(20)])
-            );
-        }
-
-        // ── Tracking Links ─────────────────────────────────────────────────────
-        $sampleLinks = [
-            ['user_id' => $ctv1->id, 'destination_url' => 'https://shopee.vn/product-a', 'short_code' => 'xa1bc234', 'platform' => Platform::Shopee, 'status' => LinkStatus::Active, 'clicks_count' => 6431],
-            ['user_id' => $ctv1->id, 'destination_url' => 'https://shopee.vn/product-b', 'short_code' => 'ya5de678', 'platform' => Platform::Shopee, 'status' => LinkStatus::Active, 'clicks_count' => 1922],
-            ['user_id' => $ctv2->id, 'destination_url' => 'https://shopee.vn/product-c', 'short_code' => 'zb9fg012', 'platform' => Platform::Shopee, 'status' => LinkStatus::Active, 'clicks_count' => 3210],
-        ];
-
-        foreach ($sampleLinks as $l) {
-            TrackingLink::updateOrCreate(['short_code' => $l['short_code']], $l);
-        }
-
-        $this->command->info('✅ Affentra seed completed: owner + leader + 2 CTVs + 3 campaigns + 3 tracking links.');
     }
 }

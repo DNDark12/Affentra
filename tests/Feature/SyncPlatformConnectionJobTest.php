@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Jobs\Tracking\AggregateDailyClicksJob;
 use App\Jobs\Sync\SyncPlatformConnectionJob;
 use App\Models\DailyStat;
 use App\Models\PlatformConnection;
@@ -13,6 +14,7 @@ use App\Services\Clicks\ClickAnalyticsService;
 use App\Services\Order\OrderService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class SyncPlatformConnectionJobTest extends TestCase
@@ -303,5 +305,87 @@ class SyncPlatformConnectionJobTest extends TestCase
         ]);
 
         $this->assertSame(1, DailyStat::query()->where('tracking_link_id', $trackingLink->id)->sum('orders'));
+    }
+
+    public function test_partial_sync_marks_completed_with_warnings_when_orders_fail_but_clicks_pass(): void
+    {
+        Queue::fake();
+
+        $owner = User::factory()->create(['role' => 'owner']);
+        $connection = PlatformConnection::factory()->create([
+            'user_id' => $owner->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=dummy-cookie-value',
+                'affiliate_program_type' => '1',
+            ], JSON_THROW_ON_ERROR),
+            'cookie_user_agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        ]);
+
+        $trackingLink = TrackingLink::query()->create([
+            'user_id' => $owner->id,
+            'campaign_id' => null,
+            'short_code' => 'syncwarn01',
+            'destination_url' => 'https://shopee.vn/product/1/2',
+            'platform' => 'shopee',
+            'status' => 'active',
+            'sub_id' => 'sub-sync-warning',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/report/list*' => Http::response([
+                'code' => 999,
+                'msg' => 'conversion unavailable',
+            ], 500),
+            'https://affiliate.shopee.vn/api/v1/click_report/list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [
+                        [
+                            'click_time' => now()->timestamp,
+                            'sub_id1' => 'sub-sync-warning',
+                            'click_count' => 2,
+                        ],
+                    ],
+                    'total_count' => 1,
+                ],
+            ], 200),
+        ]);
+
+        $job = new SyncPlatformConnectionJob(
+            connectionId: $connection->id,
+            type: 'manual',
+            userId: $owner->id,
+        );
+
+        $job->handle(
+            app(OrderService::class),
+            app(ClickAnalyticsService::class),
+        );
+
+        $this->assertDatabaseHas('sync_runs', [
+            'platform_connection_id' => $connection->id,
+            'status' => 'completed_with_warnings',
+        ]);
+
+        $connection->refresh();
+        $this->assertSame('completed_with_warnings', $connection->last_sync_status);
+
+        $this->assertDatabaseHas('clicks', [
+            'tracking_link_id' => $trackingLink->id,
+            'connection_id' => $connection->id,
+            'referer_domain' => 'shopee_sync',
+        ]);
+        $this->assertSame(
+            2,
+            \App\Models\Click::query()
+                ->where('tracking_link_id', $trackingLink->id)
+                ->where('connection_id', $connection->id)
+                ->count()
+        );
+
+        Queue::assertPushed(AggregateDailyClicksJob::class, 1);
     }
 }

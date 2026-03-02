@@ -1,133 +1,121 @@
 <template>
     <AppShell>
+        <Head title="Conversion Report" />
+
         <div class="flex flex-col gap-6 p-6">
-            <!-- Header section -->
-            <div class="flex flex-col gap-4">
-                <div class="flex items-start justify-between">
-                    <div>
-                        <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
-                            Conversion Report
-                        </h1>
-                        <p class="text-[13px] text-zinc-500 dark:text-zinc-400 mt-1">
-                            Showing: All statuses · Shopee
-                        </p>
-                    </div>
-                </div>
-                
-                <!-- Subnav -->
+            <div class="flex flex-col gap-2">
+                <h1 class="text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">
+                    Conversion Report
+                </h1>
+                <p class="text-[13px] text-zinc-500 dark:text-zinc-400">
+                    Orders attributed from tracked clicks.
+                </p>
                 <ClicksSubnav />
             </div>
 
-            <!-- KPIs -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-5 flex flex-col gap-1">
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400">Converted Orders</span>
-                    <span class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100">1,842</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-5 flex flex-col gap-1">
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400">Approved Orders</span>
-                    <span class="text-[22px] font-bold text-emerald-700 dark:text-emerald-500">1,206</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-5 flex flex-col gap-1">
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400">Pending Commission</span>
-                    <span class="text-[22px] font-bold text-amber-700 dark:text-amber-500">₫18.4M</span>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-5 flex flex-col gap-1">
-                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400">Estimated Commission</span>
-                    <span class="text-[22px] font-bold text-indigo-600 dark:text-indigo-400">₫62.1M</span>
-                </div>
-            </div>
-
-            <!-- Searching / Filter row -->
-            <div class="flex items-center justify-between gap-4">
-                <div class="flex items-center gap-2">
-                    <div class="px-3.5 py-1.5 rounded-full bg-indigo-600 text-white text-[12px] font-medium cursor-pointer">
-                        All
-                    </div>
-                    <div class="px-3.5 py-1.5 rounded-full bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 text-[12px] font-medium cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                        Approved
-                    </div>
-                    <div class="px-3.5 py-1.5 rounded-full bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 text-[12px] font-medium cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800">
-                        Pending
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Orders (page)</div>
+                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ number(conversion.items.length) }}
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-2 px-3 py-1.5 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 rounded-lg w-[200px]">
-                        <i class="ph ph-magnifying-glass text-zinc-400"></i>
-                        <input type="text" placeholder="Search order ID..." class="bg-transparent border-none outline-none p-0 text-[12px] w-full text-zinc-700 dark:text-zinc-200">
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Approved (page)</div>
+                    <div class="text-[22px] font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+                        {{ number(approvedCount) }}
+                    </div>
+                </div>
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Order Amount (page)</div>
+                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+                        {{ money(totalOrderAmount) }}
+                    </div>
+                </div>
+                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
+                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Commission (page)</div>
+                    <div class="text-[22px] font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                        {{ money(totalCommission) }}
                     </div>
                 </div>
             </div>
 
-            <!-- Orders Table -->
-            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 flex flex-col overflow-hidden">
+            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse text-[12px]">
+                    <table class="w-full text-[12px]">
                         <thead>
                             <tr class="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
-                                <th class="w-8 py-3 px-4 text-center"><input type="checkbox" class="rounded border-zinc-300"></th>
-                                <th class="py-3 px-4 font-medium w-[140px]">Order ID</th>
-                                <th class="py-3 px-4 font-medium">Product Info</th>
-                                <th class="py-3 px-4 font-medium w-[100px]">Status</th>
-                                <th class="py-3 px-4 font-medium text-right w-[110px]">Order Value</th>
-                                <th class="py-3 px-4 font-medium text-right w-[120px]">Commission</th>
-                                <th class="py-3 px-4 font-medium text-right w-[90px]">Date</th>
+                                <th class="px-4 py-2.5 text-left font-medium">Order</th>
+                                <th class="px-4 py-2.5 text-left font-medium">Tracking</th>
+                                <th class="px-4 py-2.5 text-left font-medium">Status</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Order Amount</th>
+                                <th class="px-4 py-2.5 text-right font-medium">Commission</th>
+                                <th class="px-4 py-2.5 text-left font-medium">Ordered At</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <!-- Mock Row 1 -->
-                            <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
-                                <td class="py-3 px-4 text-center"><input type="checkbox" class="rounded border-zinc-300"></td>
-                                <td class="py-3 px-4">
+                            <tr
+                                v-for="row in conversion.items"
+                                :key="row.id"
+                                class="border-b border-zinc-100 dark:border-zinc-800"
+                            >
+                                <td class="px-4 py-2.5 text-zinc-900 dark:text-zinc-100">
                                     <div class="flex flex-col">
-                                        <span class="text-zinc-900 dark:text-zinc-100 font-medium">SHP-2891023</span>
-                                        <span class="text-[10px] text-zinc-500 font-mono mt-0.5">CLK-982611</span>
+                                        <span class="font-medium">{{ row.order_code || '-' }}</span>
+                                        <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ row.external_order_id || '-' }}</span>
                                     </div>
                                 </td>
-                                <td class="py-3 px-4 text-zinc-700 dark:text-zinc-300">Apple iPhone 15 Pro Max 256GB - Titanium</td>
-                                <td class="py-3 px-4">
-                                    <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">Approved</span>
+                                <td class="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">
+                                    <div class="flex flex-col">
+                                        <span>{{ row.tracking_link?.short_code || '-' }}</span>
+                                        <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ row.tracking_link?.campaign?.name || 'No campaign' }}</span>
+                                    </div>
                                 </td>
-                                <td class="py-3 px-4 text-right text-zinc-700 dark:text-zinc-300">₫28,500,000</td>
-                                <td class="py-3 px-4 text-right text-indigo-600 dark:text-indigo-400 font-medium">₫385,000</td>
-                                <td class="py-3 px-4 text-right text-zinc-500">26-02</td>
+                                <td class="px-4 py-2.5">
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-medium" :class="statusClass(row.status)">
+                                        {{ row.status || '-' }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ money(row.order_amount) }}</td>
+                                <td class="px-4 py-2.5 text-right text-zinc-700 dark:text-zinc-300">{{ money(row.commission) }}</td>
+                                <td class="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">{{ formatDateTime(row.ordered_at) }}</td>
                             </tr>
-                            <!-- Mock Row 2 -->
-                            <tr class="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/20 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors">
-                                <td class="py-3 px-4 text-center"><input type="checkbox" class="rounded border-zinc-300"></td>
-                                <td class="py-3 px-4">
-                                    <div class="flex flex-col">
-                                        <span class="text-zinc-900 dark:text-zinc-100 font-medium">SHP-2891024</span>
-                                        <span class="text-[10px] text-zinc-500 font-mono mt-0.5">CLK-982619</span>
-                                    </div>
+                            <tr v-if="conversion.items.length === 0">
+                                <td colspan="6" class="px-4 py-8 text-center text-zinc-500 dark:text-zinc-400">
+                                    No conversion rows found for current filter.
                                 </td>
-                                <td class="py-3 px-4 text-zinc-700 dark:text-zinc-300">Áo thun nam basic cổ tròn cotton 100%</td>
-                                <td class="py-3 px-4">
-                                    <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">Pending</span>
-                                </td>
-                                <td class="py-3 px-4 text-right text-zinc-700 dark:text-zinc-300">₫150,000</td>
-                                <td class="py-3 px-4 text-right text-amber-600 dark:text-amber-400 font-medium">₫8,500</td>
-                                <td class="py-3 px-4 text-right text-zinc-500">26-02</td>
                             </tr>
                         </tbody>
-                        <tfoot>
-                            <tr class="bg-indigo-50 dark:bg-indigo-500/10 border-t border-zinc-200 dark:border-zinc-800 font-medium">
-                                <td colspan="4" class="py-3 px-4 text-left text-zinc-700 dark:text-zinc-300">Page Summary</td>
-                                <td class="py-3 px-4 text-right text-zinc-900 dark:text-zinc-100">₫28,650,000</td>
-                                <td class="py-3 px-4 text-right text-indigo-700 dark:text-indigo-400">₫393,500</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
-                <div class="px-4 py-3 flex items-center justify-between text-[11px] text-zinc-500">
-                    <span>Showing 1–2 of 1,842 conversion orders</span>
-                    <span class="flex gap-2">
-                        <button class="hover:text-zinc-800">1</button>
-                        <button class="hover:text-zinc-800">2</button>
-                        <button class="hover:text-zinc-800">3</button>
-                        <button class="hover:text-zinc-800">Next</button>
-                    </span>
+                <div class="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-[12px] text-zinc-600 dark:text-zinc-400">
+                    <div>
+                        Showing {{ conversion.pagination.from || 0 }}-{{ conversion.pagination.to || 0 }}
+                        of {{ conversion.pagination.total || 0 }}
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <Link
+                            as="button"
+                            :href="pageUrl((conversion.pagination.current_page || 1) - 1)"
+                            :disabled="!hasPrev"
+                            class="h-8 px-3 rounded-md border border-zinc-200 dark:border-zinc-700"
+                            :class="!hasPrev ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'"
+                        >
+                            Prev
+                        </Link>
+                        <span class="text-zinc-700 dark:text-zinc-300">
+                            Page {{ conversion.pagination.current_page || 1 }} / {{ conversion.pagination.last_page || 1 }}
+                        </span>
+                        <Link
+                            as="button"
+                            :href="pageUrl((conversion.pagination.current_page || 1) + 1)"
+                            :disabled="!hasNext"
+                            class="h-8 px-3 rounded-md border border-zinc-200 dark:border-zinc-700"
+                            :class="!hasNext ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800'"
+                        >
+                            Next
+                        </Link>
+                    </div>
                 </div>
             </div>
         </div>
@@ -137,16 +125,68 @@
 <script setup>
 import AppShell from '@/Layouts/AppShell.vue'
 import ClicksSubnav from './Partials/ClicksSubnav.vue'
-import { Head } from '@inertiajs/vue3'
+import { Head, Link } from '@inertiajs/vue3'
+import { computed } from 'vue'
 
 const props = defineProps({
     conversion: {
         type: Object,
-        default: () => ({})
+        default: () => ({
+            items: [],
+            pagination: {
+                current_page: 1,
+                per_page: 20,
+                total: 0,
+                last_page: 1,
+                from: null,
+                to: null,
+                has_more_pages: false,
+            },
+        }),
     },
     filters: {
         type: Object,
-        default: () => ({})
-    }
+        default: () => ({}),
+    },
 })
+
+const approvedCount = computed(() => props.conversion.items.filter((row) => (row.status || '').toLowerCase() === 'approved').length)
+const totalOrderAmount = computed(() => props.conversion.items.reduce((sum, row) => sum + Number(row.order_amount || 0), 0))
+const totalCommission = computed(() => props.conversion.items.reduce((sum, row) => sum + Number(row.commission || 0), 0))
+const hasPrev = computed(() => (props.conversion.pagination.current_page || 1) > 1)
+const hasNext = computed(() => Boolean(props.conversion.pagination.has_more_pages))
+
+function number(value) {
+    return Number(value || 0).toLocaleString()
+}
+
+function money(value) {
+    return `VND ${Number(value || 0).toLocaleString()}`
+}
+
+function formatDateTime(value) {
+    if (!value) return '-'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`
+}
+
+function statusClass(status) {
+    const key = String(status || '').toLowerCase()
+    if (key === 'approved') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
+    if (key === 'pending') return 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400'
+    if (key === 'rejected') return 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400'
+    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-500/20 dark:text-zinc-300'
+}
+
+function pageUrl(page) {
+    const next = new URLSearchParams()
+    Object.entries(props.filters || {}).forEach(([key, value]) => {
+        if (value !== null && value !== undefined && `${value}` !== '') {
+            next.set(key, `${value}`)
+        }
+    })
+    next.set('page', `${Math.max(1, Number(page || 1))}`)
+    return `/clicks/conversion?${next.toString()}`
+}
 </script>

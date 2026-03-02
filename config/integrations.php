@@ -53,6 +53,11 @@ return [
 
         // Chunk size for batch upsert
         'upsert_chunk_size' => (int) env('SYNC_UPSERT_CHUNK', 500),
+
+        // Aggregate click job dedupe / overlap lock settings
+        'aggregate_unique_for_seconds' => (int) env('SYNC_AGGREGATE_UNIQUE_FOR', 900),
+        'aggregate_lock_release_after_seconds' => (int) env('SYNC_AGGREGATE_LOCK_RELEASE_AFTER', 15),
+        'aggregate_lock_expire_after_seconds' => (int) env('SYNC_AGGREGATE_LOCK_EXPIRE_AFTER', 300),
     ],
 
     /*

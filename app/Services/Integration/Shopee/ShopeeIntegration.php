@@ -21,10 +21,11 @@ class ShopeeIntegration extends BaseIntegration
     private const COOKIE_CLICK_REPORT_ENDPOINT = 'https://affiliate.shopee.vn/api/v1/click_report/list';
     private const COOKIE_BILLING_LIST_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/payment/billing_list';
     private const GQL_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/gql';
-    
+
     // Referers
     private const COOKIE_DASHBOARD_REFERER = 'https://affiliate.shopee.vn/dashboard';
     private const COOKIE_CONVERSION_REFERER = 'https://affiliate.shopee.vn/report/conversion_report';
+    private const COOKIE_CLICK_REPORT_REFERER = 'https://affiliate.shopee.vn/report/click_report';
     private const GQL_CAMPAIGN_REFERER = 'https://affiliate.shopee.vn/campaign/campaign_list';
     private const COOKIE_BILLING_REFERER = 'https://affiliate.shopee.vn/payment/billing';
     private const GQL_PAYMENT_PAYOUT_REFERER = 'https://affiliate.shopee.vn/payment/payout_record';
@@ -151,46 +152,117 @@ class ShopeeIntegration extends BaseIntegration
 
     public function testConnection(PlatformConnection $connection): bool
     {
+        $result = $this->testConnectionDetailed($connection);
+
+        return (bool) ($result['valid'] ?? false);
+    }
+
+    /**
+     * @return array{
+     *   valid: bool,
+     *   checks: array{
+     *     dashboard: array{ok: bool, status: int, code: int|null, message: string},
+     *     conversion_report: array{ok: bool, status: int, code: int|null, message: string},
+     *     click_report: array{ok: bool, status: int, code: int|null, message: string}
+     *   },
+     *   message: string
+     * }
+     */
+    public function testConnectionDetailed(PlatformConnection $connection): array
+    {
         if ($connection->method === 'portal_export') {
             if ($connection->status !== 'active') {
                 $connection->update(['status' => 'active']);
             }
-            return true;
+            return [
+                'valid' => true,
+                'checks' => [],
+                'message' => 'Portal export connection is active.',
+            ];
         }
 
         if ($connection->method === 'cookie') {
             try {
-                $headers = $this->buildCookieHeaders($connection, self::COOKIE_DASHBOARD_REFERER);
+                $start = now()->startOfDay()->timestamp;
+                $end = now()->endOfDay()->timestamp;
 
-                $response = Http::withHeaders($headers)->timeout(15)->get(self::COOKIE_DASHBOARD_ENDPOINT, [
-                    'start_time' => now()->startOfDay()->timestamp,
-                    'end_time' => now()->endOfDay()->timestamp,
-                ]);
+                $checks = [
+                    'dashboard' => $this->probeCookieEndpoint(
+                        connection: $connection,
+                        endpoint: self::COOKIE_DASHBOARD_ENDPOINT,
+                        referer: self::COOKIE_DASHBOARD_REFERER,
+                        query: ['start_time' => $start, 'end_time' => $end]
+                    ),
+                    'conversion_report' => $this->probeCookieEndpoint(
+                        connection: $connection,
+                        endpoint: self::COOKIE_REPORT_ENDPOINT,
+                        referer: self::COOKIE_CONVERSION_REFERER,
+                        query: [
+                            'page_size' => 1,
+                            'page_num' => 1,
+                            'purchase_time_s' => $start,
+                            'purchase_time_e' => $end,
+                            'version' => 1,
+                        ]
+                    ),
+                    'click_report' => $this->probeCookieEndpoint(
+                        connection: $connection,
+                        endpoint: self::COOKIE_CLICK_REPORT_ENDPOINT,
+                        referer: self::COOKIE_CLICK_REPORT_REFERER,
+                        query: [
+                            'page_size' => 1,
+                            'page_num' => 1,
+                            'click_time_s' => $start,
+                            'click_time_e' => $end,
+                            'version' => 1,
+                        ]
+                    ),
+                ];
 
-                $valid = $response->successful() && (int) $response->json('code') === 0;
+                $valid = collect($checks)->contains(static fn (array $check): bool => $check['ok'] === true);
+                $failedChecks = collect($checks)
+                    ->filter(static fn (array $check): bool => $check['ok'] === false)
+                    ->map(static fn (array $check, string $name): string => "{$name}: {$check['message']}")
+                    ->values()
+                    ->all();
 
                 if ($valid) {
+                    $warning = $failedChecks !== []
+                        ? mb_substr('Partial cookie validation: ' . implode(' | ', $failedChecks), 0, 500)
+                        : null;
+
                     $connection->update([
                         'status' => 'active',
                         'cookie_validated_at' => now(),
-                        'last_error' => null,
-                        'last_error_at' => null,
+                        'last_error' => $warning,
+                        'last_error_at' => $warning !== null ? now() : null,
                     ]);
 
-                    return true;
+                    return [
+                        'valid' => true,
+                        'checks' => $checks,
+                        'message' => $warning !== null
+                            ? 'Cookie is usable, but some endpoints failed.'
+                            : 'Connection valid.',
+                    ];
                 }
 
-                $isUnauthorized = in_array($response->status(), [401, 403], true);
+                $failureMessage = 'Cookie test failed for all probes: ' . implode(' | ', $failedChecks);
+                $this->markCookieAuthFailure($connection, mb_substr($failureMessage, 0, 500));
 
-                if ($isUnauthorized) {
-                    $this->markCookieAuthFailure($connection, 'Cookie session is expired or unauthorized.');
-                }
-
-                return false;
+                return [
+                    'valid' => false,
+                    'checks' => $checks,
+                    'message' => $failureMessage,
+                ];
             } catch (RuntimeException $e) {
                 if (str_contains(strtolower($e->getMessage()), 'missing cookie')) {
                     $this->markCookieAuthFailure($connection, 'Missing cookie credentials.');
-                    return false;
+                    return [
+                        'valid' => false,
+                        'checks' => [],
+                        'message' => 'Missing cookie credentials.',
+                    ];
                 }
 
                 throw $e;
@@ -202,17 +274,72 @@ class ShopeeIntegration extends BaseIntegration
 
                 $this->markCookieAuthFailure($connection, 'Cookie connection test failed.');
 
-                return false;
+                return [
+                    'valid' => false,
+                    'checks' => [],
+                    'message' => 'Cookie connection test failed.',
+                ];
             }
         }
 
         try {
             // Use a minimal query to verify credentials (open_api)
             $this->graphql($connection, '{ __typename }');
-            return true;
-        } catch (RuntimeException) {
-            return false;
+            return [
+                'valid' => true,
+                'checks' => [],
+                'message' => 'Connection valid.',
+            ];
+        } catch (RuntimeException $e) {
+            return [
+                'valid' => false,
+                'checks' => [],
+                'message' => $e->getMessage(),
+            ];
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $query
+     * @return array{ok: bool, status: int, code: int|null, message: string}
+     */
+    private function probeCookieEndpoint(
+        PlatformConnection $connection,
+        string $endpoint,
+        string $referer,
+        array $query = []
+    ): array {
+        $headers = $this->buildCookieHeaders($connection, $referer);
+        $response = Http::withHeaders($headers)->timeout(15)->get($endpoint, $query);
+        $payload = $response->json();
+
+        $code = null;
+        if (is_array($payload)) {
+            $rawCode = $payload['code'] ?? $payload['error'] ?? null;
+            if (is_numeric($rawCode)) {
+                $code = (int) $rawCode;
+            }
+        }
+
+        $message = '';
+        if (is_array($payload)) {
+            $message = (string) ($payload['msg'] ?? $payload['message'] ?? $payload['error'] ?? '');
+        }
+
+        if ($message === '') {
+            $message = "HTTP {$response->status()}";
+        }
+
+        $isOk = $response->successful()
+            && ($code === null || $code === 0)
+            && !(is_array($payload) && array_key_exists('error', $payload));
+
+        return [
+            'ok' => $isOk,
+            'status' => $response->status(),
+            'code' => $code,
+            'message' => $isOk ? 'OK' : $message,
+        ];
     }
 
     public function fetchReport(PlatformConnection $connection, Carbon $since, Carbon $until): array
@@ -282,7 +409,6 @@ class ShopeeIntegration extends BaseIntegration
 
             $hasNext = $pageInfo['hasNextPage'] ?? false;
             $page++;
-
         } while ($hasNext && $page <= 200); // Safety cap
 
         return $allOrders;
@@ -481,6 +607,10 @@ class ShopeeIntegration extends BaseIntegration
             return 'click_report';
         }
 
+        if (str_contains($normalized, '/dashboard')) {
+            return 'dashboard';
+        }
+
         if (str_contains($normalized, '/campaign/campaign_list')) {
             return 'campaign_list';
         }
@@ -513,11 +643,11 @@ class ShopeeIntegration extends BaseIntegration
 
         $profiles = is_array($decoded['profiles'] ?? null) ? $decoded['profiles'] : [];
         $required = ['billing', 'payout_record', 'service_fee_invoice'];
-        $missing = array_values(array_filter($required, static fn (string $key): bool => ! is_array($profiles[$key] ?? null)));
+        $missing = array_values(array_filter($required, static fn(string $key): bool => ! is_array($profiles[$key] ?? null)));
 
         if ($missing !== []) {
             throw new RuntimeException(
-                'Thiếu cURL profile cho Finance: '.implode(', ', $missing).'. Vui lòng mở đúng 3 trang billing/payout_record/service_fee_invoice và cập nhật lại kết nối.'
+                'Thiếu cURL profile cho Finance: ' . implode(', ', $missing) . '. Vui lòng mở đúng 3 trang billing/payout_record/service_fee_invoice và cập nhật lại kết nối.'
             );
         }
     }
@@ -588,9 +718,13 @@ GRAPHQL;
                 throw new RuntimeException('Shopee cookie campaign API returned invalid payload.');
             }
 
-            $code = $payload['code'] ?? 0;
+            $code = $payload['code'] ?? $payload['error'] ?? 0;
             if (is_numeric($code) && (int) $code !== 0) {
                 $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
+                if ((int) $code === 90309999 || in_array((int) $code, [401, 403], true)) {
+                    $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
+                    throw new RuntimeException("Cookie authentication failed ({$code}).");
+                }
                 throw new RuntimeException("Shopee cookie campaign API returned code {$code}: {$message}");
             }
 
@@ -709,7 +843,7 @@ GRAPHQL;
         $maxPages = 100; // max 10k clicks per sync window
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::COOKIE_CONVERSION_REFERER);
+            $headers = $this->buildCookieHeaders($connection, self::COOKIE_CLICK_REPORT_REFERER);
             $response = Http::withHeaders($headers)
                 ->timeout(30)
                 ->get(self::COOKIE_CLICK_REPORT_ENDPOINT, [
@@ -811,7 +945,7 @@ GRAPHQL;
         foreach ($candidates as $path) {
             $value = $this->getValueByPath($payload, $path);
             if (is_array($value) && array_is_list($value)) {
-                return array_values(array_filter($value, static fn ($item): bool => is_array($item)));
+                return array_values(array_filter($value, static fn($item): bool => is_array($item)));
             }
         }
 
@@ -835,7 +969,7 @@ GRAPHQL;
         foreach ($candidates as $path) {
             $value = $this->getValueByPath($payload, $path);
             if (is_array($value) && array_is_list($value)) {
-                return array_values(array_filter($value, static fn ($item): bool => is_array($item)));
+                return array_values(array_filter($value, static fn($item): bool => is_array($item)));
             }
         }
 
@@ -917,7 +1051,7 @@ GRAPHQL;
             'createTime',
             'ordered_at',
             'order.ordered_at',
-                'order_info.purchase_time',
+            'order_info.purchase_time',
         ])) ?? now();
 
         $approvedAt = null;
@@ -998,7 +1132,7 @@ GRAPHQL;
         }
 
         $mapped = [];
-        $orderCount = count(array_filter($orders, static fn ($order): bool => is_array($order)));
+        $orderCount = count(array_filter($orders, static fn($order): bool => is_array($order)));
         $singleOrderRow = $orderCount <= 1;
 
         foreach ($orders as $order) {
@@ -1230,11 +1364,11 @@ GRAPHQL;
             'conversion_status' => $this->firstValueByPaths($row, ['conversion_status']),
             'checkout_status' => $this->firstValueByPaths($row, ['checkout_status']),
             'cancel_reason' => $this->firstValueByPaths($order, ['cancel_reason']),
-            'affiliate_item_statuses' => array_values(array_filter(array_unique($affiliateItemStatuses), static fn ($value): bool => $value !== null && $value !== '')),
-            'item_statuses' => array_values(array_filter(array_unique($itemStatuses), static fn ($value): bool => $value !== null && $value !== '')),
-            'fraud_statuses' => array_values(array_filter(array_unique($fraudStatuses), static fn ($value): bool => $value !== null && $value !== '')),
-            'fraud_reasons' => array_values(array_filter(array_unique($fraudReasons), static fn ($value): bool => $value !== null && trim((string) $value) !== '')),
-        ], static fn ($value): bool => !($value === null || $value === '' || $value === []));
+            'affiliate_item_statuses' => array_values(array_filter(array_unique($affiliateItemStatuses), static fn($value): bool => $value !== null && $value !== '')),
+            'item_statuses' => array_values(array_filter(array_unique($itemStatuses), static fn($value): bool => $value !== null && $value !== '')),
+            'fraud_statuses' => array_values(array_filter(array_unique($fraudStatuses), static fn($value): bool => $value !== null && $value !== '')),
+            'fraud_reasons' => array_values(array_filter(array_unique($fraudReasons), static fn($value): bool => $value !== null && trim((string) $value) !== '')),
+        ], static fn($value): bool => !($value === null || $value === '' || $value === []));
 
         return [
             'external_order_id' => $externalOrderId !== '' ? $externalOrderId : null,
@@ -1386,7 +1520,7 @@ GRAPHQL;
             ]))
             : 0.0;
 
-        $candidates = array_filter([$itemAmount, $orderAmount, $rowAmount], static fn (float $value): bool => $value > 0);
+        $candidates = array_filter([$itemAmount, $orderAmount, $rowAmount], static fn(float $value): bool => $value > 0);
         if ($candidates === []) {
             return 0.0;
         }
@@ -1437,7 +1571,7 @@ GRAPHQL;
             ]))
             : 0.0;
 
-        $candidates = array_filter([$itemListedAmount, $orderListedAmount, $rowListedAmount], static fn (float $value): bool => $value > 0);
+        $candidates = array_filter([$itemListedAmount, $orderListedAmount, $rowListedAmount], static fn(float $value): bool => $value > 0);
         if ($candidates === []) {
             return 0.0;
         }
@@ -1739,7 +1873,7 @@ GRAPHQL;
             'shopId'        => isset($filters['shopId']) ? (int) $filters['shopId'] : null,
             'itemId'        => isset($filters['itemId']) ? (int) $filters['itemId'] : null,
             'productCatId'  => isset($filters['productCatId']) ? (int) $filters['productCatId'] : null,
-        ], fn ($v) => $v !== null);
+        ], fn($v) => $v !== null);
 
         $result = $this->graphql($connection, $query, $variables);
 
@@ -2123,7 +2257,7 @@ GRAPHQL;
                 }
 
                 $invoiceList = is_array($row['paymentSummaryBillFeeInvoices'] ?? null)
-                    ? array_values(array_filter($row['paymentSummaryBillFeeInvoices'], static fn ($invoice): bool => is_array($invoice)))
+                    ? array_values(array_filter($row['paymentSummaryBillFeeInvoices'], static fn($invoice): bool => is_array($invoice)))
                     : [];
                 $primaryInvoice = $invoiceList[0] ?? [];
 

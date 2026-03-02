@@ -49,6 +49,52 @@ class TrackingLinkRepository extends BaseRepository implements TrackingLinkRepos
             ->increment('clicks_count');
     }
 
+    /**
+     * @param  list<int>  $linkIds
+     */
+    public function recomputeClicksCountBulk(array $linkIds): int
+    {
+        $ids = array_values(array_unique(array_map('intval', array_filter($linkIds, static fn ($id): bool => (int) $id > 0))));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $driver = DB::getDriverName();
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $sql = <<<SQL
+UPDATE tracking_links tl
+LEFT JOIN (
+    SELECT tracking_link_id, COUNT(*) as cnt
+    FROM clicks
+    WHERE tracking_link_id IN ({$placeholders})
+    GROUP BY tracking_link_id
+) c ON c.tracking_link_id = tl.id
+SET tl.clicks_count = COALESCE(c.cnt, 0)
+WHERE tl.id IN ({$placeholders})
+SQL;
+
+            return DB::update($sql, array_merge($ids, $ids));
+        }
+
+        // SQLite / PostgreSQL fallback with a single atomic UPDATE statement.
+        $sql = <<<SQL
+UPDATE tracking_links
+SET clicks_count = COALESCE(
+    (
+        SELECT COUNT(*)
+        FROM clicks
+        WHERE clicks.tracking_link_id = tracking_links.id
+    ),
+    0
+)
+WHERE id IN ({$placeholders})
+SQL;
+
+        return DB::update($sql, $ids);
+    }
+
     public function listForScope(?array $scopeUserIds, array $filters = []): LengthAwarePaginator
     {
         $useRangeMetrics = $this->hasDateRangeFilter($filters);

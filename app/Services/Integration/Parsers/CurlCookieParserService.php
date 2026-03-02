@@ -177,6 +177,10 @@ class CurlCookieParserService
             return 'click_report';
         }
 
+        if (str_contains($haystack, '/dashboard') || str_contains($haystack, '/api/v3/dashboard/detail')) {
+            return 'dashboard';
+        }
+
         if (str_contains($haystack, '/campaign/campaign_list') || str_contains($haystack, 'affiliatecampaigndetaillist')) {
             return 'campaign_list';
         }

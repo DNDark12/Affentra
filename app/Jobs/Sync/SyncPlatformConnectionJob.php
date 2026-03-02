@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs\Sync;
 
+use App\Jobs\Tracking\AggregateDailyClicksJob;
 use App\Models\PlatformConnection;
 use App\Models\SyncRun;
 use App\Services\Clicks\ClickAnalyticsService;
@@ -86,36 +87,134 @@ class SyncPlatformConnectionJob implements ShouldQueue
 
             $until = now();
 
-            // Fetch orders from API
-            $orders = $adapter->fetchReport($connection, $since, $until);
-
-            // Fetch clicks from API
+            $orders = [];
             $clicks = [];
-            if (method_exists($adapter, 'fetchClickReport')) {
+
+            $warnings = [];
+            $segmentsPassed = [];
+            $segmentsFailed = [];
+
+            // Fetch orders from API (independent segment)
+            try {
+                $orders = $adapter->fetchReport($connection, $since, $until);
+                $segmentsPassed[] = 'orders';
+            } catch (\Throwable $e) {
+                $segmentsFailed[] = 'orders';
+                $warnings[] = 'orders: ' . $e->getMessage();
+                Log::warning('SyncPlatformConnectionJob fetch orders failed', [
+                    'connection_id' => $this->connectionId,
+                    'platform' => $connection->platform,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // Fetch clicks from API (independent segment)
+            try {
                 $clicks = $adapter->fetchClickReport($connection, $since, $until);
+                $segmentsPassed[] = 'clicks';
+            } catch (\Throwable $e) {
+                $segmentsFailed[] = 'clicks';
+                $warnings[] = 'clicks: ' . $e->getMessage();
+                Log::warning('SyncPlatformConnectionJob fetch clicks failed', [
+                    'connection_id' => $this->connectionId,
+                    'platform' => $connection->platform,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            if ($segmentsPassed === []) {
+                throw new \RuntimeException(
+                    mb_substr('All fetch segments failed. ' . implode(' | ', $warnings), 0, 500)
+                );
             }
 
             $syncRun->update(['records_fetched' => count($orders) + count($clicks)]);
 
-            // Upsert via OrderService (chunk + idempotent)
-            $orderResult = $orderService->upsertFromApiSync($connection, $orders);
-            
-            // Upsert Clicks
-            $clickResult = $clickAnalyticsService->upsertFromApiSync($connection, $clicks, $since, $until);
+            $orderResult = ['upserted' => 0, 'failed' => 0];
+            $clickResult = [
+                'upserted' => 0,
+                'failed' => 0,
+                'deleted' => 0,
+                'matched' => 0,
+                'unattributed' => 0,
+                'affected_link_ids' => [],
+                'min_date' => null,
+                'max_date' => null,
+            ];
+            $ordersUpsertedSuccessfully = false;
+            $clicksUpsertedSuccessfully = false;
+
+            if ($segmentsPassed !== [] && ! in_array('orders', $segmentsFailed, true)) {
+                try {
+                    $orderResult = $orderService->upsertFromApiSync($connection, $orders);
+                    $ordersUpsertedSuccessfully = true;
+                } catch (\Throwable $e) {
+                    $segmentsFailed[] = 'orders_upsert';
+                    $warnings[] = 'orders_upsert: ' . $e->getMessage();
+                    Log::warning('SyncPlatformConnectionJob upsert orders failed', [
+                        'connection_id' => $this->connectionId,
+                        'platform' => $connection->platform,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            if ($segmentsPassed !== [] && ! in_array('clicks', $segmentsFailed, true)) {
+                try {
+                    $clickResult = $clickAnalyticsService->upsertFromApiSync($connection, $clicks, $since, $until);
+                    $clicksUpsertedSuccessfully = true;
+
+                    if (
+                        ! empty($clickResult['min_date'])
+                        && ! empty($clickResult['max_date'])
+                        && (((int) ($clickResult['upserted'] ?? 0)) > 0 || ((int) ($clickResult['deleted'] ?? 0)) > 0)
+                    ) {
+                        AggregateDailyClicksJob::dispatch(
+                            platform: $connection->platform,
+                            minDate: (string) $clickResult['min_date'],
+                            maxDate: (string) $clickResult['max_date'],
+                        )->onQueue('sync');
+                    }
+                } catch (\Throwable $e) {
+                    $segmentsFailed[] = 'clicks_upsert';
+                    $warnings[] = 'clicks_upsert: ' . $e->getMessage();
+                    Log::warning('SyncPlatformConnectionJob upsert clicks failed', [
+                        'connection_id' => $this->connectionId,
+                        'platform' => $connection->platform,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            if (! $ordersUpsertedSuccessfully && ! $clicksUpsertedSuccessfully) {
+                throw new \RuntimeException(
+                    mb_substr('All upsert segments failed. ' . implode(' | ', $warnings), 0, 500)
+                );
+            }
+
+            $status = $warnings === [] ? 'completed' : 'completed_with_warnings';
+            $errorMessage = $warnings === [] ? null : mb_substr(implode(' | ', $warnings), 0, 1000);
+            $failedSegmentsCount = count(array_unique($segmentsFailed));
+            $recordsFailed = (int) ($orderResult['failed'] ?? 0)
+                + (int) ($clickResult['failed'] ?? 0)
+                + $failedSegmentsCount;
 
             // Update sync run with results
             $syncRun->update([
-                'status'           => 'completed',
+                'status'           => $status,
                 'records_upserted' => ($orderResult['upserted'] ?? 0) + ($clickResult['upserted'] ?? 0),
-                'records_failed'   => ($orderResult['failed'] ?? 0) + ($clickResult['failed'] ?? 0),
+                'records_failed'   => $recordsFailed,
+                'error_message'    => $errorMessage,
                 'finished_at'      => now(),
             ]);
 
             // Update connection state
             $connection->update([
                 'last_sync_at'     => now(),
-                'last_sync_status' => 'completed',
+                'last_sync_status' => $status,
                 'status'           => 'active',
+                'last_error'       => $errorMessage,
+                'last_error_at'    => $errorMessage !== null ? now() : null,
             ]);
 
             Log::info('SyncPlatformConnectionJob completed', [
@@ -123,6 +222,10 @@ class SyncPlatformConnectionJob implements ShouldQueue
                 'platform'      => $connection->platform,
                 'fetched'       => count($orders) + count($clicks),
                 'upserted'      => ($orderResult['upserted'] ?? 0) + ($clickResult['upserted'] ?? 0),
+                'status'        => $status,
+                'segments_passed' => $segmentsPassed,
+                'segments_failed' => $segmentsFailed,
+                'warnings'      => $warnings,
             ]);
 
         } catch (\RuntimeException $e) {
