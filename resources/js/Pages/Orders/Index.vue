@@ -415,7 +415,6 @@ async function submitImport() {
 }
 
 function startPolling(syncRunId) {
-    // Set initial mock state to switch UI view
     importProgress.value = {
         status: 'pending',
         records_fetched: 0,
@@ -494,8 +493,8 @@ function attributionSource(order) {
 function attributionReason(order) {
     const source = attributionSource(order);
     const labels = {
-        sub_id: 'Matched theo Sub ID',
-        product_key: 'Matched theo sản phẩm',
+        sub_id: 'Khớp theo Sub ID',
+        product_key: 'Khớp theo sản phẩm',
         auto_link: 'Tự tạo link từ dữ liệu order',
         missing_sub_id: 'Shopee không trả Sub ID',
         ambiguous_product: 'Trùng nhiều link cùng sản phẩm',

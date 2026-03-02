@@ -71,13 +71,12 @@ class ProfileControllerTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHasNoErrors();
 
-        $this->assertDatabaseHas('user_profiles', [
-            'user_id'             => $user->id,
-            'bank_code'           => 'TCB',
-            'bank_name'           => 'Techcombank',
-            'bank_account_name'   => 'New Name',
-            'bank_account_number' => '0987654321',
-            'is_payout_ready'     => 0,
-        ]);
+        $profile = UserProfile::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame('TCB', $profile->bank_code);
+        $this->assertSame('Techcombank', $profile->bank_name);
+        $this->assertSame('New Name', $profile->bank_account_name);
+        $this->assertSame('0987654321', $profile->bank_account_number);
+        $this->assertFalse((bool) $profile->is_payout_ready);
+        $this->assertSame('pending', $profile->payout_review_status->value);
     }
 }

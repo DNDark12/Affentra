@@ -29,17 +29,17 @@
                 style="border-color: var(--warning-text); background: var(--warning-bg)"
             >
                 <p class="text-xs font-semibold" style="color: var(--warning-text)">
-                    Có dữ liệu chưa gắn đúng tracking link.
+                    Có dữ liệu chưa được gắn đúng tracking link.
                 </p>
                 <p class="text-xs mt-0.5" style="color: var(--text-secondary)">
-                    Click chưa gắn: {{ fmtNum(summary.unattributed_clicks || 0) }} ·
-                    Đơn chưa gắn: {{ fmtNum(summary.unattributed_orders || 0) }}
+                    Click chưa gắn link: {{ fmtNum(summary.unattributed_clicks || 0) }} ·
+                    Đơn chưa gắn link: {{ fmtNum(summary.unattributed_orders || 0) }}
                 </p>
                 <p v-if="unattributedClickReasonText" class="text-xs mt-0.5" style="color: var(--text-secondary)">
-                    Click reason: {{ unattributedClickReasonText }}
+                    Nguyên nhân click: {{ unattributedClickReasonText }}
                 </p>
                 <p v-if="unattributedOrderReasonText" class="text-xs mt-0.5" style="color: var(--text-secondary)">
-                    Order reason: {{ unattributedOrderReasonText }}
+                    Nguyên nhân đơn: {{ unattributedOrderReasonText }}
                 </p>
             </div>
 

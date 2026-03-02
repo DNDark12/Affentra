@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Partners\ListPartnersRequest;
 use App\Http\Requests\Partners\StorePartnerRequest;
 use App\Models\User;
 use App\Services\Partner\PartnerService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,15 +19,17 @@ class PartnerController extends Controller
         private readonly PartnerService $partnerService,
     ) {}
 
-    public function index(Request $request): Response
+    public function index(ListPartnersRequest $request): Response
     {
         /** @var User $auth */
         $auth = $request->user();
 
         Gate::authorize('viewAny', User::class);
 
+        $filters = $request->filters();
+
         $partnerData = $this->partnerService
-            ->listForManager($auth, $request->only(['search']))
+            ->listForManager($auth, $filters)
             ->through(function (User $u) {
                 return [
                     'id'                    => $u->id,
@@ -40,10 +42,12 @@ class PartnerController extends Controller
                     'status'                => $u->status,
                 ];
             });
+        $summary = $this->partnerService->summaryForManager($auth, $filters);
 
         return Inertia::render('Partners/Index', [
             'partners' => $partnerData,
-            'filters'  => $request->only(['search']),
+            'summary'  => $summary,
+            'filters'  => $filters,
         ]);
     }
 

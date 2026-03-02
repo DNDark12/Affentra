@@ -10,11 +10,16 @@ use App\Jobs\Sync\SyncShopeeCampaignsForConnectionJob;
 use App\Models\PlatformConnection;
 use App\Models\SyncRun;
 use App\Models\User;
+use App\Services\Audit\AuditLogger;
 use Illuminate\Database\Eloquent\Collection;
 use RuntimeException;
 
 class IntegrationService
 {
+    public function __construct(
+        private readonly AuditLogger $auditLogger,
+    ) {}
+
     /**
      * @return list<string>
      */
@@ -178,7 +183,17 @@ class IntegrationService
             throw new RuntimeException('Cookie credentials are required for Cookie method.');
         }
 
-        return $user->platformConnections()->create($payload);
+        $connection = $user->platformConnections()->create($payload);
+
+        $this->auditLogger->log(
+            actor: $user,
+            action: 'integration.connection.create',
+            target: $connection,
+            previousState: null,
+            newState: $this->snapshotConnection($connection),
+        );
+
+        return $connection;
     }
 
     /**
@@ -188,6 +203,7 @@ class IntegrationService
      */
     public function updateConnection(User $actor, PlatformConnection $connection, array $data): bool
     {
+        $previousState = $this->snapshotConnection($connection);
         $payload = [];
         $targetMethod = $data['method'] ?? $connection->method;
 
@@ -270,12 +286,39 @@ class IntegrationService
             return false;
         }
 
-        return $connection->update($payload);
+        $updated = $connection->update($payload);
+
+        if ($updated) {
+            $connection->refresh();
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'integration.connection.update',
+                target: $connection,
+                previousState: $previousState,
+                newState: $this->snapshotConnection($connection),
+            );
+        }
+
+        return $updated;
     }
 
-    public function removeConnection(PlatformConnection $connection): bool
+    public function removeConnection(PlatformConnection $connection, ?User $actor = null): bool
     {
-        return (bool) $connection->delete();
+        $previousState = $this->snapshotConnection($connection);
+        $deleted = (bool) $connection->delete();
+
+        if ($deleted) {
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'integration.connection.delete',
+                target: PlatformConnection::class,
+                targetId: (int) ($previousState['id'] ?? 0),
+                previousState: $previousState,
+                newState: null,
+            );
+        }
+
+        return $deleted;
     }
 
     public function canManageConnections(User $user): bool
@@ -361,6 +404,18 @@ class IntegrationService
         if ($connection->platform === 'shopee') {
             SyncShopeeCampaignsForConnectionJob::dispatch($connection->id, 'manual')->onQueue('sync');
         }
+
+        $this->auditLogger->log(
+            actor: $actor,
+            action: 'integration.sync.manual_dispatch',
+            target: $connection,
+            previousState: null,
+            newState: [
+                'sync_run_id' => $syncRun->id,
+                'sync_status' => $syncRun->status,
+                'trigger' => 'manual',
+            ],
+        );
 
         return $syncRun;
     }
@@ -487,5 +542,23 @@ class IntegrationService
         }
 
         return $capabilities;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function snapshotConnection(PlatformConnection $connection): array
+    {
+        return [
+            'id' => $connection->id,
+            'user_id' => $connection->user_id,
+            'platform' => $connection->platform,
+            'label' => $connection->label,
+            'method' => $connection->method,
+            'status' => $connection->status,
+            'sync_mode' => $connection->sync_mode,
+            'cookie_source' => $connection->cookie_source,
+            'last_sync_status' => $connection->last_sync_status,
+        ];
     }
 }

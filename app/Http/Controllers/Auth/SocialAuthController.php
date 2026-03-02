@@ -4,16 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Auth;
 
-use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Http\Controllers\Controller;
-use App\Models\User;
-use App\Models\UserIdentity;
 use App\Services\Auth\AuthService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Facades\Socialite;
 
 class SocialAuthController extends Controller
@@ -41,20 +37,18 @@ class SocialAuthController extends Controller
 
         $user = $this->authService->handleSocialiteUser($googleUser, 'google');
 
-        Auth::login($user, true);
-
         if ($user->status !== UserStatus::Active) {
-            $this->authService->logout($request);
+            $flashKey = $user->status === UserStatus::Pending ? 'status' : 'error';
 
             return redirect()->route('login')->with(
-                'error',
+                $flashKey,
                 $this->authService->inactiveStatusMessage($user->status)
             );
         }
 
+        Auth::login($user, true);
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard'));
     }
 }
-

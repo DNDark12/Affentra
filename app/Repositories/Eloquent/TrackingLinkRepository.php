@@ -377,13 +377,27 @@ SQL;
             $ordersExpr = $useRangeMetrics
                 ? 'COALESCE(metrics.metric_orders, 0)'
                 : 'COALESCE(metrics.metric_orders, tracking_links.orders_count)';
+            $commissionExpr = 'COALESCE(metrics.metric_commission, 0)';
 
             if ($preset === 'underperforming') {
-                $query->whereRaw("{$clicksExpr} > 0")->whereRaw("{$ordersExpr} = 0");
+                $minClicks = (int) config('tracking.presets.underperforming.min_clicks', 100);
+                $maxOrderRate = (float) config('tracking.presets.underperforming.max_order_rate', 0.01);
+
+                $query
+                    ->whereRaw("{$clicksExpr} >= ?", [$minClicks])
+                    ->whereRaw(
+                        "CASE WHEN {$clicksExpr} = 0 THEN 0 ELSE ({$ordersExpr} * 1.0 / {$clicksExpr}) END <= ?",
+                        [$maxOrderRate],
+                    );
             }
 
             if ($preset === 'top_performing') {
-                $query->whereRaw("{$ordersExpr} > 0");
+                $minOrders = (int) config('tracking.presets.top_performing.min_orders', 1);
+                $minCommission = (float) config('tracking.presets.top_performing.min_commission', 50000);
+
+                $query
+                    ->whereRaw("{$ordersExpr} >= ?", [$minOrders])
+                    ->whereRaw("{$commissionExpr} >= ?", [$minCommission]);
             }
         }
     }
@@ -474,15 +488,15 @@ SQL;
     private function attributionReasonLabel(string $reason): string
     {
         return match ($reason) {
-            'sub_id' => 'Matched theo Sub ID',
-            'item_id' => 'Matched theo Item ID',
-            'product_key' => 'Matched theo sản phẩm',
+            'sub_id' => 'Khớp theo Sub ID',
+            'item_id' => 'Khớp theo Item ID',
+            'product_key' => 'Khớp theo sản phẩm',
             'auto_link' => 'Tự tạo link từ dữ liệu order',
             'missing_sub_id' => 'Shopee không trả Sub ID',
             'ambiguous_product' => 'Trùng nhiều link cùng sản phẩm',
             'unmatched_product' => 'Không tìm thấy link theo sản phẩm',
             'direct' => 'Không có tín hiệu attribution từ Shopee',
-            'none' => 'Không có sub_id/item_id',
+            'none' => 'Shopee không trả Sub ID/Item ID',
             default => 'Không xác định',
         };
     }

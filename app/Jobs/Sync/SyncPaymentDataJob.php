@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -43,6 +44,16 @@ class SyncPaymentDataJob implements ShouldQueue
         IntegrationFactory $factory,
         AffiliatePaymentService $paymentService
     ): void {
+        $lockTtlSeconds = max(300, (int) config('integrations.sync.lock_ttl_seconds', 900));
+        $lock = Cache::lock('sync:payment_connection:' . $this->platformConnection->id, $lockTtlSeconds);
+        if (! $lock->get()) {
+            Log::info('payment_sync.skipped_locked', [
+                'platform_connection_id' => $this->platformConnection->id,
+            ]);
+
+            return;
+        }
+
         $adapter = $factory->make($this->platformConnection->platform);
         
         $syncRun = SyncRun::create([
@@ -191,6 +202,8 @@ class SyncPaymentDataJob implements ShouldQueue
             ]);
 
             throw $e;
+        } finally {
+            optional($lock)->release();
         }
     }
 

@@ -6,13 +6,14 @@ namespace App\Services\TrackingLink;
 
 use App\Contracts\Repositories\CampaignRepositoryInterface;
 use App\Contracts\Repositories\TrackingLinkRepositoryInterface;
-use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Enums\LinkStatus;
 use App\Enums\Platform;
 use App\Models\DailyStat;
 use App\Models\TrackingLink;
 use App\Support\TrackingLinkIdentity;
 use App\Models\User;
+use App\Services\Audit\AuditLogger;
+use App\Services\Scope\ScopeResolver;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
@@ -25,7 +26,8 @@ class TrackingLinkService
     public function __construct(
         private readonly TrackingLinkRepositoryInterface $trackingLinkRepository,
         private readonly CampaignRepositoryInterface $campaignRepository,
-        private readonly UserRepositoryInterface $userRepository,
+        private readonly ScopeResolver $scopeResolver,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     /**
@@ -36,7 +38,7 @@ class TrackingLinkService
     public function listForUser(User $user, array $filters = []): LengthAwarePaginator
     {
         $normalized = $this->normalizeFilters($filters);
-        $scopeUserIds = $this->resolveScopeUserIds($user);
+        $scopeUserIds = $this->scopeResolver->resolveVisibleUserIds($user);
         $startedAt = hrtime(true);
 
         $links = $this->trackingLinkRepository->listForScope($scopeUserIds, $normalized);
@@ -69,7 +71,7 @@ class TrackingLinkService
      */
     public function summarizeForUser(User $user, array $filters = []): array
     {
-        $scopeUserIds = $this->resolveScopeUserIds($user);
+        $scopeUserIds = $this->scopeResolver->resolveVisibleUserIds($user);
         $normalizedFilters = $this->normalizeFilters($filters);
 
         $totals = $this->trackingLinkRepository->aggregateCountersForScope(
@@ -94,7 +96,7 @@ class TrackingLinkService
     {
         $link = $this->trackingLinkRepository->findByIdForScope(
             id: $trackingLinkId,
-            scopeUserIds: $this->resolveScopeUserIds($user),
+            scopeUserIds: $this->scopeResolver->resolveVisibleUserIds($user),
         );
 
         if ($link === null) {
@@ -224,6 +226,14 @@ class TrackingLinkService
         $data['status']   = LinkStatus::Active;
         $created = $this->trackingLinkRepository->createLink($data);
 
+        $this->auditLogger->log(
+            actor: $user,
+            action: 'tracking_link.create',
+            target: $created,
+            previousState: null,
+            newState: $this->snapshotTrackingLink($created),
+        );
+
         Log::info('tracking_links.created', [
             'actor_id' => $user->id,
             'tracking_link_id' => $created->id,
@@ -242,6 +252,7 @@ class TrackingLinkService
     public function updateForUser(User $user, int $trackingLinkId, array $data): TrackingLink
     {
         $link = $this->findOrFailForUser($user, $trackingLinkId);
+        $previousState = $this->snapshotTrackingLink($link);
         $normalized = $this->normalizePayload($data);
 
         if (array_key_exists('destination_url', $normalized)) {
@@ -275,6 +286,14 @@ class TrackingLinkService
 
         $updated = $this->trackingLinkRepository->updateLink($link->id, $normalized);
 
+        $this->auditLogger->log(
+            actor: $user,
+            action: 'tracking_link.update',
+            target: $updated,
+            previousState: $previousState,
+            newState: $this->snapshotTrackingLink($updated),
+        );
+
         Log::info('tracking_links.updated', [
             'actor_id' => $user->id,
             'tracking_link_id' => $updated->id,
@@ -292,12 +311,21 @@ class TrackingLinkService
     public function archiveForUser(User $user, int $trackingLinkId): TrackingLink
     {
         $link = $this->findOrFailForUser($user, $trackingLinkId);
+        $previousState = $this->snapshotTrackingLink($link);
         $this->trackingLinkRepository->assertStatusTransition($link->status, LinkStatus::Archived);
 
         // Invalidate cached redirect — archived links must not resolve
         Cache::forget('short_code:' . $link->short_code);
 
         $updated = $this->trackingLinkRepository->updateLink($link->id, ['status' => LinkStatus::Archived]);
+
+        $this->auditLogger->log(
+            actor: $user,
+            action: 'tracking_link.archive',
+            target: $updated,
+            previousState: $previousState,
+            newState: $this->snapshotTrackingLink($updated),
+        );
 
         Log::info('tracking_links.archived', [
             'actor_id' => $user->id,
@@ -398,6 +426,25 @@ class TrackingLinkService
         return $status === 'inactive' ? LinkStatus::Paused->value : $status;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function snapshotTrackingLink(TrackingLink $link): array
+    {
+        return [
+            'id' => $link->id,
+            'user_id' => $link->user_id,
+            'campaign_id' => $link->campaign_id,
+            'short_code' => $link->short_code,
+            'destination_url' => $link->destination_url,
+            'status' => $link->status->value,
+            'platform' => $link->platform->value,
+            'source' => $link->source,
+            'channel' => $link->channel,
+            'sub_id' => $link->sub_id,
+        ];
+    }
+
     private function findExistingEquivalentLink(
         User $user,
         string $platform,
@@ -441,7 +488,7 @@ class TrackingLinkService
     {
         $campaign = $this->campaignRepository->findByIdForScope(
             id: $campaignId,
-            scopeUserIds: $this->resolveScopeUserIds($user),
+            scopeUserIds: $this->scopeResolver->resolveVisibleUserIds($user),
         );
 
         if ($campaign === null) {
@@ -449,19 +496,4 @@ class TrackingLinkService
         }
     }
 
-    /**
-     * @return list<int>|null
-     */
-    private function resolveScopeUserIds(User $user): ?array
-    {
-        if ($user->isOwner()) {
-            return null;
-        }
-
-        if ($user->isLeader()) {
-            return array_values(array_unique(array_merge([$user->id], $this->userRepository->getDescendantIds($user->id))));
-        }
-
-        return [$user->id];
-    }
 }

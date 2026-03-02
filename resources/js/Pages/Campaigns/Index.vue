@@ -90,7 +90,7 @@
                 <div class="af-surface p-4 flex flex-col gap-1">
                     <p class="text-xs text-zinc-500">Tổng campaign</p>
                     <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                        {{ fmtNum(campaignItems.length) }}
+                        {{ fmtNum(props.summary?.total_campaigns) }}
                     </p>
                 </div>
                 <div class="af-surface p-4 flex flex-col gap-1">
@@ -100,7 +100,7 @@
                     </p>
                 </div>
                 <div class="af-surface p-4 flex flex-col gap-1">
-                    <p class="text-xs text-zinc-500">Impressions</p>
+                    <p class="text-xs text-zinc-500">Impressions (snapshot)</p>
                     <p class="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                         {{ fmtNum(totalImpressions) }}
                     </p>
@@ -124,11 +124,12 @@
                             <th class="text-right px-4 py-3 font-medium text-zinc-500">Clicks</th>
                             <th class="text-left px-4 py-3 font-medium text-zinc-500">Nguồn</th>
                             <th class="text-left px-4 py-3 font-medium text-zinc-500">Cập nhật</th>
+                            <th class="text-right px-4 py-3 font-medium text-zinc-500">Hành động</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-if="!campaignItems.length">
-                            <td colspan="7" class="text-center py-12 text-zinc-500">
+                            <td colspan="8" class="text-center py-12 text-zinc-500">
                                 <div class="flex flex-col items-center gap-2">
                                     <Megaphone :size="28" class="text-zinc-400" />
                                     <p>Chưa có campaign nào.</p>
@@ -212,6 +213,14 @@
 
                             <td class="px-4 py-3 text-xs text-zinc-500">
                                 {{ formatDateTime(campaign.synced_at || campaign.updated_at) }}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <button
+                                    class="text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                                    @click="goToTrackingLinks(campaign.id)"
+                                >
+                                    Xem Tracking Links
+                                </button>
                             </td>
                         </tr>
                     </tbody>
@@ -354,6 +363,7 @@ import AppShell from '@/Layouts/AppShell.vue';
 const props = defineProps({
     campaigns: { type: Object, default: () => ({ data: [] }) },
     filters: { type: Object, default: () => ({}) },
+    summary: { type: Object, default: () => ({ total_campaigns: 0, active_campaigns: 0, total_impressions: 0, total_clicks: 0 }) },
     campaignSync: { type: Object, default: () => ({}) },
 });
 
@@ -378,17 +388,9 @@ const campaignItems = computed(() => {
 
 const canSyncCampaigns = computed(() => Boolean(props.campaignSync?.available));
 
-const activeCount = computed(() => {
-    return campaignItems.value.filter((item) => item.status === 'active').length;
-});
-
-const totalImpressions = computed(() => {
-    return campaignItems.value.reduce((sum, item) => sum + Number(item.impressions || 0), 0);
-});
-
-const totalClicks = computed(() => {
-    return campaignItems.value.reduce((sum, item) => sum + Number(item.clicks || 0), 0);
-});
+const activeCount = computed(() => Number(props.summary?.active_campaigns || 0));
+const totalImpressions = computed(() => Number(props.summary?.total_impressions || 0));
+const totalClicks = computed(() => Number(props.summary?.total_clicks || 0));
 
 function statusBadgeClass(status) {
     if (status === 'active') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300';
@@ -441,6 +443,12 @@ function goToPage(page) {
     applyFilters(page);
 }
 
+function goToTrackingLinks(campaignId) {
+    router.get(route('links.index'), {
+        campaign_id: campaignId,
+    });
+}
+
 async function syncCampaigns() {
     if (!canSyncCampaigns.value || syncingCampaigns.value) return;
 
@@ -449,7 +457,7 @@ async function syncCampaigns() {
         const response = await axios.post(route('api.campaigns.sync'));
         if (response.data?.ok) {
             router.reload({
-                only: ['campaigns', 'campaignSync', 'filters'],
+                only: ['campaigns', 'campaignSync', 'filters', 'summary'],
                 preserveScroll: true,
             });
         } else {
@@ -484,7 +492,7 @@ async function submitCreate() {
                 date_start: '',
                 date_end: '',
             };
-            router.reload({ only: ['campaigns', 'filters'], preserveScroll: true });
+            router.reload({ only: ['campaigns', 'filters', 'summary'], preserveScroll: true });
         } else {
             alert(payload?.message || 'Không thể tạo campaign.');
         }

@@ -32,4 +32,18 @@ interface CampaignRepositoryInterface extends RepositoryInterface
      * @param  array<string, mixed>  $attributes
      */
     public function updateCampaign(Campaign $campaign, array $attributes): Campaign;
+
+    /**
+     * Aggregate totals across the full filtered scope (not paginated subset).
+     *
+     * @param  list<int>|null  $scopeUserIds
+     * @param  array<string, mixed>  $filters
+     * @return array{
+     *   total_campaigns:int,
+     *   active_campaigns:int,
+     *   total_impressions:int,
+     *   total_clicks:int
+     * }
+     */
+    public function getGlobalStatsForScope(?array $scopeUserIds, array $filters = []): array;
 }

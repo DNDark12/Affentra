@@ -123,10 +123,18 @@
                     <h2 class="text-lg font-semibold" style="color: var(--text-primary)">Thông tin thanh toán</h2>
                     <span
                         class="text-xs px-2 py-1 rounded-md font-medium"
-                        :style="payoutForm.is_payout_ready ? payoutReadyStyle : payoutPendingStyle"
+                        :style="payoutReviewBadgeStyle"
                     >
-                        {{ payoutForm.is_payout_ready ? 'Sẵn sàng payout' : 'Chờ xét duyệt bank' }}
+                        {{ payoutReviewBadgeText }}
                     </span>
+                </div>
+
+                <div
+                    v-if="payoutForm.payout_review_status === 'rejected' && payoutForm.payout_reject_reason"
+                    class="mb-4 px-4 py-3 rounded-lg text-sm"
+                    style="background: var(--danger-bg); color: var(--danger-text);"
+                >
+                    Lý do từ chối: {{ payoutForm.payout_reject_reason }}
                 </div>
 
                 <form class="flex flex-col gap-5" @submit.prevent="submitPayout">
@@ -185,14 +193,79 @@
                         </button>
                     </div>
                 </form>
+
+                <div v-if="approval?.can_review" class="mt-8 border-t pt-5" style="border-color: var(--border);">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Payout Approval Queue</h3>
+                        <span class="text-xs" style="color: var(--text-muted);">{{ approval.items?.length || 0 }} pending</span>
+                    </div>
+
+                    <div class="af-surface overflow-hidden">
+                        <table class="w-full text-sm border-collapse">
+                            <thead>
+                                <tr style="border-bottom: 1px solid var(--border); background: var(--surface-2)">
+                                    <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">CTV</th>
+                                    <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">Ngân hàng</th>
+                                    <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">Cập nhật</th>
+                                    <th class="text-right px-4 py-2.5 font-medium" style="color: var(--text-muted)">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-if="!approval.items?.length">
+                                    <td colspan="4" class="px-4 py-8 text-center text-xs" style="color: var(--text-muted)">
+                                        Không có hồ sơ payout chờ duyệt.
+                                    </td>
+                                </tr>
+                                <tr
+                                    v-for="item in approval.items"
+                                    :key="item.user_id"
+                                    style="border-bottom: 1px solid var(--border)"
+                                    class="hover:bg-[var(--surface-2)] transition-colors"
+                                >
+                                    <td class="px-4 py-3">
+                                        <p class="text-sm font-medium" style="color: var(--text-primary)">{{ item.name }}</p>
+                                        <p class="text-xs" style="color: var(--text-muted)">{{ item.email }}</p>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm" style="color: var(--text-secondary)">
+                                        {{ item.bank_name || '—' }} · {{ item.bank_account_name || '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs" style="color: var(--text-muted)">
+                                        {{ formatDateTime(item.updated_at) }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                class="af-btn-outline text-xs h-8 px-3"
+                                                :disabled="approvingUserId === item.user_id"
+                                                @click="rejectPayout(item.user_id)"
+                                            >
+                                                Từ chối
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="af-btn-primary text-xs h-8 px-3"
+                                                :disabled="approvingUserId === item.user_id"
+                                                @click="approvePayout(item.user_id)"
+                                            >
+                                                Duyệt
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </section>
         </div>
     </AppShell>
 </template>
 
 <script setup>
+import axios from 'axios';
 import { computed, ref } from 'vue';
-import { useForm, usePage } from '@inertiajs/vue3';
+import { router, useForm, usePage } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
 
 const props = defineProps({
@@ -203,6 +276,10 @@ const props = defineProps({
     payout: {
         type: Object,
         required: true,
+    },
+    approval: {
+        type: Object,
+        default: () => ({ can_review: false, items: [] }),
     },
 });
 
@@ -227,7 +304,10 @@ const payoutForm = useForm({
     bank_account_number: props.payout.bank_account_number || '',
     tax_id: props.payout.tax_id || '',
     is_payout_ready: props.payout.is_payout_ready || false,
+    payout_review_status: props.payout.payout_review_status || 'pending',
+    payout_reject_reason: props.payout.payout_reject_reason || null,
 });
+const approvingUserId = ref(null);
 
 const errors = computed(() => page.props.errors || {});
 const flashSuccess = computed(() => page.props.flash?.success || null);
@@ -241,6 +321,23 @@ const payoutPendingStyle = {
     background: 'var(--warning-bg)',
     color: 'var(--warning-text)',
 };
+
+const payoutRejectedStyle = {
+    background: 'var(--danger-bg)',
+    color: 'var(--danger-text)',
+};
+
+const payoutReviewBadgeText = computed(() => {
+    if (payoutForm.is_payout_ready || payoutForm.payout_review_status === 'approved') return 'Sẵn sàng payout';
+    if (payoutForm.payout_review_status === 'rejected') return 'Bị từ chối';
+    return 'Chờ xét duyệt bank';
+});
+
+const payoutReviewBadgeStyle = computed(() => {
+    if (payoutForm.is_payout_ready || payoutForm.payout_review_status === 'approved') return payoutReadyStyle;
+    if (payoutForm.payout_review_status === 'rejected') return payoutRejectedStyle;
+    return payoutPendingStyle;
+});
 
 function tabStyle(name) {
     if (activeTab.value === name) {
@@ -268,7 +365,61 @@ function submitPayout() {
     payoutForm.put(route('profile.payout.update'), {
         onSuccess: () => {
             payoutForm.is_payout_ready = false;
+            payoutForm.payout_review_status = 'pending';
+            payoutForm.payout_reject_reason = null;
+            router.reload({ only: ['payout', 'approval', 'flash'], preserveScroll: true });
         },
     });
+}
+
+function formatDateTime(value) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+async function approvePayout(userId) {
+    approvingUserId.value = userId;
+    try {
+        const response = await axios.post(route('api.payout-approvals.approve', userId));
+        if (!response.data?.ok) {
+            alert(response.data?.message || 'Không thể duyệt hồ sơ.');
+            return;
+        }
+
+        alert(response.data?.message || 'Đã duyệt hồ sơ payout.');
+        router.reload({ only: ['payout', 'approval', 'flash'], preserveScroll: true });
+    } catch (error) {
+        alert(error.response?.data?.message || 'Không thể duyệt hồ sơ.');
+    } finally {
+        approvingUserId.value = null;
+    }
+}
+
+async function rejectPayout(userId) {
+    const reason = window.prompt('Nhập lý do từ chối hồ sơ payout:');
+    if (!reason || reason.trim().length < 3) {
+        alert('Vui lòng nhập lý do tối thiểu 3 ký tự.');
+        return;
+    }
+
+    approvingUserId.value = userId;
+    try {
+        const response = await axios.post(route('api.payout-approvals.reject', userId), {
+            reason: reason.trim(),
+        });
+        if (!response.data?.ok) {
+            alert(response.data?.message || 'Không thể từ chối hồ sơ.');
+            return;
+        }
+
+        alert(response.data?.message || 'Đã từ chối hồ sơ payout.');
+        router.reload({ only: ['payout', 'approval', 'flash'], preserveScroll: true });
+    } catch (error) {
+        alert(error.response?.data?.message || 'Không thể từ chối hồ sơ.');
+    } finally {
+        approvingUserId.value = null;
+    }
 }
 </script>

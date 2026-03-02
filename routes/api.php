@@ -9,6 +9,8 @@ use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PartnerController;
+use App\Http\Controllers\FinanceController;
+use App\Http\Controllers\PayoutApprovalController;
 use App\Http\Controllers\TrackingLinkController;
 use Illuminate\Support\Facades\Route;
 
@@ -136,5 +138,31 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/conversion', [ClickAnalyticsController::class, 'conversionData'])->name('conversion');
         Route::post('/export', [ClickAnalyticsController::class, 'exportData'])->name('export')
             ->middleware('throttle:60,1');
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | Finance
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('finance')->name('api.finance.')->group(function () {
+        Route::post('/sync', [FinanceController::class, 'sync'])
+            ->name('sync')
+            ->middleware('throttle:3,1');
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | Payout Approvals
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('payout-approvals')->name('api.payout-approvals.')->group(function () {
+        Route::get('/', [PayoutApprovalController::class, 'index'])->name('index');
+        Route::post('/{userId}/approve', [PayoutApprovalController::class, 'approve'])
+            ->name('approve')
+            ->middleware('throttle:30,1');
+        Route::post('/{userId}/reject', [PayoutApprovalController::class, 'reject'])
+            ->name('reject')
+            ->middleware('throttle:30,1');
     });
 });

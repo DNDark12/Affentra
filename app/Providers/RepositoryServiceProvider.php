@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Contracts\Repositories\AffiliateBillingRepositoryInterface;
+use App\Contracts\Repositories\AffiliatePayoutRepositoryInterface;
 use App\Contracts\Repositories\CampaignRepositoryInterface;
 use App\Contracts\Repositories\ClickRepositoryInterface;
 use App\Contracts\Repositories\DailyStatRepositoryInterface;
@@ -14,6 +16,8 @@ use App\Contracts\Repositories\SyncRunRepositoryInterface;
 use App\Contracts\Repositories\TrackingLinkRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Repositories\Eloquent\CampaignRepository;
+use App\Repositories\Eloquent\AffiliateBillingRepository;
+use App\Repositories\Eloquent\AffiliatePayoutRepository;
 use App\Repositories\Eloquent\ClickRepository;
 use App\Repositories\Eloquent\DailyStatRepository;
 use App\Repositories\Eloquent\OrderRepository;
@@ -30,6 +34,8 @@ class RepositoryServiceProvider extends ServiceProvider
      * @var array<class-string, class-string>
      */
     public array $bindings = [
+        AffiliateBillingRepositoryInterface::class   => AffiliateBillingRepository::class,
+        AffiliatePayoutRepositoryInterface::class    => AffiliatePayoutRepository::class,
         CampaignRepositoryInterface::class          => CampaignRepository::class,
         UserRepositoryInterface::class              => UserRepository::class,
         TrackingLinkRepositoryInterface::class      => TrackingLinkRepository::class,

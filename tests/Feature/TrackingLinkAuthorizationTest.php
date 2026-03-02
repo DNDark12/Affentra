@@ -89,6 +89,7 @@ class TrackingLinkAuthorizationTest extends TestCase
         ]);
 
         $response = $this->actingAs($user)
+            ->withHeader('X-Request-ID', 'tracking-update-req-001')
             ->withSession(['_token' => 'test-token'])
             ->patchJson("/api/links/{$link->id}", [
                 '_token'          => 'test-token',
@@ -99,6 +100,13 @@ class TrackingLinkAuthorizationTest extends TestCase
 
         $link->refresh();
         $this->assertEquals('https://example.com/new', $link->destination_url);
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $user->id,
+            'target_type' => TrackingLink::class,
+            'target_id' => $link->id,
+            'action' => 'tracking_link.update',
+            'request_id' => 'tracking-update-req-001',
+        ]);
     }
 
     /**

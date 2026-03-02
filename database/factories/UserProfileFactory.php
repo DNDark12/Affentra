@@ -23,6 +23,10 @@ class UserProfileFactory extends Factory
             'bank_account_number' => $this->faker->bankAccountNumber(),
             'tax_id' => $this->faker->numerify('##########'),
             'is_payout_ready' => false,
+            'payout_review_status' => 'pending',
+            'payout_reviewed_by' => null,
+            'payout_reviewed_at' => null,
+            'payout_reject_reason' => null,
         ];
     }
 }

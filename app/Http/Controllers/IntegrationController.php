@@ -9,6 +9,7 @@ use App\Http\Requests\Integrations\StoreConnectionRequest;
 use App\Http\Requests\Integrations\UpdateConnectionRequest;
 use App\Models\PlatformConnection;
 use App\Models\User;
+use App\Services\Audit\AuditLogger;
 use App\Services\Integration\IntegrationFactory;
 use App\Services\Integration\IntegrationService;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +22,8 @@ use Inertia\Response;
 class IntegrationController extends Controller
 {
     public function __construct(
-        private readonly IntegrationService $integrationService
+        private readonly IntegrationService $integrationService,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(Request $request): Response
@@ -84,7 +86,7 @@ class IntegrationController extends Controller
             return ApiResponse::error('Not found.', [], 404);
         }
 
-        $this->integrationService->removeConnection($connection);
+        $this->integrationService->removeConnection($connection, $request->user());
 
         return ApiResponse::success(null, 'Connection removed.');
     }
@@ -139,14 +141,36 @@ class IntegrationController extends Controller
             $result = $this->integrationService->testConnection($connection);
 
             if ((bool) ($result['valid'] ?? false) === true) {
-                $connection->update([
+                $checks = is_array($result['checks'] ?? null) ? $result['checks'] : [];
+                $hasFailedChecks = collect($checks)->contains(
+                    static fn (mixed $check): bool => is_array($check) && (($check['ok'] ?? null) === false)
+                );
+
+                $payload = [
                     'status' => 'active',
                     'last_sync_status' => 'completed',
-                    'last_error' => null,
-                    'last_error_at' => null,
                     'cookie_validated_at' => $connection->method === 'cookie' ? now() : $connection->cookie_validated_at,
-                ]);
+                ];
+
+                if (! $hasFailedChecks) {
+                    $payload['last_error'] = null;
+                    $payload['last_error_at'] = null;
+                }
+
+                $connection->update($payload);
             }
+
+            $this->auditLogger->log(
+                actor: $request->user(),
+                action: 'integration.connection.test',
+                target: $connection,
+                previousState: null,
+                newState: [
+                    'valid' => (bool) ($result['valid'] ?? false),
+                    'message' => (string) ($result['message'] ?? ''),
+                    'checks' => $result['checks'] ?? [],
+                ],
+            );
 
             return ApiResponse::success([
                 'valid' => (bool) ($result['valid'] ?? false),

@@ -5,17 +5,17 @@ declare(strict_types=1);
 namespace App\Services\Campaign;
 
 use App\Contracts\Repositories\CampaignRepositoryInterface;
-use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Enums\CampaignStatus;
 use App\Models\Campaign;
 use App\Models\User;
+use App\Services\Scope\ScopeResolver;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class CampaignService
 {
     public function __construct(
         private readonly CampaignRepositoryInterface $campaignRepository,
-        private readonly UserRepositoryInterface $userRepository,
+        private readonly ScopeResolver $scopeResolver,
     ) {}
 
     /**
@@ -23,9 +23,25 @@ class CampaignService
      */
     public function listForUser(User $user, array $filters = []): LengthAwarePaginator
     {
-        $scopeUserIds = $this->resolveScopeUserIds($user);
+        $scopeUserIds = $this->scopeResolver->resolveVisibleUserIds($user);
 
         return $this->campaignRepository->paginateForScope($scopeUserIds, $filters, 15);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array{
+     *   total_campaigns:int,
+     *   active_campaigns:int,
+     *   total_impressions:int,
+     *   total_clicks:int
+     * }
+     */
+    public function globalStatsForUser(User $user, array $filters = []): array
+    {
+        $scopeUserIds = $this->scopeResolver->resolveVisibleUserIds($user);
+
+        return $this->campaignRepository->getGlobalStatsForScope($scopeUserIds, $filters);
     }
 
     /**
@@ -45,21 +61,5 @@ class CampaignService
     public function update(Campaign $campaign, array $validated): Campaign
     {
         return $this->campaignRepository->updateCampaign($campaign, $validated);
-    }
-
-    /**
-     * @return list<int>|null
-     */
-    private function resolveScopeUserIds(User $user): ?array
-    {
-        if ($user->isOwner()) {
-            return null;
-        }
-
-        if ($user->isLeader()) {
-            return array_merge([$user->id], $this->userRepository->getDescendantIds($user->id));
-        }
-
-        return [$user->id];
     }
 }

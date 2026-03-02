@@ -101,5 +101,6 @@ class ProfileTest extends TestCase
         $profile = $profile->fresh();
         $this->assertEquals('Vietcombank', $profile->bank_name);
         $this->assertFalse($profile->is_payout_ready);
+        $this->assertSame('pending', $profile->payout_review_status->value);
     }
 }

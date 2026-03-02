@@ -19,10 +19,10 @@ class DailyStatRepository extends BaseRepository implements DailyStatRepositoryI
     /**
      * Get aggregated KPI totals for the dashboard.
      *
-     * @param  list<int>  $userIds
+     * @param  list<int>|null  $userIds
      * @return array{clicks: int, orders: int, approved: int, commission: float}
      */
-    public function getKpiTotals(array $userIds, string $period = '30days'): array
+    public function getKpiTotals(?array $userIds, string $period = '30days'): array
     {
         $from = $this->resolvePeriodStart($period);
 
@@ -31,9 +31,13 @@ class DailyStatRepository extends BaseRepository implements DailyStatRepositoryI
             ->selectRaw('COALESCE(SUM(orders), 0) as orders')
             ->selectRaw('COALESCE(SUM(approved), 0) as approved')
             ->selectRaw('COALESCE(SUM(commission), 0) as commission')
-            ->whereIn('user_id', $userIds)
-            ->where('date', '>=', $from)
-            ->first();
+            ->where('date', '>=', $from);
+
+        if ($userIds !== null) {
+            $result->whereIn('user_id', $userIds);
+        }
+
+        $result = $result->first();
 
         return [
             'clicks'     => (int) $result->clicks,
@@ -46,20 +50,24 @@ class DailyStatRepository extends BaseRepository implements DailyStatRepositoryI
     /**
      * Get daily series data for charts (grouped by date, aggregated via SQL).
      *
-     * @param  list<int>  $userIds
+     * @param  list<int>|null  $userIds
      * @return Collection<int, DailyStat>
      */
-    public function getDailySeries(array $userIds, string $period = '30days'): Collection
+    public function getDailySeries(?array $userIds, string $period = '30days'): Collection
     {
         $from = $this->resolvePeriodStart($period);
 
-        return $this->model->newQuery()
+        $query = $this->model->newQuery()
             ->selectRaw('date, SUM(clicks) as clicks, SUM(orders) as orders, SUM(approved) as approved, SUM(commission) as commission')
-            ->whereIn('user_id', $userIds)
             ->where('date', '>=', $from)
             ->groupBy('date')
-            ->orderBy('date', 'asc')
-            ->get();
+            ->orderBy('date', 'asc');
+
+        if ($userIds !== null) {
+            $query->whereIn('user_id', $userIds);
+        }
+
+        return $query->get();
     }
 
     /**

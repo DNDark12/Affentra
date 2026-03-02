@@ -11,7 +11,13 @@
                 <div class="flex items-center gap-2">
                     <div class="relative">
                         <Search :size="13" class="af-input-search-icon absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted)" />
-                        <input type="text" placeholder="Search partners..." class="af-input af-input-search h-9 text-sm w-52" />
+                        <input
+                            v-model="searchInput"
+                            type="text"
+                            placeholder="Search partners..."
+                            class="af-input af-input-search h-9 text-sm w-52"
+                            @keyup.enter="applyFilters"
+                        />
                     </div>
                     <!-- Copy Referral Link -->
                     <button @click="copyReferralLink" class="af-btn-outline text-sm h-9 px-4 flex items-center gap-1.5" title="Copy link mời CTV">
@@ -22,6 +28,50 @@
                         <UserPlus :size="14" />
                         Add Partner
                     </button>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <select
+                        v-model="statusFilter"
+                        class="af-input h-9 text-sm"
+                        style="width: 160px"
+                        @change="applyFilters"
+                    >
+                        <option value="">All status</option>
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                    <input
+                        v-model="dateFrom"
+                        type="date"
+                        class="af-input h-9 text-sm"
+                        @change="applyFilters"
+                    />
+                    <input
+                        v-model="dateTo"
+                        type="date"
+                        class="af-input h-9 text-sm"
+                        @change="applyFilters"
+                    />
+                </div>
+                <button class="af-btn-outline text-sm h-9 px-3" @click="applyFilters">Apply</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">Total Partners</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtNum(summary.total_partners) }}</p>
+                </div>
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">Active Partners</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtNum(summary.active_partners) }}</p>
+                </div>
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">New This Month</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtNum(summary.new_this_month) }}</p>
                 </div>
             </div>
 
@@ -88,6 +138,7 @@
                 <div class="flex gap-1">
                     <button v-for="pg in partners.last_page" :key="pg"
                         class="w-7 h-7 rounded"
+                        @click="goToPage(pg)"
                         :style="pg === partners.current_page
                             ? { background: 'var(--color-primary-500)', color: '#fff' }
                             : { color: 'var(--text-secondary)' }"
@@ -123,17 +174,27 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { usePage, router } from '@inertiajs/vue3';
 import { UserPlus, Search, Users, ChevronRight, X, Link as LinkIcon } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 
 const page = usePage();
 
-defineProps({
+const props = defineProps({
     partners: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1 }) },
-    filters:  { type: Object, default: () => ({}) },
+    filters: { type: Object, default: () => ({}) },
+    summary: { type: Object, default: () => ({ total_partners: 0, active_partners: 0, new_this_month: 0 }) },
 });
+
+const partners = computed(() => props.partners);
+const filters = computed(() => props.filters);
+const summary = computed(() => props.summary);
+
+const searchInput = ref(filters.value?.search || '');
+const statusFilter = ref(filters.value?.status || '');
+const dateFrom = ref(filters.value?.date_from || '');
+const dateTo = ref(filters.value?.date_to || '');
 
 const showAdd = ref(false);
 const adding  = ref(false);
@@ -143,6 +204,26 @@ function fmtNum(n) { return Number(n || 0).toLocaleString('vi-VN'); }
 function initials(name) {
     return (name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 }
+
+function applyFilters(page = 1) {
+    router.get(route('partners.index'), {
+        search: searchInput.value || undefined,
+        status: statusFilter.value || undefined,
+        date_from: dateFrom.value || undefined,
+        date_to: dateTo.value || undefined,
+        page,
+    }, {
+        replace: true,
+        preserveScroll: true,
+        preserveState: true,
+        only: ['partners', 'summary', 'filters'],
+    });
+}
+
+function goToPage(page) {
+    applyFilters(page);
+}
+
 async function submitAdd() {
     adding.value = true;
     try {
@@ -152,16 +233,17 @@ async function submitAdd() {
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]').content,
             },
-            body: JSON.stringify({ ...addForm.value, role: 'ctv' }),
+            body: JSON.stringify({ email: addForm.value.email }),
         });
         const json = await res.json();
         if (json.ok) { 
             showAdd.value = false; 
             addForm.value = { email: '' };
             alert('Đã gửi email mời thành công!');
-            router.reload({ only: ['partners'] }); 
+            router.reload({ only: ['partners', 'summary', 'filters'] });
         } else {
-            alert(json.message || 'Có lỗi xảy ra.');
+            const firstError = json.errors ? Object.values(json.errors).flat()[0] : null;
+            alert(firstError || json.message || 'Có lỗi xảy ra.');
         }
     } finally { adding.value = false; }
 }

@@ -30,7 +30,11 @@ class UserPolicy
         }
 
         if ($auth->isLeader()) {
-            return $target->parent_id === $auth->id || $target->id === $auth->id;
+            if ($target->id === $auth->id) {
+                return true;
+            }
+
+            return in_array($target->id, $auth->getDescendantIds(), true);
         }
 
         return $auth->id === $target->id;
@@ -54,7 +58,7 @@ class UserPolicy
         }
 
         if ($auth->isLeader()) {
-            return $target->parent_id === $auth->id;
+            return in_array($target->id, $auth->getDescendantIds(), true);
         }
 
         return $auth->id === $target->id;

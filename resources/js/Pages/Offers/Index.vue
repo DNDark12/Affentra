@@ -34,7 +34,7 @@
                         <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 text-lg"></i>
                         <input type="text" v-model="searchUrl" 
                                placeholder="Dán link sản phẩm Shopee hoặc nhập Item ID..." 
-                               class="w-full h-12 pl-11 pr-[120px] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30 text-[15px] focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-zinc-100 font-medium" />
+                               class="w-full h-12 pl-12 pr-[120px] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30 text-[15px] focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-zinc-100 font-medium" />
                         
                         <button type="submit" :disabled="!searchUrl || isSearching || !selectedConnectionId" class="absolute right-1.5 top-1.5 bottom-1.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm">
                             <i v-if="isSearching" class="ph ph-spinner animate-spin text-lg"></i>

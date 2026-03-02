@@ -2,62 +2,60 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\Sync\SyncPaymentDataJob;
-use App\Models\AffiliateBilling;
-use App\Models\AffiliatePayout;
-use App\Models\PlatformConnection;
-use Illuminate\Http\Request;
+use App\Helpers\ApiResponse;
+use App\Http\Requests\Finance\FinanceIndexRequest;
+use App\Http\Requests\Finance\FinanceSyncRequest;
+use App\Services\Finance\FinanceService;
+use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
+use Inertia\Response;
 
 class FinanceController extends Controller
 {
+    public function __construct(
+        private readonly FinanceService $financeService,
+    ) {}
+
     /**
      * Display the finance overview.
      */
-    public function index(Request $request)
+    public function index(FinanceIndexRequest $request): Response
     {
-        $user = $request->user();
-        $canViewAll = $user !== null && method_exists($user, 'isOwner') && $user->isOwner();
-        
-        $billings = AffiliateBilling::query()
-            ->when(! $canViewAll, fn($q) => $q->where('user_id', $user->id))
-            ->orderBy('period_start', 'desc')
-            ->paginate(20)
-            ->withQueryString();
-
-        $payouts = AffiliatePayout::query()
-            ->when(! $canViewAll, fn($q) => $q->where('user_id', $user->id))
-            ->orderBy('payout_at', 'desc')
-            ->paginate(20)
-            ->withQueryString();
+        $payload = $this->financeService->indexData(
+            user: $request->user(),
+            filters: $request->filters(),
+        );
 
         return Inertia::render('Finance/Index', [
-            'billings' => $billings,
-            'payouts' => $payouts,
+            'billings' => $payload['billings'],
+            'payouts' => $payload['payouts'],
+            'summary' => $payload['summary'],
+            'filters' => $payload['filters'],
+            'sync' => $payload['sync'],
         ]);
     }
 
     /**
      * Trigger a manual sync for payment data.
      */
-    public function sync(Request $request)
+    public function sync(FinanceSyncRequest $request): JsonResponse
     {
-        $user = $request->user();
-        
-        $connections = PlatformConnection::query()
-            ->where('user_id', $user->id)
-            ->where('status', 'active')
-            ->where('method', 'cookie')
-            ->get();
+        $result = $this->financeService->triggerManualSync($request->user());
 
-        if ($connections->isEmpty()) {
-            return back()->with('error', 'Không tìm thấy kết nối Shopee Cookie nào đang hoạt động.');
+        if ($result['ok'] === false) {
+            $statusCode = match ($result['status']) {
+                'already_running' => 409,
+                'no_connection' => 422,
+                default => 422,
+            };
+
+            return ApiResponse::error(
+                message: $result['message'],
+                errors: ['status' => [$result['status']]],
+                status: $statusCode,
+            );
         }
 
-        foreach ($connections as $connection) {
-            SyncPaymentDataJob::dispatch($connection)->onQueue('sync');
-        }
-
-        return back()->with('success', 'Đã bắt đầu tiến trình đồng bộ dữ liệu tài chính.');
+        return ApiResponse::success($result, $result['message']);
     }
 }

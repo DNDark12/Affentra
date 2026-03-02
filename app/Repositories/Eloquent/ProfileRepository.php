@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Repositories\Eloquent;
 
 use App\Contracts\Repositories\ProfileRepositoryInterface;
+use App\Enums\PayoutReviewStatus;
 use App\Models\User;
 use App\Models\UserProfile;
+use Illuminate\Support\Collection;
 use Prettus\Repository\Eloquent\BaseRepository;
 
 class ProfileRepository extends BaseRepository implements ProfileRepositoryInterface
@@ -37,5 +39,35 @@ class ProfileRepository extends BaseRepository implements ProfileRepositoryInter
         return $this->model->newQuery()
             ->where('user_id', $userId)
             ->first();
+    }
+
+    public function findByUserIdForScope(int $userId, ?array $scopeUserIds): ?UserProfile
+    {
+        $query = $this->model->newQuery()
+            ->with(['user:id,name,email,parent_id'])
+            ->where('user_id', $userId);
+
+        if ($scopeUserIds !== null) {
+            $query->whereIn('user_id', $scopeUserIds);
+        }
+
+        /** @var UserProfile|null */
+        return $query->first();
+    }
+
+    public function listPendingForScope(?array $scopeUserIds, int $limit = 20): Collection
+    {
+        $query = $this->model->newQuery()
+            ->with(['user:id,name,email,parent_id'])
+            ->where('payout_review_status', PayoutReviewStatus::Pending->value)
+            ->orderByDesc('updated_at')
+            ->limit($limit);
+
+        if ($scopeUserIds !== null) {
+            $query->whereIn('user_id', $scopeUserIds);
+        }
+
+        /** @var Collection<int, UserProfile> */
+        return $query->get();
     }
 }

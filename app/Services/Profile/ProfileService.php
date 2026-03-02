@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Profile;
 
+use App\Enums\PayoutReviewStatus;
 use App\Contracts\Repositories\ProfileRepositoryInterface;
-use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -14,7 +14,6 @@ class ProfileService
 {
     public function __construct(
         private readonly ProfileRepositoryInterface $profileRepository,
-        private readonly UserRepositoryInterface $userRepository,
     ) {}
 
     /**
@@ -86,6 +85,10 @@ class ProfileService
 
         if ($hasChanged) {
             $attributes['is_payout_ready'] = false;
+            $attributes['payout_review_status'] = PayoutReviewStatus::Pending;
+            $attributes['payout_reviewed_by'] = null;
+            $attributes['payout_reviewed_at'] = null;
+            $attributes['payout_reject_reason'] = null;
         }
 
         $this->profileRepository->updateOrCreateForUser($user, $attributes);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Campaigns\ListCampaignsRequest;
 use App\Http\Requests\Campaigns\StoreCampaignRequest;
 use App\Http\Requests\Campaigns\UpdateCampaignRequest;
 use App\Models\Campaign;
@@ -23,13 +24,19 @@ class CampaignController extends Controller
         private readonly CampaignSyncService $campaignSyncService,
     ) {}
 
-    public function index(Request $request): Response
+    public function index(ListCampaignsRequest $request): Response
     {
         Gate::authorize('viewAny', Campaign::class);
 
+        $filters = $request->filters();
+
         $campaigns = $this->campaignService->listForUser(
             user: $request->user(),
-            filters: $request->only(['status', 'search']),
+            filters: $filters,
+        );
+        $summary = $this->campaignService->globalStatsForUser(
+            user: $request->user(),
+            filters: $filters,
         );
 
         $campaignConnections = PlatformConnection::query()
@@ -47,7 +54,8 @@ class CampaignController extends Controller
 
         return Inertia::render('Campaigns/Index', [
             'campaigns' => $campaigns,
-            'filters'   => $request->only(['status', 'search']),
+            'filters'   => $filters,
+            'summary'   => $summary,
             'campaignSync' => [
                 'available' => $campaignConnections->isNotEmpty(),
                 'connection_count' => $campaignConnections->count(),

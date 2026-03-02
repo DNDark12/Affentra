@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\PlatformConnection;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -21,7 +22,9 @@ class IntegrationControllerTest extends TestCase
     {
         $user = User::factory()->create(['role' => 'owner']);
 
-        $response = $this->actingAs($user)->postJson('/api/integrations', [
+        $response = $this->actingAs($user)
+            ->withHeader('X-Request-ID', 'integration-create-req-001')
+            ->postJson('/api/integrations', [
             'platform'   => 'shopee',
             'method'     => 'open_api',
             'app_id'     => 'test_app',
@@ -37,6 +40,12 @@ class IntegrationControllerTest extends TestCase
             'platform' => 'shopee',
             'status'   => 'inactive',
             'method'   => 'open_api',
+        ]);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'actor_id' => $user->id,
+            'action' => 'integration.connection.create',
+            'request_id' => 'integration-create-req-001',
         ]);
     }
 

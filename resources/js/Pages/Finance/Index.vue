@@ -10,11 +10,42 @@
                     <p class="text-xs mt-0.5" style="color: var(--text-muted)">Quản lý dòng tiền và đối soát hoa hồng</p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <span
+                        v-if="sync?.is_running"
+                        class="inline-flex items-center h-9 px-3 rounded-full text-xs font-semibold"
+                        style="background: var(--warning-bg); color: var(--warning-text)"
+                    >
+                        Sync đang chạy...
+                    </span>
                     <button @click="triggerSync" :disabled="isSyncing" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5">
                         <RefreshCw :size="14" :class="{ 'animate-spin': isSyncing }" />
                         Đồng bộ ngay
                     </button>
                 </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">Unpaid Balance</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtMoney(summary.unpaid_balance) }}</p>
+                </div>
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">Total Earned</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtMoney(summary.total_earned) }}</p>
+                </div>
+                <div class="af-surface p-4 flex flex-col gap-1">
+                    <p class="text-xs" style="color: var(--text-muted)">Total Paid</p>
+                    <p class="text-2xl font-bold" style="color: var(--text-primary)">{{ fmtMoney(summary.total_paid) }}</p>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <input v-model="dateFrom" type="date" class="af-input h-9 text-sm" @change="applyFilters" />
+                    <input v-model="dateTo" type="date" class="af-input h-9 text-sm" @change="applyFilters" />
+                    <button class="af-btn-outline text-sm h-9 px-3" @click="applyFilters">Apply</button>
+                </div>
+                <p v-if="syncMessage" class="text-xs" style="color: var(--text-muted)">{{ syncMessage }}</p>
             </div>
 
             <!-- Tabs -->
@@ -133,6 +164,7 @@
 </template>
 
 <script setup>
+import axios from 'axios';
 import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import { RefreshCw, FileText, Wallet } from 'lucide-vue-next';
@@ -141,22 +173,60 @@ import AppShell from '@/Layouts/AppShell.vue';
 const props = defineProps({
     billings: { type: Object, default: () => ({ data: [] }) },
     payouts:  { type: Object, default: () => ({ data: [] }) },
+    summary:  { type: Object, default: () => ({ unpaid_balance: 0, total_earned: 0, total_paid: 0 }) },
+    filters: { type: Object, default: () => ({}) },
+    sync: { type: Object, default: () => ({ is_running: false }) },
 });
 
 const activeTab = ref('billings');
 const isSyncing = ref(false);
+const syncMessage = ref('');
+const dateFrom = ref(props.filters?.date_from || '');
+const dateTo = ref(props.filters?.date_to || '');
 
 const tabs = [
     { id: 'billings', label: 'Hóa Đơn (Billings)' },
     { id: 'payouts', label: 'Chi Trả (Payouts)' },
 ];
 
-function triggerSync() {
+async function triggerSync() {
+    if (isSyncing.value) return;
     isSyncing.value = true;
-    router.post(route('finance.sync'), {}, {
-        onFinish: () => {
-            isSyncing.value = false;
+    syncMessage.value = '';
+
+    try {
+        const response = await axios.post(route('api.finance.sync'));
+        if (response.data?.ok) {
+            syncMessage.value = response.data?.message || 'Đang đồng bộ dữ liệu tài chính...';
+            setTimeout(() => {
+                router.reload({
+                    only: ['billings', 'payouts', 'summary', 'filters', 'sync'],
+                    preserveScroll: true,
+                });
+            }, 1800);
+            return;
         }
+
+        syncMessage.value = response.data?.message || 'Không thể đồng bộ dữ liệu.';
+    } catch (error) {
+        const message = error.response?.data?.message || 'Không thể đồng bộ dữ liệu.';
+        syncMessage.value = message;
+    } finally {
+        isSyncing.value = false;
+    }
+}
+
+function applyFilters() {
+    router.get(route('finance.index'), {
+        date_from: dateFrom.value || undefined,
+        date_to: dateTo.value || undefined,
+        billings_page: undefined,
+        payouts_page: undefined,
+    }, {
+        replace: true,
+        preserveScroll: true,
+        preserveState: true,
+        only: ['billings', 'payouts', 'summary', 'filters', 'sync'],
     });
 }
 

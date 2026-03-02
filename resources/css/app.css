@@ -200,11 +200,14 @@ body { background-color: var(--app-bg); color: var(--text-primary); }
 
 /* Search inputs with left icon */
 .af-input-search {
-    padding-left: 2.25rem !important;
+    padding-left: 2.625rem !important;
+    padding-right: 0.875rem;
 }
 
 .af-input-search-icon {
     pointer-events: none;
+    z-index: 1;
+    color: var(--text-muted);
 }
 
 .af-label {

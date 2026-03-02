@@ -127,7 +127,7 @@ class AuthService
                     'email_verified_at' => now(),
                     'avatar'            => $socialiteUser->getAvatar(),
                     'role'              => \App\Enums\UserRole::CTV,
-                    'status'            => \App\Enums\UserStatus::Active,
+                    'status'            => \App\Enums\UserStatus::Pending,
                     'password'          => null,
                     'parent_id'         => $parentId,
                 ]);
@@ -164,4 +164,3 @@ class AuthService
         );
     }
 }
-

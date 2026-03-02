@@ -82,16 +82,44 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
 
     public function paginatePartnersForManager(User $manager, array $filters = [], int $perPage = 20): LengthAwarePaginator
     {
+        $dateFrom = ! empty($filters['date_from']) ? (string) $filters['date_from'] : null;
+        $dateTo = ! empty($filters['date_to']) ? (string) $filters['date_to'] : null;
+
         $query = $this->model->newQuery()
             ->where('role', UserRole::CTV)
             ->withCount('trackingLinks')
-            ->withSum('dailyStats as total_clicks', 'clicks')
-            ->withSum('dailyStats as total_orders', 'orders')
-            ->withSum('dailyStats as total_commission', 'commission')
+            ->withSum(['dailyStats as total_clicks' => function ($relationQuery) use ($dateFrom, $dateTo): void {
+                if ($dateFrom !== null) {
+                    $relationQuery->whereDate('date', '>=', $dateFrom);
+                }
+                if ($dateTo !== null) {
+                    $relationQuery->whereDate('date', '<=', $dateTo);
+                }
+            }], 'clicks')
+            ->withSum(['dailyStats as total_orders' => function ($relationQuery) use ($dateFrom, $dateTo): void {
+                if ($dateFrom !== null) {
+                    $relationQuery->whereDate('date', '>=', $dateFrom);
+                }
+                if ($dateTo !== null) {
+                    $relationQuery->whereDate('date', '<=', $dateTo);
+                }
+            }], 'orders')
+            ->withSum(['dailyStats as total_commission' => function ($relationQuery) use ($dateFrom, $dateTo): void {
+                if ($dateFrom !== null) {
+                    $relationQuery->whereDate('date', '>=', $dateFrom);
+                }
+                if ($dateTo !== null) {
+                    $relationQuery->whereDate('date', '<=', $dateTo);
+                }
+            }], 'commission')
             ->latest();
 
         if ($manager->isLeader()) {
-            $query->where('parent_id', $manager->id);
+            $query->whereIn('id', $manager->getDescendantIds());
+        }
+
+        if (! empty($filters['status'])) {
+            $query->where('status', (string) $filters['status']);
         }
 
         if (! empty($filters['search'])) {
@@ -103,6 +131,61 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
         }
 
         return $query->paginate($perPage);
+    }
+
+    public function partnerSummaryForManager(User $manager, array $filters = []): array
+    {
+        $query = $this->model->newQuery()
+            ->where('role', UserRole::CTV);
+
+        if ($manager->isLeader()) {
+            $query->whereIn('id', $this->getDescendantIds($manager->id));
+        }
+
+        if (! empty($filters['search'])) {
+            $term = '%' . trim((string) $filters['search']) . '%';
+            $query->where(function ($builder) use ($term): void {
+                $builder->where('name', 'LIKE', $term)
+                    ->orWhere('email', 'LIKE', $term);
+            });
+        }
+
+        if (! empty($filters['status'])) {
+            $query->where('status', (string) $filters['status']);
+        }
+
+        $dateFrom = ! empty($filters['date_from']) ? (string) $filters['date_from'] : null;
+        $dateTo = ! empty($filters['date_to']) ? (string) $filters['date_to'] : null;
+
+        // "New This Month" strictly respects the current calendar month unless filters dictate otherwise
+        $startOfMonth = now()->startOfMonth();
+        $endOfMonth = now()->endOfMonth();
+
+        $row = (clone $query)
+            ->selectRaw('COUNT(*) as total_partners')
+            ->selectRaw(
+                'COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) as active_partners',
+                [UserStatus::Active->value],
+            )
+            ->selectRaw(
+                'COALESCE(SUM(CASE WHEN created_at >= ? AND created_at <= ? THEN 1 ELSE 0 END), 0) as new_this_month',
+                [$startOfMonth, $endOfMonth],
+            );
+
+        if ($dateFrom) {
+            $row->where('created_at', '>=', $dateFrom . ' 00:00:00');
+        }
+        if ($dateTo) {
+            $row->where('created_at', '<=', $dateTo . ' 23:59:59');
+        }
+
+        $result = $row->first();
+
+        return [
+            'total_partners' => (int) ($result?->total_partners ?? 0),
+            'active_partners' => (int) ($result?->active_partners ?? 0),
+            'new_this_month' => (int) ($result?->new_this_month ?? 0),
+        ];
     }
 
     public function createPartnerForManager(User $manager, array $attributes): User

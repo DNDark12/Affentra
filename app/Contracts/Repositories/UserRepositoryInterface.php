@@ -43,6 +43,18 @@ interface UserRepositoryInterface extends RepositoryInterface
     public function paginatePartnersForManager(User $manager, array $filters = [], int $perPage = 20): LengthAwarePaginator;
 
     /**
+     * Aggregate partner headers for manager scope.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array{
+     *   total_partners:int,
+     *   active_partners:int,
+     *   new_this_month:int
+     * }
+     */
+    public function partnerSummaryForManager(User $manager, array $filters = []): array;
+
+    /**
      * Create a partner under the given manager.
      *
      * @param  array<string, mixed>  $attributes

@@ -4,13 +4,9 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
-use App\Enums\CampaignStatus;
-use App\Enums\LinkStatus;
-use App\Enums\Platform;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
-use App\Models\Campaign;
-use App\Models\TrackingLink;
+use App\Models\PlatformConnection;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -22,12 +18,15 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        // ── Owner ──────────────────────────────────────────────────────────────
+        $adminEmail = (string) env('SEED_ADMIN_EMAIL', 'admin@affentra.com');
+        $adminPassword = (string) env('SEED_ADMIN_PASSWORD', 'password');
+
+        // Seed only minimum account for system access (no mock hierarchy/data).
         $owner = User::updateOrCreate(
-            ['email' => 'admin@affentra.com'],
+            ['email' => $adminEmail],
             [
                 'name'     => 'Admin Owner',
-                'password' => Hash::make('password'),
+                'password' => Hash::make($adminPassword),
                 'role'     => UserRole::Owner,
                 'status'   => UserStatus::Active,
                 'depth'    => 0,
@@ -35,44 +34,18 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // ── Leader ─────────────────────────────────────────────────────────────
-        $leader = User::updateOrCreate(
-            ['email' => 'leader@affentra.com'],
+        // Keep one integration connection for manual testing only.
+        PlatformConnection::updateOrCreate(
             [
-                'name'      => 'Nguyễn Văn Leader',
-                'password'  => Hash::make('password'),
-                'role'      => UserRole::Leader,
-                'status'    => UserStatus::Active,
-                'parent_id' => $owner->id,
-                'depth'     => 1,
-                'path'      => (string) $owner->id,
-            ]
-        );
-
-        // ── CTVs ───────────────────────────────────────────────────────────────
-        $ctv1 = User::updateOrCreate(
-            ['email' => 'ctv1@affentra.com'],
+                'user_id' => $owner->id,
+                'platform' => 'shopee',
+                'method' => 'open_api',
+            ],
             [
-                'name'      => 'Nguyễn Văn Hiếng',
-                'password'  => Hash::make('password'),
-                'role'      => UserRole::CTV,
-                'status'    => UserStatus::Active,
-                'parent_id' => $leader->id,
-                'depth'     => 2,
-                'path'      => $owner->id . '/' . $leader->id,
-            ]
-        );
-
-        $ctv2 = User::updateOrCreate(
-            ['email' => 'ctv2@affentra.com'],
-            [
-                'name'      => 'Trần Minh Đức',
-                'password'  => Hash::make('password'),
-                'role'      => UserRole::CTV,
-                'status'    => UserStatus::Active,
-                'parent_id' => $leader->id,
-                'depth'     => 2,
-                'path'      => $owner->id . '/' . $leader->id,
+                'label' => 'Shopee Test Connection',
+                'status' => 'inactive',
+                'sync_mode' => 'manual',
+                'cookie_source' => null,
             ]
         );
     }

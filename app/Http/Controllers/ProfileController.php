@@ -6,8 +6,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Profile\UpdatePayoutProfileRequest;
 use App\Http\Requests\Profile\UpdateProfileSettingsRequest;
+use App\Enums\PayoutReviewStatus;
 use App\Models\User;
 use App\Services\Profile\ProfileService;
+use App\Services\Profile\PayoutApprovalService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,6 +19,7 @@ class ProfileController extends Controller
 {
     public function __construct(
         private readonly ProfileService $profileService,
+        private readonly PayoutApprovalService $payoutApprovalService,
     ) {}
 
     public function edit(Request $request): Response
@@ -24,6 +27,12 @@ class ProfileController extends Controller
         /** @var User $user */
         $user = $request->user();
         $user->loadMissing('profile');
+        $approval = $this->payoutApprovalService->queueForReviewer($user, 10);
+
+        $reviewStatus = $user->profile?->payout_review_status;
+        $reviewStatusValue = $reviewStatus instanceof PayoutReviewStatus
+            ? $reviewStatus->value
+            : (string) ($reviewStatus ?? PayoutReviewStatus::Pending->value);
 
         return Inertia::render('Profile/Edit', [
             'settings' => [
@@ -40,7 +49,11 @@ class ProfileController extends Controller
                 'bank_account_number' => $user->profile?->bank_account_number,
                 'tax_id'              => $user->profile?->tax_id,
                 'is_payout_ready'     => (bool) ($user->profile?->is_payout_ready ?? false),
+                'payout_review_status' => $reviewStatusValue,
+                'payout_reviewed_at' => $user->profile?->payout_reviewed_at?->toIso8601String(),
+                'payout_reject_reason' => $user->profile?->payout_reject_reason,
             ],
+            'approval' => $approval,
         ]);
     }
 

@@ -92,7 +92,9 @@ Route::middleware(['auth', HandleInertiaRequests::class])->group(function () {
 
     // Finance
     Route::get('/finance', [FinanceController::class, 'index'])->name('finance.index');
-    Route::post('/finance/sync', [FinanceController::class, 'sync'])->name('finance.sync');
+    Route::post('/finance/sync', [FinanceController::class, 'sync'])
+        ->name('finance.sync')
+        ->middleware('throttle:3,1');
 });
 
 /*
