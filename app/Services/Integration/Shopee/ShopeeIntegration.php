@@ -2094,14 +2094,20 @@ GRAPHQL;
                 throw new RuntimeException("Shopee payout list GraphQL error: {$message}");
             }
 
-            $rootData = $payload['data'] ?? null;
-            if (! is_array($rootData) || ! array_key_exists('getPaymentPayoutBillingList', $rootData)) {
+            $root = $this->firstValueByPaths($payload, [
+                'data.getPaymentPayoutBillingList',
+                'data.getPayoutList',
+                'data.getPaymentPayoutList',
+            ]);
+            if (! is_array($root)) {
                 throw new RuntimeException(
                     'Shopee payout response missing data. Hãy lấy lại cURL từ trang payout_record và cập nhật kết nối.'
                 );
             }
 
             $list = $this->firstValueByPaths($payload, [
+                'data.getPayoutList.payoutList',
+                'data.getPaymentPayoutList.payoutList',
                 'data.getPaymentPayoutBillingList.payoutList',
                 'data.list',
                 'list',
@@ -2134,6 +2140,8 @@ GRAPHQL;
             }
 
             $totalCount = (int) ($this->firstValueByPaths($payload, [
+                'data.getPayoutList.pagination.totalCount',
+                'data.getPaymentPayoutList.pagination.totalCount',
                 'data.getPaymentPayoutBillingList.pagination.totalCount',
                 'data.total_count',
                 'total_count',
@@ -2235,14 +2243,19 @@ GRAPHQL;
                 throw new RuntimeException("Shopee bill fee invoice GraphQL error: {$message}");
             }
 
-            $rootData = $payload['data'] ?? null;
-            if (! is_array($rootData) || ! array_key_exists('getPaymentSummaryBillFeeInvoiceList', $rootData)) {
+            $root = $this->firstValueByPaths($payload, [
+                'data.getPaymentSummaryBillFeeInvoiceList',
+                'data.getBillFeeInvoiceList',
+                'data',
+            ]);
+            if (! is_array($root)) {
                 throw new RuntimeException(
                     'Shopee service fee invoice response missing data. Hãy lấy lại cURL từ trang service_fee_invoice và cập nhật kết nối.'
                 );
             }
 
             $list = $this->firstValueByPaths($payload, [
+                'data.getBillFeeInvoiceList.paymentSummaryBillFeeInvoices',
                 'data.getPaymentSummaryBillFeeInvoiceList.paymentSummaryBillFeeInvoices',
                 'data.list',
                 'list',

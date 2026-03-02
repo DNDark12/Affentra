@@ -45,6 +45,27 @@
                 </span>
             </div>
 
+            <div
+                v-if="uiFeedback"
+                class="flex items-start justify-between gap-3 px-4 py-3 rounded-lg border"
+                :class="feedbackClasses(uiFeedback.type)"
+            >
+                <div class="flex items-start gap-2">
+                    <i :class="feedbackIcon(uiFeedback.type)"></i>
+                    <div class="text-[13px]">
+                        <p class="font-medium">{{ uiFeedback.message }}</p>
+                        <p v-if="uiFeedback.details" class="mt-0.5 opacity-80 whitespace-pre-line text-[12px]">{{ uiFeedback.details }}</p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    class="text-[12px] opacity-70 hover:opacity-100"
+                    @click="uiFeedback = null"
+                >
+                    Đóng
+                </button>
+            </div>
+
             <div v-if="isEmpty" class="flex flex-col gap-4">
                 <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-6 flex flex-col gap-4">
                     <div class="flex items-center gap-3">
@@ -222,7 +243,7 @@
                                     : 'bg-indigo-600 hover:bg-indigo-700'"
                             >
                                 <i v-if="syncingConnection === connection.id" class="ph ph-spinner animate-spin mr-1"></i>
-                                {{ syncingConnection === connection.id ? 'Đang gọi...' : primaryActionLabel(connection) }}
+                                {{ syncingConnection === connection.id ? 'Đang sync...' : primaryActionLabel(connection) }}
                             </button>
                             <button
                                 @click="openConfigModal(getPlatform(connection.platform), connection)"
@@ -291,10 +312,10 @@
                                         </td>
                                         <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[150px]">
                                             <div class="leading-tight">
-                                                <div class="text-[11px]">fetched {{ run.records_fetched ?? 0 }}</div>
-                                                <div class="text-[11px]">upserted {{ run.records_upserted ?? 0 }}</div>
+                                                <div class="text-[11px]">API {{ run.records_fetched ?? 0 }}</div>
+                                                <div class="text-[11px]">Thêm/Cập nhật {{ run.records_upserted ?? 0 }}</div>
                                                 <div class="text-[11px]" :class="Number(run.records_failed ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'">
-                                                    failed {{ run.records_failed ?? 0 }}
+                                                    Bỏ qua/Lỗi {{ run.records_failed ?? 0 }}
                                                 </div>
                                             </div>
                                         </td>
@@ -370,7 +391,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import AppShell from '@/Layouts/AppShell.vue';
@@ -393,6 +414,10 @@ const props = defineProps({
     },
 });
 
+function cloneConnections(input) {
+    return JSON.parse(JSON.stringify(Array.isArray(input) ? input : []));
+}
+
 const platformCatalog = [
     { id: 'shopee', name: 'Shopee Vietnam', icon: 'ph-shopping-bag', color: '#EE4D2D' },
     { id: 'lazada', name: 'Lazada Affiliate', icon: 'ph-shopping-cart', color: '#0B1AA5' },
@@ -408,7 +433,16 @@ const platformConfigs = computed(() => {
 
 const allowedMethods = computed(() => Array.isArray(props.allowedMethods) ? props.allowedMethods : ['open_api', 'portal_export']);
 
-const allConnections = computed(() => Array.isArray(props.connections) ? props.connections : []);
+const connectionsState = ref(cloneConnections(props.connections));
+watch(
+    () => props.connections,
+    (next) => {
+        connectionsState.value = cloneConnections(next);
+    },
+    { deep: true },
+);
+
+const allConnections = computed(() => Array.isArray(connectionsState.value) ? connectionsState.value : []);
 const connectionCount = computed(() => allConnections.value.length);
 const isEmpty = computed(() => connectionCount.value === 0);
 const isSingle = computed(() => connectionCount.value === 1);
@@ -478,11 +512,18 @@ const syncingAll = ref(false);
 const testingConnection = ref(null);
 const syncingConnection = ref(null);
 const activeDropdownId = ref(null);
+const uiFeedback = ref(null);
+
+const closeDropdownOnClick = () => {
+    activeDropdownId.value = null;
+};
 
 onMounted(() => {
-    window.addEventListener('click', () => {
-        activeDropdownId.value = null;
-    });
+    window.addEventListener('click', closeDropdownOnClick);
+});
+
+onBeforeUnmount(() => {
+    window.removeEventListener('click', closeDropdownOnClick);
 });
 
 const isConfigOpen = ref(false);
@@ -594,6 +635,8 @@ function backfillLabel(connection) {
 }
 
 function runStatusLabel(status) {
+    if (status === 'pending') return 'Queued';
+    if (status === 'processing') return 'Processing';
     if (status === 'completed') return 'Completed';
     if (status === 'completed_with_warnings') return 'Completed (Warnings)';
     if (status === 'failed_auth') return 'Failed Auth';
@@ -604,6 +647,7 @@ function runStatusLabel(status) {
 }
 
 function runStatusClass(status) {
+    if (status === 'pending' || status === 'processing') return 'text-indigo-600 dark:text-indigo-400';
     if (status === 'completed') return 'text-emerald-600 dark:text-emerald-400';
     if (status === 'completed_with_warnings') return 'text-amber-600 dark:text-amber-400';
     if (status === 'rate_limited') return 'text-amber-600 dark:text-amber-400';
@@ -612,6 +656,7 @@ function runStatusClass(status) {
 }
 
 function runStatusIcon(status) {
+    if (status === 'pending' || status === 'processing') return 'ph ph-spinner-gap animate-spin';
     if (status === 'completed') return 'ph ph-check-circle';
     if (status === 'completed_with_warnings') return 'ph ph-warning-circle';
     if (status === 'rate_limited') return 'ph ph-warning-circle';
@@ -620,8 +665,27 @@ function runStatusIcon(status) {
 }
 
 function runActionLabel(status) {
+    if (status === 'pending' || status === 'processing') return 'Đang chạy';
     if (String(status).startsWith('failed')) return 'Retry';
     return 'Chi tiết';
+}
+
+function feedbackClasses(type) {
+    if (type === 'success') return 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-200';
+    if (type === 'error') return 'bg-red-50 border-red-200 text-red-800 dark:bg-red-500/10 dark:border-red-500/30 dark:text-red-200';
+    if (type === 'warning') return 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-200';
+    return 'bg-indigo-50 border-indigo-200 text-indigo-800 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-200';
+}
+
+function feedbackIcon(type) {
+    if (type === 'success') return 'ph ph-check-circle text-emerald-600 dark:text-emerald-300 text-[18px]';
+    if (type === 'error') return 'ph ph-warning-circle text-red-600 dark:text-red-300 text-[18px]';
+    if (type === 'warning') return 'ph ph-warning text-amber-600 dark:text-amber-300 text-[18px]';
+    return 'ph ph-info text-indigo-600 dark:text-indigo-300 text-[18px]';
+}
+
+function showFeedback(type, message, details = '') {
+    uiFeedback.value = { type, message, details };
 }
 
 function normalizeRunPayload(run) {
@@ -633,19 +697,120 @@ function normalizeRunPayload(run) {
     };
 }
 
+function updateConnectionRuns(connectionId, runs) {
+    const index = allConnections.value.findIndex((item) => item.id === connectionId);
+    if (index < 0) return;
+
+    const normalizedRuns = (Array.isArray(runs) ? runs : []).map(normalizeRunPayload);
+    const next = [...allConnections.value];
+    const current = { ...next[index] };
+
+    current.recent_sync_runs = normalizedRuns.slice(0, 5);
+    current.sync_runs_count = Math.max(
+        Number(current.sync_runs_count || 0),
+        normalizedRuns.length,
+    );
+
+    if (normalizedRuns.length > 0) {
+        current.last_sync_status = normalizedRuns[0].status;
+        current.last_sync_at = normalizedRuns[0].started_at;
+    }
+
+    next[index] = current;
+    connectionsState.value = next;
+}
+
+function patchConnection(connectionId, payload) {
+    const index = allConnections.value.findIndex((item) => item.id === connectionId);
+    if (index < 0) return;
+
+    const next = [...allConnections.value];
+    next[index] = { ...next[index], ...payload };
+    connectionsState.value = next;
+}
+
+async function fetchSyncHistory(connectionId, limit = 20) {
+    const response = await axios.get(route('api.integrations.history', connectionId), {
+        params: { limit },
+    });
+
+    return Array.isArray(response.data?.data) ? response.data.data.map(normalizeRunPayload) : [];
+}
+
+function isRunFinal(status) {
+    return !['pending', 'processing'].includes(String(status));
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollSyncRun(connectionId, runId, timeoutMs = 120000) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+        const runs = await fetchSyncHistory(connectionId, 20);
+        updateConnectionRuns(connectionId, runs);
+
+        const run = runs.find((item) => Number(item.id) === Number(runId));
+        if (run && isRunFinal(run.status)) {
+            return run;
+        }
+
+        await sleep(2000);
+    }
+
+    return null;
+}
+
+async function pollManySyncRuns(runTargets, timeoutMs = 180000) {
+    const pending = new Map();
+    for (const item of runTargets) {
+        pending.set(Number(item.connectionId), Number(item.runId));
+    }
+
+    const finalRuns = [];
+    const startedAt = Date.now();
+
+    while (pending.size > 0 && Date.now() - startedAt < timeoutMs) {
+        for (const [connectionId, runId] of [...pending.entries()]) {
+            try {
+                const runs = await fetchSyncHistory(connectionId, 20);
+                updateConnectionRuns(connectionId, runs);
+                const run = runs.find((item) => Number(item.id) === Number(runId));
+                if (run && isRunFinal(run.status)) {
+                    finalRuns.push({ connectionId, run });
+                    pending.delete(connectionId);
+                }
+            } catch (error) {
+                console.error('Poll sync all failed for connection', connectionId, error);
+            }
+        }
+
+        if (pending.size > 0) {
+            await sleep(2000);
+        }
+    }
+
+    return {
+        finalRuns,
+        pending: [...pending.entries()].map(([connectionId, runId]) => ({ connectionId, runId })),
+    };
+}
+
 function getRecentRuns(connection) {
     const runs = Array.isArray(connection.recent_sync_runs) ? connection.recent_sync_runs : [];
     return runs.slice(0, 5).map(normalizeRunPayload);
 }
 
 function showGuide() {
-    alert('Hướng dẫn chi tiết sẽ được cập nhật trong docs nội bộ.');
+    showFeedback('info', 'Hướng dẫn chi tiết sẽ được cập nhật trong docs nội bộ.');
 }
 
 function connectShopeeNow() {
     const shopee = platformConfigs.value.find((platform) => platform.id === 'shopee' && platform.supported);
     if (!shopee) {
-        alert('Shopee hiện chưa khả dụng để kết nối.');
+        showFeedback('error', 'Shopee hiện chưa khả dụng để kết nối.');
         return;
     }
     openConfigModal(shopee, null);
@@ -654,7 +819,7 @@ function connectShopeeNow() {
 function openNewConnectionModal() {
     const firstSupported = platformConfigs.value.find((platform) => platform.supported);
     if (!firstSupported) {
-        alert('Hiện chưa có nền tảng nào khả dụng để kết nối.');
+        showFeedback('error', 'Hiện chưa có nền tảng nào khả dụng để kết nối.');
         return;
     }
     openConfigModal(firstSupported, null);
@@ -662,7 +827,7 @@ function openNewConnectionModal() {
 
 function openConfigModal(platform, existingConnection) {
     if (!existingConnection && !platform?.supported) {
-        alert('Nền tảng này chưa được hỗ trợ kết nối API.');
+        showFeedback('error', 'Nền tảng này chưa được hỗ trợ kết nối API.');
         return;
     }
     editConnection.value = existingConnection;
@@ -726,12 +891,10 @@ async function openHistoryModal(connection) {
     if (!connection) return;
 
     try {
-        const response = await axios.get(route('api.integrations.history', connection.id), {
-            params: { limit: 100 },
-        });
-        const runs = Array.isArray(response.data?.data) ? response.data.data.map(normalizeRunPayload) : [];
+        const runs = await fetchSyncHistory(connection.id, 100);
+        updateConnectionRuns(connection.id, runs);
         if (!runs.length) {
-            alert('Chưa có lịch sử đồng bộ cho kết nối này.');
+            showFeedback('info', 'Chưa có lịch sử đồng bộ cho kết nối này.');
             return;
         }
         openRunDetailsDrawer(connection, runs[0], runs);
@@ -739,11 +902,11 @@ async function openHistoryModal(connection) {
         console.error('Load history failed', error);
         const fallbackRuns = getRecentRuns(connection);
         if (fallbackRuns.length) {
-            openRunDetailsDrawer(getPlatform(connection.platform), fallbackRuns[0], fallbackRuns);
+            openRunDetailsDrawer(connection, fallbackRuns[0], fallbackRuns);
             return;
         }
 
-        alert('Không thể tải lịch sử đồng bộ.');
+        showFeedback('error', 'Không thể tải lịch sử đồng bộ.');
     }
 }
 
@@ -777,22 +940,29 @@ async function testConnection(connection) {
         const message = response.data?.message || (valid ? 'Connection valid.' : 'Connection failed.');
 
         if (valid) {
+            patchConnection(connection.id, {
+                status: 'active',
+                last_sync_status: 'completed',
+                last_error: null,
+                last_error_at: null,
+            });
+
             const failed = Object.entries(checks)
                 .filter(([, check]) => check?.ok === false)
                 .map(([name, check]) => `${name}: ${check?.message || 'failed'}`);
             if (failed.length > 0) {
-                alert(`Kết nối dùng được (partial).\n${message}\n\n${failed.join('\n')}`);
+                showFeedback('warning', 'Kết nối dùng được (partial).', `${message}\n${failed.join('\n')}`);
             } else {
-                alert(`Kết nối thành công.\n${message}`);
+                showFeedback('success', 'Test kết nối thành công.', message);
             }
         } else {
             const details = Object.entries(checks)
                 .map(([name, check]) => `${name}: ${check?.message || 'failed'}`)
                 .join('\n');
-            alert(`Lỗi: ${message}${details ? `\n\n${details}` : ''}`);
+            showFeedback('error', `Test kết nối thất bại: ${message}`, details);
         }
     } catch (error) {
-        alert(`Lỗi: ${error.response?.data?.message || 'Lỗi hệ thống.'}`);
+        showFeedback('error', `Lỗi: ${error.response?.data?.message || 'Lỗi hệ thống.'}`);
     } finally {
         testingConnection.value = null;
     }
@@ -831,7 +1001,7 @@ async function switchMethod(connection, newMethod) {
         router.reload({ only: ['connections'] });
     } catch (error) {
         console.error('Switch method failed', error);
-        alert('Không thể chuyển đổi phương thức. Vui lòng thử lại.');
+        showFeedback('error', 'Không thể chuyển đổi phương thức. Vui lòng thử lại.');
     }
 }
 
@@ -845,11 +1015,56 @@ async function triggerSync(connection) {
 
     syncingConnection.value = connection.id;
     try {
-        await axios.post(route('api.integrations.sync', connection.id));
-        router.reload({ only: ['connections'] });
+        showFeedback('info', `Đang xếp hàng đồng bộ cho ${connection.label || getPlatform(connection.platform).name}...`);
+        const response = await axios.post(route('api.integrations.sync', connection.id));
+        const runId = response.data?.data?.sync_run_id;
+
+        if (!runId) {
+            router.reload({ only: ['connections'] });
+            showFeedback('success', 'Đã kích hoạt đồng bộ.');
+            return;
+        }
+
+        const pendingRun = normalizeRunPayload({
+            id: runId,
+            status: 'pending',
+            type: 'manual',
+            started_at: new Date().toISOString(),
+            records_fetched: 0,
+            records_upserted: 0,
+            records_failed: 0,
+            error_message: 'Queued for execution.',
+        });
+        updateConnectionRuns(connection.id, [pendingRun, ...getRecentRuns(connection)]);
+
+        const finalRun = await pollSyncRun(connection.id, runId, 180000);
+        if (!finalRun) {
+            showFeedback(
+                'warning',
+                'Đồng bộ đã được kích hoạt nhưng chưa có kết quả cuối cùng.',
+                'Job có thể vẫn đang chạy trong queue. Bạn có thể bấm "Xem tất cả" để theo dõi thêm.',
+            );
+            return;
+        }
+
+        const detailLines = [
+            `API lấy về: ${finalRun.records_fetched ?? 0}`,
+            `Thêm/Cập nhật: ${finalRun.records_upserted ?? 0}`,
+            `Bỏ qua/Lỗi: ${finalRun.records_failed ?? 0}`,
+        ];
+
+        if (String(finalRun.status).startsWith('failed')) {
+            showFeedback('error', `Đồng bộ thất bại (${runStatusLabel(finalRun.status)}).`, detailLines.join('\n'));
+        } else if (finalRun.status === 'completed_with_warnings') {
+            showFeedback('warning', 'Đồng bộ hoàn tất có cảnh báo.', detailLines.join('\n'));
+        } else {
+            showFeedback('success', 'Đồng bộ hoàn tất.', detailLines.join('\n'));
+        }
+
+        router.reload({ only: ['connections'], preserveState: true, preserveScroll: true });
     } catch (error) {
         console.error('Trigger sync failed', error);
-        alert('Có lỗi khi kích hoạt đồng bộ.');
+        showFeedback('error', 'Có lỗi khi kích hoạt đồng bộ.', error.response?.data?.message || '');
     } finally {
         syncingConnection.value = null;
     }
@@ -860,31 +1075,91 @@ async function syncAllConnections() {
 
     const targets = allConnections.value.filter((connection) => ['active', 'error'].includes(connection.status));
     if (!targets.length) {
-        alert('Không có kết nối nào sẵn sàng để đồng bộ.');
+        showFeedback('info', 'Không có kết nối nào sẵn sàng để đồng bộ.');
         return;
     }
 
     syncingAll.value = true;
-    let success = 0;
-    let failed = 0;
+    let queued = 0;
+    let queueFailed = 0;
+    const runTargets = [];
 
     for (const connection of targets) {
         try {
-            await axios.post(route('api.integrations.sync', connection.id));
-            success += 1;
+            const response = await axios.post(route('api.integrations.sync', connection.id));
+            const runId = response.data?.data?.sync_run_id;
+            queued += 1;
+            if (runId) {
+                runTargets.push({ connectionId: connection.id, runId });
+                const pendingRun = normalizeRunPayload({
+                    id: runId,
+                    status: 'pending',
+                    type: 'manual',
+                    started_at: new Date().toISOString(),
+                    records_fetched: 0,
+                    records_upserted: 0,
+                    records_failed: 0,
+                    error_message: 'Queued for execution.',
+                });
+                updateConnectionRuns(connection.id, [pendingRun, ...getRecentRuns(connection)]);
+            }
         } catch {
-            failed += 1;
+            queueFailed += 1;
         }
     }
 
-    syncingAll.value = false;
-    router.reload({ only: ['connections'] });
+    if (!runTargets.length) {
+        syncingAll.value = false;
+        router.reload({ only: ['connections'] });
 
-    if (failed > 0) {
-        alert(`Đã kích hoạt ${success} kết nối, ${failed} kết nối gặp lỗi.`);
+        if (queueFailed > 0) {
+            showFeedback('warning', `Đã kích hoạt ${queued} kết nối, ${queueFailed} kết nối lỗi khi xếp hàng.`);
+            return;
+        }
+
+        showFeedback('success', `Đã kích hoạt đồng bộ cho ${queued} kết nối.`);
         return;
     }
 
-    alert(`Đã kích hoạt đồng bộ cho ${success} kết nối.`);
+    showFeedback('info', `Đã xếp hàng ${queued} kết nối. Đang theo dõi tiến trình...`);
+    const polled = await pollManySyncRuns(runTargets, 180000);
+
+    const finalRuns = polled.finalRuns.map((entry) => entry.run);
+    const completed = finalRuns.filter((run) => run.status === 'completed').length;
+    const warnings = finalRuns.filter((run) => run.status === 'completed_with_warnings').length;
+    const failed = finalRuns.filter((run) => String(run.status).startsWith('failed')).length;
+    const stillRunning = polled.pending.length;
+
+    const totals = finalRuns.reduce((acc, run) => {
+        acc.fetched += Number(run.records_fetched || 0);
+        acc.upserted += Number(run.records_upserted || 0);
+        acc.failed += Number(run.records_failed || 0);
+        return acc;
+    }, { fetched: 0, upserted: 0, failed: 0 });
+
+    syncingAll.value = false;
+    router.reload({ only: ['connections'], preserveState: true, preserveScroll: true });
+
+    const detailLines = [
+        `Completed: ${completed}`,
+        `Completed with warnings: ${warnings}`,
+        `Failed: ${failed}`,
+        `Still running: ${stillRunning}`,
+        `API fetched: ${totals.fetched}`,
+        `Upserted/Updated: ${totals.upserted}`,
+        `Skipped/Failed records: ${totals.failed}`,
+    ];
+
+    if (failed > 0 || queueFailed > 0) {
+        showFeedback('error', 'Sync all hoàn tất nhưng có kết nối thất bại.', detailLines.join('\n'));
+        return;
+    }
+
+    if (warnings > 0 || stillRunning > 0) {
+        showFeedback('warning', 'Sync all hoàn tất với cảnh báo.', detailLines.join('\n'));
+        return;
+    }
+
+    showFeedback('success', 'Sync all hoàn tất thành công.', detailLines.join('\n'));
 }
 </script>

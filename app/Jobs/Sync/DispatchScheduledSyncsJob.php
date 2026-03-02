@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs\Sync;
 
+use App\Jobs\Sync\SyncPaymentDataJob;
 use App\Models\PlatformConnection;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -45,6 +46,9 @@ class DispatchScheduledSyncsJob implements ShouldQueue
                 type: 'auto',
                 userId: $connection->user_id,
             )->onQueue('sync');
+
+            // Also schedule payment sync (Finance)
+            SyncPaymentDataJob::dispatch($connection)->onQueue('sync');
         }
     }
 }

@@ -232,4 +232,77 @@ class ShopeePaymentSyncTest extends TestCase
         $order->refresh();
         $this->assertNotNull($order->paid_at);
     }
+
+    public function test_payment_sync_marks_paid_when_billing_status_is_numeric_and_payout_endpoint_missing(): void
+    {
+        $user = User::factory()->create();
+        $connection = PlatformConnection::create([
+            'user_id' => $user->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=test-cookie',
+                'affiliate_program_type' => '1',
+                'profiles' => [
+                    'billing' => [],
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'cookie_user_agent' => 'test-ua',
+        ]);
+
+        $periodStart = now()->subDays(10)->startOfDay();
+        $periodEnd = now()->subDays(1)->endOfDay();
+        $paidAt = now()->subDay()->startOfHour();
+
+        $order = Order::create([
+            'user_id' => $user->id,
+            'connection_id' => $connection->id,
+            'platform' => 'shopee',
+            'order_code' => 'ORDER-NUMERIC-STATUS',
+            'status' => 'approved',
+            'payout_status' => 'unpaid',
+            'order_amount' => 500000,
+            'commission' => 50000,
+            'ordered_at' => now()->subDays(9),
+            'approved_at' => now()->subDays(8),
+            'completed_at' => now()->subDays(7),
+            'source' => 'api',
+        ]);
+
+        Http::fake([
+            'affiliate.shopee.vn/api/v3/payment/billing_list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [
+                        [
+                            'billing_id' => 'BILL-NUMERIC-PAID',
+                            'payout_id' => 'PAY-FROM-BILLING',
+                            'order_completed_period_start_time' => $periodStart->timestamp,
+                            'order_completed_period_end_time' => $periodEnd->timestamp,
+                            'validation_payout_status' => 2,
+                            'payment_status' => 6,
+                            'payment_completed_time' => $paidAt->timestamp,
+                            'bill_total_amount' => 5032200000,
+                        ],
+                    ],
+                    'total_count' => 1,
+                ],
+            ]),
+            'affiliate.shopee.vn/api/v3/gql*' => Http::response([
+                'data' => [],
+            ]),
+        ]);
+
+        SyncPaymentDataJob::dispatchSync($connection, $periodStart, now());
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'payout_status' => 'paid',
+        ]);
+        $this->assertDatabaseHas('affiliate_payouts', [
+            'platform_connection_id' => $connection->id,
+            'payout_id' => 'PAY-FROM-BILLING',
+        ]);
+    }
 }

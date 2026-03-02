@@ -71,7 +71,7 @@
                                 <td class="px-4 py-3 text-right font-bold" style="color: var(--color-primary-500)">{{ fmtMoney(b.net_amount) }}</td>
                                 <td class="px-4 py-3 text-center">
                                     <span class="text-xs font-medium px-2 py-0.5 rounded-full" :style="billingStatusStyle(b.status)">
-                                        {{ b.status }}
+                                        {{ billingStatusLabel(b.status) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right text-xs" style="color: var(--text-muted)">
@@ -183,11 +183,29 @@ function platformStyle(p) {
 }
 
 function billingStatusStyle(s) {
+    const key = normalizeBillingStatus(s);
     const m = {
         paid:    { background: 'var(--success-bg)', color: 'var(--success-text)' },
         settled: { background: 'var(--color-primary-500)20', color: 'var(--color-primary-500)' },
         pending: { background: 'var(--warning-bg)', color: 'var(--warning-text)' },
+        failed:  { background: 'var(--danger-bg)', color: 'var(--danger-text)' },
     };
-    return m[s] ?? { background: 'var(--surface-2)', color: 'var(--text-muted)' };
+    return m[key] ?? { background: 'var(--surface-2)', color: 'var(--text-muted)' };
+}
+
+function normalizeBillingStatus(value) {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (['2', '3', '6', 'paid', 'settled', 'completed', 'success', 'đã thanh toán'].includes(raw)) return 'paid';
+    if (['0', '1', 'pending', 'processing', 'review'].includes(raw)) return 'pending';
+    if (['-1', 'failed', 'rejected', 'cancelled', 'unpaid'].includes(raw)) return 'failed';
+    return raw || 'pending';
+}
+
+function billingStatusLabel(value) {
+    const key = normalizeBillingStatus(value);
+    if (key === 'paid') return 'Đã thanh toán';
+    if (key === 'pending') return 'Đang xử lý';
+    if (key === 'failed') return 'Không thanh toán';
+    return String(value ?? '—');
 }
 </script>

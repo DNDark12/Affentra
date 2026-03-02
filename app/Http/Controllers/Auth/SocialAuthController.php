@@ -39,69 +39,7 @@ class SocialAuthController extends Controller
             return redirect()->route('login')->with('error', 'Không thể xác thực Google. Vui lòng thử lại.');
         }
 
-        $providerId = (string) $googleUser->getId();
-        $email = $googleUser->getEmail();
-
-        if ($providerId === '' || ! is_string($email) || $email === '') {
-            return redirect()->route('login')->with('error', 'Tài khoản Google chưa cung cấp email hợp lệ.');
-        }
-
-        [$user, $isNewUser] = DB::transaction(function () use ($googleUser, $providerId, $email): array {
-            $identity = UserIdentity::query()
-                ->where('provider', 'google')
-                ->where('provider_id', $providerId)
-                ->first();
-
-            $user = $identity?->user;
-            $isNewUser = false;
-
-            if (! $user) {
-                $user = User::query()->where('email', $email)->first();
-            }
-
-            if (! $user) {
-                $parentId = session('ref');
-
-                if ($parentId && !User::where('id', $parentId)->exists()) {
-                    $parentId = null;
-                }
-
-                $user = User::query()->create([
-                    'name'              => $googleUser->getName() ?: 'Google User',
-                    'email'             => $email,
-                    'email_verified_at' => now(),
-                    'avatar'            => $googleUser->getAvatar(),
-                    'role'              => UserRole::CTV,
-                    'status'            => UserStatus::Active,
-                    'password'          => null,
-                    'parent_id'         => $parentId,
-                ]);
-                $isNewUser = true;
-            }
-
-            $expiresAt = is_numeric($googleUser->expiresIn)
-                ? now()->addSeconds((int) $googleUser->expiresIn)
-                : null;
-
-            UserIdentity::query()->updateOrCreate(
-                [
-                    'provider'    => 'google',
-                    'provider_id' => $providerId,
-                ],
-                [
-                    'user_id'         => $user->id,
-                    'provider_email'  => $email,
-                    'avatar'          => $googleUser->getAvatar(),
-                    'access_token'    => $googleUser->token,
-                    'refresh_token'   => $googleUser->refreshToken,
-                    'expires_at'      => $expiresAt,
-                ]
-            );
-
-            $user->refresh();
-
-            return [$user, $isNewUser];
-        });
+        $user = $this->authService->handleSocialiteUser($googleUser, 'google');
 
         Auth::login($user, true);
 
@@ -119,3 +57,4 @@ class SocialAuthController extends Controller
         return redirect()->intended(route('dashboard'));
     }
 }
+

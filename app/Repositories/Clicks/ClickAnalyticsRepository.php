@@ -159,12 +159,12 @@ class ClickAnalyticsRepository
         $query = Order::query()
             ->with(['trackingLink.campaign', 'user']);
 
-        if ($actor->role === 'leader') {
+        if ($actor->isLeader()) {
             $query->whereHas('user', function ($q) use ($actor): void {
                 $q->where('id', $actor->id)
                     ->orWhere('parent_id', $actor->id);
             });
-        } elseif ($actor->role === 'ctv') {
+        } elseif ($actor->isCTV()) {
             $query->where('user_id', $actor->id);
         }
 
@@ -292,9 +292,9 @@ class ClickAnalyticsRepository
     {
         $query = DailyStat::query();
 
-        if ($actor->role === 'leader') {
+        if ($actor->isLeader()) {
             $query->where('leader_id', $actor->id);
-        } elseif ($actor->role === 'ctv') {
+        } elseif ($actor->isCTV()) {
             $query->where('ctv_user_id', $actor->id);
         }
 
@@ -316,10 +316,11 @@ class ClickAnalyticsRepository
 
     private function scopeClickQueryByActor(Builder $query, User $actor): void
     {
-        if ($actor->role === 'leader') {
+        if ($actor->isLeader()) {
             $query->where('leader_id', $actor->id);
-        } elseif ($actor->role === 'ctv') {
+        } elseif ($actor->isCTV()) {
             $query->where('ctv_user_id', $actor->id);
         }
     }
 }
+

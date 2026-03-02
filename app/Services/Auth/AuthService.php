@@ -93,4 +93,75 @@ class AuthService
         /** @var User|null */
         return Auth::user();
     }
+
+    /**
+     * Handle user creation or retrieval from Socialite user data.
+     */
+    public function handleSocialiteUser(\Laravel\Socialite\Contracts\User $socialiteUser, string $provider): User
+    {
+        $providerId = (string) $socialiteUser->getId();
+        $email = $socialiteUser->getEmail();
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($socialiteUser, $providerId, $email, $provider): User {
+            $identity = \App\Models\UserIdentity::query()
+                ->where('provider', $provider)
+                ->where('provider_id', $providerId)
+                ->first();
+
+            $user = $identity?->user;
+
+            if (! $user) {
+                $user = User::query()->where('email', $email)->first();
+            }
+
+            if (! $user) {
+                $parentId = session('ref');
+
+                if ($parentId && !User::where('id', $parentId)->exists()) {
+                    $parentId = null;
+                }
+
+                $user = User::query()->create([
+                    'name'              => $socialiteUser->getName() ?: ucfirst($provider) . ' User',
+                    'email'             => $email,
+                    'email_verified_at' => now(),
+                    'avatar'            => $socialiteUser->getAvatar(),
+                    'role'              => \App\Enums\UserRole::CTV,
+                    'status'            => \App\Enums\UserStatus::Active,
+                    'password'          => null,
+                    'parent_id'         => $parentId,
+                ]);
+            }
+
+            $this->linkIdentity($user, $socialiteUser, $provider);
+
+            return $user;
+        });
+    }
+
+    /**
+     * Link or update social identity for a user.
+     */
+    public function linkIdentity(User $user, \Laravel\Socialite\Contracts\User $socialiteUser, string $provider): void
+    {
+        $expiresAt = is_numeric($socialiteUser->expiresIn)
+            ? now()->addSeconds((int) $socialiteUser->expiresIn)
+            : null;
+
+        \App\Models\UserIdentity::query()->updateOrCreate(
+            [
+                'provider'    => $provider,
+                'provider_id' => (string) $socialiteUser->getId(),
+            ],
+            [
+                'user_id'         => $user->id,
+                'provider_email'  => $socialiteUser->getEmail(),
+                'avatar'          => $socialiteUser->getAvatar(),
+                'access_token'    => $socialiteUser->token,
+                'refresh_token'   => $socialiteUser->refreshToken ?? null,
+                'expires_at'      => $expiresAt,
+            ]
+        );
+    }
 }
+

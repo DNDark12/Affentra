@@ -25,6 +25,7 @@ class SyncRun extends Model
         'records_upserted',
         'records_failed',
         'error_message',
+        'details',
         'error_log_path',
     ];
 
@@ -39,6 +40,7 @@ class SyncRun extends Model
             'records_fetched'   => 'integer',
             'records_upserted'  => 'integer',
             'records_failed'    => 'integer',
+            'details'           => 'array',
         ];
     }
 

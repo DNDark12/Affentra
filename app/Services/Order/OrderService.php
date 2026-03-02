@@ -6,6 +6,7 @@ namespace App\Services\Order;
 
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\SyncRunRepositoryInterface;
+use App\Contracts\Repositories\TrackingLinkRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Jobs\Order\AggregateDailyStatsJob;
 use App\Jobs\Order\ImportOrdersJob;
@@ -18,6 +19,8 @@ use App\Support\TrackingLinkIdentity;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -27,6 +30,7 @@ class OrderService
         private readonly OrderRepositoryInterface $orderRepository,
         private readonly UserRepositoryInterface $userRepository,
         private readonly SyncRunRepositoryInterface $syncRunRepository,
+        private readonly TrackingLinkRepositoryInterface $trackingLinkRepository,
     ) {}
 
     /**
@@ -247,7 +251,14 @@ class OrderService
      * Processes in chunks with hash comparison to skip unchanged records.
      *
      * @param  list<array<string, mixed>>  $orders  Mapped order rows from adapter
-     * @return array{upserted: int, failed: int, affected_partitions: list<array{date: string, user_id: int, platform: string}>}
+     * @return array{
+     *   upserted: int,
+     *   failed: int,
+     *   affected_partitions: list<array{date: string, user_id: int, platform: string}>,
+     *   affected_link_ids: list<int>,
+     *   auto_links_created: int,
+     *   unattributed_orders: int
+     * }
      */
     public function upsertFromApiSync(PlatformConnection $connection, array $orders): array
     {
@@ -255,6 +266,9 @@ class OrderService
         $totalUpserted = 0;
         $totalFailed = 0;
         $affectedPartitions = [];
+        $affectedLinkIds = [];
+        $autoLinksCreated = 0;
+        $unattributedOrders = 0;
 
         // Preload tracking links for sub_id mapping
         $subIds = array_values(array_unique(array_filter(
@@ -278,9 +292,12 @@ class OrderService
                     $chunk,
                     $connection,
                     $linksBySubId,
-                    $linksByProductKey,
+                    &$linksByProductKey,
                     &$totalUpserted,
                     &$affectedPartitions,
+                    &$affectedLinkIds,
+                    &$autoLinksCreated,
+                    &$unattributedOrders,
                 ) {
                     $upsertRows = [];
 
@@ -374,6 +391,33 @@ class OrderService
                                 $attributionSource = 'unmatched_product';
                                 $attributionDetail = $productKey;
                             }
+
+                            if (
+                                $trackingLinkId === null
+                                && $productKey !== null
+                                && ! (($linksByProductKey[$productKey]['ambiguous'] ?? false) === true)
+                            ) {
+                                $autoLink = $this->ensureAutoTrackingLinkForOrder(
+                                    connection: $connection,
+                                    order: $order,
+                                    productKey: $productKey,
+                                    linksByProductKey: $linksByProductKey,
+                                );
+
+                                if ($autoLink !== null) {
+                                    $userId = (int) $autoLink['user_id'];
+                                    $campaignId = $autoLink['campaign_id'] ?? null;
+                                    $trackingLinkId = (int) $autoLink['id'];
+                                    $missingSubId = false;
+                                    $attributionSource = 'auto_link';
+                                    $attributionDetail = $productKey;
+                                    $autoLinksCreated++;
+                                }
+                            }
+                        }
+
+                        if ($trackingLinkId === null) {
+                            $unattributedOrders++;
                         }
 
                         $sourceMeta = is_array($order['source_meta'] ?? null) ? $order['source_meta'] : [];
@@ -437,6 +481,10 @@ class OrderService
                             'created_at'         => $now,
                             'updated_at'         => $now,
                         ];
+
+                        if ($trackingLinkId !== null) {
+                            $affectedLinkIds[(int) $trackingLinkId] = true;
+                        }
 
                         // Track affected partitions for incremental aggregation
                         $orderedDate = null;
@@ -505,10 +553,18 @@ class OrderService
             }
         }
 
+        $affectedLinkIds = array_map('intval', array_keys($affectedLinkIds));
+        if ($affectedLinkIds !== []) {
+            $this->trackingLinkRepository->recomputeOrdersCountBulk($affectedLinkIds);
+        }
+
         return [
             'upserted'            => $totalUpserted,
             'failed'              => $totalFailed,
             'affected_partitions' => $affectedPartitions,
+            'affected_link_ids'   => $affectedLinkIds,
+            'auto_links_created'  => $autoLinksCreated,
+            'unattributed_orders' => $unattributedOrders,
         ];
     }
 
@@ -565,10 +621,135 @@ class OrderService
         $productId = trim((string) ($order['product_id'] ?? ''));
 
         if ($shopId === '' || $productId === '') {
-            return null;
+            $fromLink = TrackingLinkIdentity::extractShopeeProductKey(
+                isset($order['product_link']) ? (string) $order['product_link'] : null
+            );
+
+            return $fromLink !== null ? trim($fromLink) : null;
         }
 
         return "{$shopId}:{$productId}";
+    }
+
+    /**
+     * @param  array<string, mixed>  $order
+     * @param  array<string, array{id?: int, user_id?: int, campaign_id?: int|null, ambiguous?: bool}>  $linksByProductKey
+     * @return array{id: int, user_id: int, campaign_id: int|null}|null
+     */
+    private function ensureAutoTrackingLinkForOrder(
+        PlatformConnection $connection,
+        array $order,
+        string $productKey,
+        array &$linksByProductKey,
+    ): ?array {
+        if (isset($linksByProductKey[$productKey])) {
+            $existing = $linksByProductKey[$productKey];
+            if (($existing['ambiguous'] ?? false) === true) {
+                return null;
+            }
+
+            $existingId = (int) ($existing['id'] ?? 0);
+            if ($existingId <= 0) {
+                return null;
+            }
+
+            return [
+                'id' => $existingId,
+                'user_id' => (int) ($existing['user_id'] ?? $connection->user_id),
+                'campaign_id' => isset($existing['campaign_id']) ? (int) $existing['campaign_id'] : null,
+            ];
+        }
+
+        $destinationUrl = $this->resolveOrderDestinationUrl($order, $productKey);
+        if ($destinationUrl === null) {
+            return null;
+        }
+
+        $meta = [
+            'auto_generated' => true,
+            'auto_generated_from' => 'order_sync',
+            'offer_shop_id' => (string) ($order['shop_id'] ?? ''),
+            'offer_item_id' => (string) ($order['product_id'] ?? ''),
+            'offer_item_name' => (string) ($order['product_name'] ?? ''),
+            'origin_order_code' => (string) ($order['order_code'] ?? ''),
+            'identity_key' => "shopee:product:{$productKey}",
+        ];
+
+        $existingLink = TrackingLink::query()
+            ->where('user_id', $connection->user_id)
+            ->where('platform', $connection->platform)
+            ->where('destination_url', $destinationUrl)
+            ->first(['id', 'user_id', 'campaign_id', 'destination_url', 'meta']);
+
+        if (! $existingLink) {
+            for ($attempt = 0; $attempt < 5; $attempt++) {
+                try {
+                    $existingLink = TrackingLink::query()->create([
+                        'user_id' => $connection->user_id,
+                        'campaign_id' => null,
+                        'short_code' => Str::lower(Str::random(8)),
+                        'destination_url' => $destinationUrl,
+                        'platform' => $connection->platform,
+                        'meta' => $meta,
+                        'source' => 'auto_order_sync',
+                        'channel' => 'shopee',
+                        'sub_id' => null,
+                        'status' => 'active',
+                        'clicks_count' => 0,
+                        'orders_count' => 0,
+                    ]);
+                    break;
+                } catch (QueryException $exception) {
+                    // Retry only when generated short code collided.
+                    if (! str_contains(mb_strtolower($exception->getMessage()), 'short_code')) {
+                        throw $exception;
+                    }
+                }
+            }
+        }
+
+        if (! $existingLink) {
+            return null;
+        }
+
+        $resolvedProductKey = TrackingLinkIdentity::extractShopeeProductKey(
+            $existingLink->destination_url,
+            is_array($existingLink->meta) ? $existingLink->meta : null,
+        ) ?? $productKey;
+
+        $payload = [
+            'id' => (int) $existingLink->id,
+            'user_id' => (int) $existingLink->user_id,
+            'campaign_id' => $existingLink->campaign_id !== null ? (int) $existingLink->campaign_id : null,
+        ];
+
+        $linksByProductKey[$resolvedProductKey] = $payload;
+        if ($resolvedProductKey !== $productKey) {
+            $linksByProductKey[$productKey] = $payload;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $order
+     */
+    private function resolveOrderDestinationUrl(array $order, string $productKey): ?string
+    {
+        $productLink = trim((string) ($order['product_link'] ?? ''));
+        if ($productLink !== '' && preg_match('/^https?:\/\//i', $productLink) === 1) {
+            return $productLink;
+        }
+
+        [$shopId, $productId] = array_pad(explode(':', $productKey, 2), 2, '');
+        $shopId = trim((string) $shopId);
+        $productId = trim((string) $productId);
+
+        if ($shopId === '' || $productId === '') {
+            return null;
+        }
+
+        return "https://shopee.vn/product/{$shopId}/{$productId}";
     }
 
     private function normalizeSubId(mixed $value): ?string

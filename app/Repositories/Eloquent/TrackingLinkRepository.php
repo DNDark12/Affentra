@@ -95,6 +95,52 @@ SQL;
         return DB::update($sql, $ids);
     }
 
+    /**
+     * @param  list<int>  $linkIds
+     */
+    public function recomputeOrdersCountBulk(array $linkIds): int
+    {
+        $ids = array_values(array_unique(array_map('intval', array_filter($linkIds, static fn ($id): bool => (int) $id > 0))));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $driver = DB::getDriverName();
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $sql = <<<SQL
+UPDATE tracking_links tl
+LEFT JOIN (
+    SELECT tracking_link_id, COUNT(*) as cnt
+    FROM orders
+    WHERE tracking_link_id IN ({$placeholders})
+    GROUP BY tracking_link_id
+) o ON o.tracking_link_id = tl.id
+SET tl.orders_count = COALESCE(o.cnt, 0)
+WHERE tl.id IN ({$placeholders})
+SQL;
+
+            return DB::update($sql, array_merge($ids, $ids));
+        }
+
+        // SQLite / PostgreSQL fallback with a single atomic UPDATE statement.
+        $sql = <<<SQL
+UPDATE tracking_links
+SET orders_count = COALESCE(
+    (
+        SELECT COUNT(*)
+        FROM orders
+        WHERE orders.tracking_link_id = tracking_links.id
+    ),
+    0
+)
+WHERE id IN ({$placeholders})
+SQL;
+
+        return DB::update($sql, $ids);
+    }
+
     public function listForScope(?array $scopeUserIds, array $filters = []): LengthAwarePaginator
     {
         $useRangeMetrics = $this->hasDateRangeFilter($filters);
@@ -183,6 +229,62 @@ SQL;
             'total_orders' => (int) ($row?->total_orders ?? 0),
             'total_approved' => (int) ($row?->total_approved ?? 0),
             'total_commission' => round((float) ($row?->total_commission ?? 0), 2),
+        ];
+    }
+
+    public function attributionGapSummaryForScope(?array $scopeUserIds, array $filters = []): array
+    {
+        $clickQuery = DB::table('clicks')
+            ->where('attribution_status', 'unattributed');
+
+        if ($scopeUserIds !== null) {
+            $clickQuery->whereIn('owner_id', $scopeUserIds);
+        }
+
+        if (! empty($filters['date_from'])) {
+            $clickQuery->whereDate('created_at', '>=', (string) $filters['date_from']);
+        }
+
+        if (! empty($filters['date_to'])) {
+            $clickQuery->whereDate('created_at', '<=', (string) $filters['date_to']);
+        }
+
+        $unattributedClicks = (clone $clickQuery)->count();
+        $clickReasons = $this->aggregateJsonReasonCounts(
+            query: $clickQuery,
+            jsonColumn: 'source_meta',
+            path: '$.attribution_source',
+            limit: 5,
+        );
+
+        $orderQuery = DB::table('orders')
+            ->whereNull('tracking_link_id');
+
+        if ($scopeUserIds !== null) {
+            $orderQuery->whereIn('user_id', $scopeUserIds);
+        }
+
+        if (! empty($filters['date_from'])) {
+            $orderQuery->whereDate(DB::raw('COALESCE(ordered_at, created_at)'), '>=', (string) $filters['date_from']);
+        }
+
+        if (! empty($filters['date_to'])) {
+            $orderQuery->whereDate(DB::raw('COALESCE(ordered_at, created_at)'), '<=', (string) $filters['date_to']);
+        }
+
+        $unattributedOrders = (clone $orderQuery)->count();
+        $orderReasons = $this->aggregateJsonReasonCounts(
+            query: $orderQuery,
+            jsonColumn: 'source_meta',
+            path: '$.attribution_source',
+            limit: 5,
+        );
+
+        return [
+            'unattributed_clicks' => (int) $unattributedClicks,
+            'unattributed_click_reasons' => $clickReasons,
+            'unattributed_orders' => (int) $unattributedOrders,
+            'unattributed_order_reasons' => $orderReasons,
         ];
     }
 
@@ -318,5 +420,70 @@ SQL;
     private function hasDateRangeFilter(array $filters): bool
     {
         return ! empty($filters['date_from']) || ! empty($filters['date_to']);
+    }
+
+    /**
+     * @return list<array{reason:string,label:string,count:int}>
+     */
+    private function aggregateJsonReasonCounts(
+        QueryBuilder $query,
+        string $jsonColumn,
+        string $path,
+        int $limit = 5,
+    ): array {
+        $driver = DB::getDriverName();
+        $rows = [];
+
+        if (in_array($driver, ['mysql', 'mariadb'], true)) {
+            $expr = "COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT({$jsonColumn}, '{$path}')), ''), 'unknown')";
+            $rows = (clone $query)
+                ->selectRaw("{$expr} as reason, COUNT(*) as total")
+                ->groupByRaw($expr)
+                ->orderByDesc('total')
+                ->limit($limit)
+                ->get();
+        } else {
+            $counts = [];
+            foreach ((clone $query)->select($jsonColumn)->cursor() as $row) {
+                $raw = $row->{$jsonColumn} ?? null;
+                $sourceMeta = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
+                $reason = is_array($sourceMeta) ? (string) ($sourceMeta['attribution_source'] ?? '') : '';
+                $normalized = $reason !== '' ? $reason : 'unknown';
+                $counts[$normalized] = ($counts[$normalized] ?? 0) + 1;
+            }
+
+            arsort($counts);
+            foreach (array_slice($counts, 0, $limit, true) as $reason => $count) {
+                $rows[] = (object) ['reason' => (string) $reason, 'total' => (int) $count];
+            }
+        }
+
+        $result = [];
+        foreach ($rows as $row) {
+            $reason = (string) ($row->reason ?? 'unknown');
+            $result[] = [
+                'reason' => $reason,
+                'label' => $this->attributionReasonLabel($reason),
+                'count' => (int) ($row->total ?? 0),
+            ];
+        }
+
+        return $result;
+    }
+
+    private function attributionReasonLabel(string $reason): string
+    {
+        return match ($reason) {
+            'sub_id' => 'Matched theo Sub ID',
+            'item_id' => 'Matched theo Item ID',
+            'product_key' => 'Matched theo sản phẩm',
+            'auto_link' => 'Tự tạo link từ dữ liệu order',
+            'missing_sub_id' => 'Shopee không trả Sub ID',
+            'ambiguous_product' => 'Trùng nhiều link cùng sản phẩm',
+            'unmatched_product' => 'Không tìm thấy link theo sản phẩm',
+            'direct' => 'Không có tín hiệu attribution từ Shopee',
+            'none' => 'Không có sub_id/item_id',
+            default => 'Không xác định',
+        };
     }
 }

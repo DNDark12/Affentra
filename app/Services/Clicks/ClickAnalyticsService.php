@@ -7,8 +7,10 @@ namespace App\Services\Clicks;
 use App\Contracts\Repositories\TrackingLinkRepositoryInterface;
 use App\DTOs\Clicks\ClickReportFilter;
 use App\Models\PlatformConnection;
+use App\Models\TrackingLink;
 use App\Models\User;
 use App\Repositories\Clicks\ClickAnalyticsRepository;
+use App\Support\TrackingLinkIdentity;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 
@@ -53,10 +55,11 @@ class ClickAnalyticsService
     public function upsertFromApiSync(PlatformConnection $connection, array $clicks, Carbon $since, Carbon $until): array
     {
         $subIds = array_values(array_unique(array_values(array_filter(
-            array_map(static fn (array $row): ?string => isset($row['sub_id']) && trim((string) $row['sub_id']) !== '' ? (string) $row['sub_id'] : null, $clicks),
+            array_map(fn (array $row): ?string => $this->normalizeSubId($row['sub_id'] ?? null), $clicks),
         ))));
 
         $links = $this->repository->resolveLinksBySubIds($subIds);
+        $linksByItemId = $this->buildLinksByItemId($connection);
 
         $deleted = $this->repository->cleanupSyncedClicks(
             connectionId: $connection->id,
@@ -74,11 +77,23 @@ class ClickAnalyticsService
         $unattributed = 0;
 
         foreach ($clicks as $row) {
-            $subId = isset($row['sub_id']) && trim((string) $row['sub_id']) !== ''
-                ? trim((string) $row['sub_id'])
-                : null;
+            $subId = $this->normalizeSubId($row['sub_id'] ?? null);
 
             $link = $subId !== null ? ($links->get($subId) ?: null) : null;
+            $resolvedTrackingLinkId = $link?->id;
+            $attributionSource = $resolvedTrackingLinkId !== null ? 'sub_id' : 'none';
+
+            if ($resolvedTrackingLinkId === null) {
+                $itemId = trim((string) ($row['item_id'] ?? ''));
+                if ($itemId !== '' && isset($linksByItemId[$itemId]) && (($linksByItemId[$itemId]['ambiguous'] ?? false) !== true)) {
+                    $resolvedLinkId = (int) ($linksByItemId[$itemId]['id'] ?? 0);
+                    if ($resolvedLinkId > 0) {
+                        $resolvedTrackingLinkId = $resolvedLinkId;
+                        $attributionSource = 'item_id';
+                    }
+                }
+            }
+
             $user = $link?->user ?? $connectionUser;
 
             if ($user === null) {
@@ -94,7 +109,7 @@ class ClickAnalyticsService
                 $clickTime = Carbon::parse((string) $clickTime);
             }
 
-            $attributionStatus = $link !== null ? 'matched' : 'unattributed';
+            $attributionStatus = $resolvedTrackingLinkId !== null ? 'matched' : 'unattributed';
             if ($attributionStatus === 'matched') {
                 $matched += $amount;
             } else {
@@ -106,12 +121,13 @@ class ClickAnalyticsService
                 'campaign_id' => $row['campaign_id'] ?? null,
                 'item_id' => $row['item_id'] ?? null,
                 'attribution_status' => $attributionStatus,
+                'attribution_source' => $attributionSource,
             ];
 
             for ($i = 0; $i < $amount; $i++) {
                 $seed = ($subId ?? 'na') . '|' . $clickTime->timestamp . '|' . $i . '|' . $connection->id;
                 $inserts[] = [
-                    'tracking_link_id' => $link?->id,
+                    'tracking_link_id' => $resolvedTrackingLinkId,
                     'connection_id' => $connection->id,
                     'ip' => null,
                     'user_agent' => null,
@@ -188,5 +204,67 @@ class ClickAnalyticsService
             'leader_id' => null,
             'ctv_user_id' => $user->id,
         ];
+    }
+
+    private function normalizeSubId(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $subId = trim((string) $value);
+        if ($subId === '') {
+            return null;
+        }
+
+        $normalized = mb_strtolower($subId);
+        $invalidTokens = ['-', '--', '---', '----', 'n/a', 'na', 'none', 'null', '(not set)', 'undefined'];
+        if (in_array($normalized, $invalidTokens, true)) {
+            return null;
+        }
+
+        return $subId;
+    }
+
+    /**
+     * @return array<string, array{id?: int, ambiguous?: bool}>
+     */
+    private function buildLinksByItemId(PlatformConnection $connection): array
+    {
+        $map = [];
+
+        $links = TrackingLink::query()
+            ->where('platform', $connection->platform)
+            ->where('user_id', $connection->user_id)
+            ->get(['id', 'destination_url', 'meta']);
+
+        foreach ($links as $link) {
+            $productKey = TrackingLinkIdentity::extractShopeeProductKey(
+                $link->destination_url,
+                is_array($link->meta) ? $link->meta : null
+            );
+            if ($productKey === null || ! str_contains($productKey, ':')) {
+                continue;
+            }
+
+            [, $itemId] = explode(':', $productKey, 2);
+            $itemId = trim($itemId);
+            if ($itemId === '') {
+                continue;
+            }
+
+            if (isset($map[$itemId]) && (($map[$itemId]['id'] ?? null) !== $link->id)) {
+                $map[$itemId] = ['ambiguous' => true];
+                continue;
+            }
+
+            if (($map[$itemId]['ambiguous'] ?? false) === true) {
+                continue;
+            }
+
+            $map[$itemId] = ['id' => $link->id];
+        }
+
+        return $map;
     }
 }

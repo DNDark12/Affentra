@@ -63,6 +63,45 @@
                             Chỉ số trên là tổng bản ghi đồng bộ (Orders + Clicks hoặc Finance records), không phải số sản phẩm trong Tracking Link.
                         </p>
 
+                        <div v-if="moduleRows.length" class="flex flex-col gap-3">
+                            <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Chi tiết theo module</h3>
+                            <div class="rounded-lg border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-zinc-900 overflow-hidden">
+                                <table class="w-full text-[12px]">
+                                    <thead class="bg-zinc-50 dark:bg-zinc-800/70 border-b border-zinc-200 dark:border-zinc-700">
+                                        <tr>
+                                            <th class="text-left px-3 py-2 font-medium text-zinc-500 dark:text-zinc-400">Module</th>
+                                            <th class="text-left px-3 py-2 font-medium text-zinc-500 dark:text-zinc-400">Status</th>
+                                            <th class="text-right px-3 py-2 font-medium text-zinc-500 dark:text-zinc-400">Fetched</th>
+                                            <th class="text-right px-3 py-2 font-medium text-zinc-500 dark:text-zinc-400">Upserted/Updated</th>
+                                            <th class="text-right px-3 py-2 font-medium text-zinc-500 dark:text-zinc-400">Failed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr
+                                            v-for="(module, index) in moduleRows"
+                                            :key="module.key"
+                                            :class="{ 'border-b border-zinc-100 dark:border-zinc-800': index < moduleRows.length - 1 }"
+                                        >
+                                            <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">{{ module.label }}</td>
+                                            <td class="px-3 py-2">
+                                                <span
+                                                    class="px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wide"
+                                                    :class="moduleStatusClass(module.status)"
+                                                >
+                                                    {{ module.status || 'n/a' }}
+                                                </span>
+                                            </td>
+                                            <td class="px-3 py-2 text-right text-zinc-700 dark:text-zinc-300 tabular-nums">{{ module.fetched }}</td>
+                                            <td class="px-3 py-2 text-right text-zinc-700 dark:text-zinc-300 tabular-nums">{{ module.upserted }}</td>
+                                            <td class="px-3 py-2 text-right tabular-nums" :class="Number(module.failed) > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-700 dark:text-zinc-300'">
+                                                {{ module.failed }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <!-- Details List -->
                         <div class="flex flex-col gap-3">
                             <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Chi tiết Execution</h3>
@@ -147,6 +186,37 @@ const activeRun = computed(() => {
     return displayedRuns.value[0];
 });
 
+const moduleRows = computed(() => {
+    const details = activeRun.value?.details;
+    const modules = details?.modules;
+    if (!modules || typeof modules !== 'object') {
+        return [];
+    }
+
+    const labels = {
+        orders: 'Orders',
+        clicks: 'Clicks',
+        campaign: 'Campaign',
+        finance_billing: 'Finance Billing',
+        finance_payout: 'Finance Payout',
+        finance_service_fee: 'Finance Service Fee',
+        finance_order_reconcile: 'Finance Reconcile Orders',
+        finance: 'Finance',
+    };
+
+    return Object.entries(modules).map(([key, value]) => {
+        const item = (value && typeof value === 'object') ? value : {};
+        return {
+            key,
+            label: labels[key] || key,
+            status: item.status || 'ok',
+            fetched: item.fetched ?? 0,
+            upserted: item.upserted ?? item.updated ?? 0,
+            failed: item.failed ?? 0,
+        };
+    });
+});
+
 watch(() => props.isOpen, (val) => {
     if (val) {
         document.body.style.overflow = 'hidden';
@@ -173,9 +243,25 @@ function statusIcon(status) {
     return 'ph-spinner-gap animate-spin text-amber-600 dark:text-amber-500';
 }
 
+function moduleStatusClass(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'ok' || normalized === 'completed') {
+        return 'bg-emerald-100/80 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400';
+    }
+    if (normalized === 'partial' || normalized === 'warning') {
+        return 'bg-amber-100/80 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400';
+    }
+    if (normalized === 'failed' || normalized === 'error') {
+        return 'bg-red-100/80 text-red-700 dark:bg-red-500/10 dark:text-red-400';
+    }
+
+    return 'bg-zinc-100/80 text-zinc-700 dark:bg-zinc-700/40 dark:text-zinc-300';
+}
+
 function logTextClass(run) {
     if (String(run?.status).startsWith('failed')) return 'text-red-400';
-    if (run?.error_message) return 'text-amber-300';
+    if (run?.status === 'completed_with_warnings') return 'text-amber-300';
+    if (run?.status === 'completed') return 'text-emerald-300';
     return 'text-emerald-400';
 }
 </script>

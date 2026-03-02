@@ -54,6 +54,24 @@ class CampaignSyncService
     }
 
     /**
+     * Sync Shopee campaigns for a single connection.
+     *
+     * @return array{connections: int, fetched: int, upserted: int}
+     */
+    public function syncForConnection(PlatformConnection $connection): array
+    {
+        if (
+            $connection->platform !== 'shopee'
+            || ! in_array($connection->method, ['cookie', 'open_api'], true)
+            || ! in_array($connection->status, ['active', 'error'], true)
+        ) {
+            throw new RuntimeException('Connection is not eligible for campaign sync.');
+        }
+
+        return $this->syncMany(collect([$connection]));
+    }
+
+    /**
      * @param  Collection<int, PlatformConnection>  $connections
      * @return array{connections: int, fetched: int, upserted: int}
      */

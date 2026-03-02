@@ -140,14 +140,20 @@
                             <td class="px-4 py-3">
                                 <div v-if="o.tracking_link_id">
                                     <p class="text-sm font-medium" style="color: var(--text-primary)">Link #{{ o.tracking_link_id }}</p>
-                                    <p v-if="attributionLabel(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
-                                        {{ attributionLabel(o) }}
+                                    <p v-if="attributionReason(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
+                                        {{ attributionReason(o) }}
+                                    </p>
+                                    <p v-if="attributionDetail(o)" class="text-xs mt-0.5 font-mono" style="color: var(--text-muted)">
+                                        {{ attributionDetail(o) }}
                                     </p>
                                 </div>
                                 <div v-else>
                                     <span class="text-xs" style="color: var(--text-muted)">{{ sourceLinkLabel(o) }}</span>
-                                    <p v-if="attributionLabel(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
-                                        {{ attributionLabel(o) }}
+                                    <p v-if="attributionReason(o)" class="text-xs mt-0.5" style="color: var(--text-muted)">
+                                        {{ attributionReason(o) }}
+                                    </p>
+                                    <p v-if="attributionDetail(o)" class="text-xs mt-0.5 font-mono" style="color: var(--text-muted)">
+                                        {{ attributionDetail(o) }}
                                     </p>
                                 </div>
                             </td>
@@ -485,17 +491,25 @@ function attributionSource(order) {
     return order?.source_meta?.attribution_source || null;
 }
 
-function attributionLabel(order) {
+function attributionReason(order) {
     const source = attributionSource(order);
     const labels = {
-        sub_id: 'Gắn theo Sub ID',
-        product_key: 'Gắn theo sản phẩm',
-        missing_sub_id: 'Thiếu Sub ID từ Shopee',
-        ambiguous_product: 'Nhiều link trùng sản phẩm',
-        unmatched_product: 'Chưa map được link sản phẩm',
+        sub_id: 'Matched theo Sub ID',
+        product_key: 'Matched theo sản phẩm',
+        auto_link: 'Tự tạo link từ dữ liệu order',
+        missing_sub_id: 'Shopee không trả Sub ID',
+        ambiguous_product: 'Trùng nhiều link cùng sản phẩm',
+        unmatched_product: 'Không tìm thấy link theo sản phẩm',
+        direct: 'Không có tín hiệu attribution từ Shopee',
     };
 
     return labels[source] || null;
+}
+
+function attributionDetail(order) {
+    const detail = order?.source_meta?.attribution_detail;
+    if (!detail) return null;
+    return `Key: ${detail}`;
 }
 
 function sourceLinkLabel(order) {

@@ -23,6 +23,26 @@
                 </button>
             </div>
 
+            <div
+                v-if="Number(summary.unattributed_clicks || 0) > 0 || Number(summary.unattributed_orders || 0) > 0"
+                class="af-surface px-3 py-2"
+                style="border-color: var(--warning-text); background: var(--warning-bg)"
+            >
+                <p class="text-xs font-semibold" style="color: var(--warning-text)">
+                    Có dữ liệu chưa gắn đúng tracking link.
+                </p>
+                <p class="text-xs mt-0.5" style="color: var(--text-secondary)">
+                    Click chưa gắn: {{ fmtNum(summary.unattributed_clicks || 0) }} ·
+                    Đơn chưa gắn: {{ fmtNum(summary.unattributed_orders || 0) }}
+                </p>
+                <p v-if="unattributedClickReasonText" class="text-xs mt-0.5" style="color: var(--text-secondary)">
+                    Click reason: {{ unattributedClickReasonText }}
+                </p>
+                <p v-if="unattributedOrderReasonText" class="text-xs mt-0.5" style="color: var(--text-secondary)">
+                    Order reason: {{ unattributedOrderReasonText }}
+                </p>
+            </div>
+
             <div class="flex items-center justify-between gap-3 flex-wrap">
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex gap-1 p-1 rounded-lg" style="background: var(--surface-2)">
@@ -367,7 +387,19 @@ import AppShell from '@/Layouts/AppShell.vue';
 const props = defineProps({
     links: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1, from: 0, to: 0 }) },
     filters: { type: Object, default: () => ({}) },
-    summary: { type: Object, default: () => ({ total_clicks: 0, total_orders: 0, total_commission: 0, total_approved: 0 }) },
+    summary: {
+        type: Object,
+        default: () => ({
+            total_clicks: 0,
+            total_orders: 0,
+            total_commission: 0,
+            total_approved: 0,
+            unattributed_clicks: 0,
+            unattributed_click_reasons: [],
+            unattributed_orders: 0,
+            unattributed_order_reasons: [],
+        }),
+    },
 });
 
 const page = usePage();
@@ -436,6 +468,26 @@ const totalCR = computed(() => {
     }
 
     return ((orders / clicks) * 100).toFixed(1);
+});
+const unattributedClickReasonText = computed(() => {
+    const reasons = Array.isArray(props.summary.unattributed_click_reasons)
+        ? props.summary.unattributed_click_reasons
+        : [];
+    if (!reasons.length) return '';
+    return reasons
+        .slice(0, 3)
+        .map((item) => `${item.label || item.reason || 'Không xác định'} (${fmtNum(item.count || 0)})`)
+        .join(' · ');
+});
+const unattributedOrderReasonText = computed(() => {
+    const reasons = Array.isArray(props.summary.unattributed_order_reasons)
+        ? props.summary.unattributed_order_reasons
+        : [];
+    if (!reasons.length) return '';
+    return reasons
+        .slice(0, 3)
+        .map((item) => `${item.label || item.reason || 'Không xác định'} (${fmtNum(item.count || 0)})`)
+        .join(' · ');
 });
 const pageRange = computed(() => Array.from({ length: props.links.last_page || 1 }, (_, i) => i + 1));
 

@@ -34,6 +34,7 @@ class SyncPlatformConnectionJob implements ShouldQueue
         private readonly int $connectionId,
         private readonly string $type = 'auto', // 'auto' | 'manual'
         private readonly ?int $userId = null,
+        private readonly ?int $syncRunId = null,
     ) {}
 
     public function handle(OrderService $orderService, ClickAnalyticsService $clickAnalyticsService): void
@@ -192,19 +193,55 @@ class SyncPlatformConnectionJob implements ShouldQueue
                 );
             }
 
-            $status = $warnings === [] ? 'completed' : 'completed_with_warnings';
-            $errorMessage = $warnings === [] ? null : mb_substr(implode(' | ', $warnings), 0, 1000);
+            // Guard: if orders failed due auth and the only "successful" click segment yielded no data,
+            // treat it as auth failure instead of a soft warning.
+            if (
+                ! $ordersUpsertedSuccessfully
+                && $clicksUpsertedSuccessfully
+                && (int) ($clickResult['upserted'] ?? 0) === 0
+                && count($clicks) === 0
+                && $this->containsAuthWarning($warnings)
+            ) {
+                throw new \RuntimeException(
+                    mb_substr('Authentication failed. ' . implode(' | ', $warnings), 0, 500)
+                );
+            }
+
             $failedSegmentsCount = count(array_unique($segmentsFailed));
             $recordsFailed = (int) ($orderResult['failed'] ?? 0)
                 + (int) ($clickResult['failed'] ?? 0)
                 + $failedSegmentsCount;
+            $hasIssues = $warnings !== [] || $recordsFailed > 0;
+            $status = $hasIssues ? 'completed_with_warnings' : 'completed';
+            $connectionError = $warnings === [] ? null : mb_substr(implode(' | ', $warnings), 0, 1000);
+            $syncDetailMessage = $this->buildSyncDetailMessage(
+                since: $since->toDateTimeString(),
+                until: $until->toDateTimeString(),
+                orderFetched: count($orders),
+                clickFetched: count($clicks),
+                orderResult: $orderResult,
+                clickResult: $clickResult,
+                warnings: $warnings,
+                recordsFailed: $recordsFailed,
+            );
+            $syncDetails = $this->buildSyncDetails(
+                since: $since->toDateTimeString(),
+                until: $until->toDateTimeString(),
+                orderFetched: count($orders),
+                clickFetched: count($clicks),
+                orderResult: $orderResult,
+                clickResult: $clickResult,
+                warnings: $warnings,
+                recordsFailed: $recordsFailed,
+            );
 
             // Update sync run with results
             $syncRun->update([
                 'status'           => $status,
                 'records_upserted' => ($orderResult['upserted'] ?? 0) + ($clickResult['upserted'] ?? 0),
                 'records_failed'   => $recordsFailed,
-                'error_message'    => $errorMessage,
+                'error_message'    => $syncDetailMessage,
+                'details'          => $syncDetails,
                 'finished_at'      => now(),
             ]);
 
@@ -213,8 +250,8 @@ class SyncPlatformConnectionJob implements ShouldQueue
                 'last_sync_at'     => now(),
                 'last_sync_status' => $status,
                 'status'           => 'active',
-                'last_error'       => $errorMessage,
-                'last_error_at'    => $errorMessage !== null ? now() : null,
+                'last_error'       => $connectionError,
+                'last_error_at'    => $connectionError !== null ? now() : null,
             ]);
 
             Log::info('SyncPlatformConnectionJob completed', [
@@ -234,6 +271,14 @@ class SyncPlatformConnectionJob implements ShouldQueue
             $syncRun->update([
                 'status'        => $status,
                 'error_message' => mb_substr($e->getMessage(), 0, 500),
+                'details'       => [
+                    'window' => null,
+                    'modules' => [
+                        'orders' => ['status' => 'failed', 'reason' => 'runtime_exception'],
+                        'clicks' => ['status' => 'failed', 'reason' => 'runtime_exception'],
+                    ],
+                    'warnings' => [$e->getMessage()],
+                ],
                 'finished_at'   => now(),
             ]);
 
@@ -241,7 +286,9 @@ class SyncPlatformConnectionJob implements ShouldQueue
                 'last_sync_status' => $status,
                 'last_error'       => mb_substr($e->getMessage(), 0, 500),
                 'last_error_at'    => now(),
-                'status'           => $status === 'failed_auth' ? 'error' : $connection->status,
+                'status'           => str_starts_with($status, 'failed') || $status === 'rate_limited'
+                    ? 'error'
+                    : $connection->status,
             ]);
 
             Log::error('SyncPlatformConnectionJob failed', [
@@ -284,6 +331,20 @@ class SyncPlatformConnectionJob implements ShouldQueue
     }
 
     /**
+     * @param  list<string>  $warnings
+     */
+    private function containsAuthWarning(array $warnings): bool
+    {
+        $haystack = strtolower(implode(' | ', $warnings));
+
+        return str_contains($haystack, 'auth')
+            || str_contains($haystack, 'authentication')
+            || str_contains($haystack, 'cookie authentication failed')
+            || str_contains($haystack, '401')
+            || str_contains($haystack, '403');
+    }
+
+    /**
      * Create a SyncRun record.
      */
     private function createSyncRun(
@@ -291,6 +352,27 @@ class SyncPlatformConnectionJob implements ShouldQueue
         string $status,
         ?string $errorMessage = null,
     ): SyncRun {
+        if ($this->syncRunId !== null) {
+            $existing = SyncRun::query()->find($this->syncRunId);
+            if ($existing !== null && (int) $existing->platform_connection_id === (int) $connection->id) {
+                $existing->fill([
+                    'user_id' => $this->userId ?? $connection->user_id,
+                    'integration' => $connection->platform,
+                    'type' => $this->type,
+                    'status' => $status,
+                    'error_message' => $errorMessage,
+                ]);
+
+                if ($existing->started_at === null) {
+                    $existing->started_at = now();
+                }
+
+                $existing->save();
+
+                return $existing;
+            }
+        }
+
         return SyncRun::create([
             'user_id'                => $this->userId ?? $connection->user_id,
             'platform_connection_id' => $connection->id,
@@ -300,5 +382,103 @@ class SyncPlatformConnectionJob implements ShouldQueue
             'started_at'             => now(),
             'error_message'          => $errorMessage,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $orderResult
+     * @param  array<string, mixed>  $clickResult
+     * @param  list<string>  $warnings
+     */
+    private function buildSyncDetailMessage(
+        string $since,
+        string $until,
+        int $orderFetched,
+        int $clickFetched,
+        array $orderResult,
+        array $clickResult,
+        array $warnings,
+        int $recordsFailed,
+    ): string {
+        $lines = [
+            "Window: {$since} -> {$until}",
+            sprintf(
+                'Orders: fetched=%d | upserted=%d | failed=%d | auto_links=%d | unattributed=%d',
+                $orderFetched,
+                (int) ($orderResult['upserted'] ?? 0),
+                (int) ($orderResult['failed'] ?? 0),
+                (int) ($orderResult['auto_links_created'] ?? 0),
+                (int) ($orderResult['unattributed_orders'] ?? 0),
+            ),
+            sprintf(
+                'Clicks: fetched=%d | upserted=%d | deleted=%d | matched=%d | unattributed=%d | failed=%d',
+                $clickFetched,
+                (int) ($clickResult['upserted'] ?? 0),
+                (int) ($clickResult['deleted'] ?? 0),
+                (int) ($clickResult['matched'] ?? 0),
+                (int) ($clickResult['unattributed'] ?? 0),
+                (int) ($clickResult['failed'] ?? 0),
+            ),
+            sprintf(
+                'Tracking links affected: orders=%d | clicks=%d',
+                count((array) ($orderResult['affected_link_ids'] ?? [])),
+                count((array) ($clickResult['affected_link_ids'] ?? [])),
+            ),
+            "Failed summary count: {$recordsFailed}",
+        ];
+
+        if ($warnings !== []) {
+            $lines[] = 'Warnings: ' . implode(' | ', $warnings);
+        } else {
+            $lines[] = 'Warnings: none';
+        }
+
+        return mb_substr(implode("\n", $lines), 0, 2000);
+    }
+
+    /**
+     * @param  array<string, mixed>  $orderResult
+     * @param  array<string, mixed>  $clickResult
+     * @param  list<string>  $warnings
+     * @return array<string, mixed>
+     */
+    private function buildSyncDetails(
+        string $since,
+        string $until,
+        int $orderFetched,
+        int $clickFetched,
+        array $orderResult,
+        array $clickResult,
+        array $warnings,
+        int $recordsFailed,
+    ): array {
+        return [
+            'window' => [
+                'since' => $since,
+                'until' => $until,
+            ],
+            'modules' => [
+                'orders' => [
+                    'status' => ((int) ($orderResult['failed'] ?? 0)) > 0 ? 'partial' : 'ok',
+                    'fetched' => $orderFetched,
+                    'upserted' => (int) ($orderResult['upserted'] ?? 0),
+                    'failed' => (int) ($orderResult['failed'] ?? 0),
+                    'auto_links_created' => (int) ($orderResult['auto_links_created'] ?? 0),
+                    'unattributed' => (int) ($orderResult['unattributed_orders'] ?? 0),
+                    'affected_links' => count((array) ($orderResult['affected_link_ids'] ?? [])),
+                ],
+                'clicks' => [
+                    'status' => ((int) ($clickResult['failed'] ?? 0)) > 0 ? 'partial' : 'ok',
+                    'fetched' => $clickFetched,
+                    'upserted' => (int) ($clickResult['upserted'] ?? 0),
+                    'failed' => (int) ($clickResult['failed'] ?? 0),
+                    'deleted' => (int) ($clickResult['deleted'] ?? 0),
+                    'matched' => (int) ($clickResult['matched'] ?? 0),
+                    'unattributed' => (int) ($clickResult['unattributed'] ?? 0),
+                    'affected_links' => count((array) ($clickResult['affected_link_ids'] ?? [])),
+                ],
+            ],
+            'records_failed_total' => $recordsFailed,
+            'warnings' => $warnings,
+        ];
     }
 }

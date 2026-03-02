@@ -118,9 +118,12 @@ class IntegrationController extends Controller
             return ApiResponse::error('Platform not supported for API sync.', [], 422);
         }
 
-        $this->integrationService->dispatchManualSync($request->user(), $connection);
+        $syncRun = $this->integrationService->dispatchManualSync($request->user(), $connection);
 
-        return ApiResponse::success(null, 'Sync triggered. Check status in sync history.');
+        return ApiResponse::success([
+            'sync_run_id' => $syncRun->id,
+            'status' => $syncRun->status,
+        ], 'Sync queued. Tracking status in sync history.');
     }
 
     /**
@@ -134,6 +137,17 @@ class IntegrationController extends Controller
 
         try {
             $result = $this->integrationService->testConnection($connection);
+
+            if ((bool) ($result['valid'] ?? false) === true) {
+                $connection->update([
+                    'status' => 'active',
+                    'last_sync_status' => 'completed',
+                    'last_error' => null,
+                    'last_error_at' => null,
+                    'cookie_validated_at' => $connection->method === 'cookie' ? now() : $connection->cookie_validated_at,
+                ]);
+            }
+
             return ApiResponse::success([
                 'valid' => (bool) ($result['valid'] ?? false),
                 'checks' => $result['checks'] ?? [],

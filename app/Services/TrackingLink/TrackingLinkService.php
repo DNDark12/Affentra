@@ -56,14 +56,35 @@ class TrackingLinkService
      * Get aggregate counters for current user scope + filters.
      *
      * @param  array<string, mixed>  $filters
-     * @return array{total_clicks:int,total_orders:int,total_commission:float,total_approved:int}
+     * @return array{
+     *   total_clicks:int,
+     *   total_orders:int,
+     *   total_commission:float,
+     *   total_approved:int,
+     *   unattributed_clicks:int,
+     *   unattributed_click_reasons:list<array{reason:string,label:string,count:int}>,
+     *   unattributed_orders:int,
+     *   unattributed_order_reasons:list<array{reason:string,label:string,count:int}>
+     * }
      */
     public function summarizeForUser(User $user, array $filters = []): array
     {
-        return $this->trackingLinkRepository->aggregateCountersForScope(
-            scopeUserIds: $this->resolveScopeUserIds($user),
-            filters: $this->normalizeFilters($filters),
+        $scopeUserIds = $this->resolveScopeUserIds($user);
+        $normalizedFilters = $this->normalizeFilters($filters);
+
+        $totals = $this->trackingLinkRepository->aggregateCountersForScope(
+            scopeUserIds: $scopeUserIds,
+            filters: $normalizedFilters,
         );
+        $attributionGaps = $this->trackingLinkRepository->attributionGapSummaryForScope(
+            scopeUserIds: $scopeUserIds,
+            filters: $normalizedFilters,
+        );
+
+        return [
+            ...$totals,
+            ...$attributionGaps,
+        ];
     }
 
     /**

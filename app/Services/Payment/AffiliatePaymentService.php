@@ -216,9 +216,9 @@ class AffiliatePaymentService
 
                 $nextPayoutStatus = $this->mapBillingStatusToPayoutStatus(
                     $this->firstValueByKeys($billing, [
+                        'validation_payout_status',
                         'status',
                         'payment_status',
-                        'validation_payout_status',
                         'settlement_status',
                         'billing_status',
                     ]),
@@ -229,12 +229,12 @@ class AffiliatePaymentService
                 }
 
                 $paidAt = $this->parseTimestamp($this->firstValueByKeys($billing, [
-                    'payout_time',
-                    'payout_created_time',
-                    'payment_time',
                     'payment_completed_time',
                     'settled_time',
                     'settlement_time',
+                    'payout_time',
+                    'payout_created_time',
+                    'payment_time',
                 ])) ?? $defaultPaidAt;
 
                 $query = Order::query()
@@ -269,7 +269,10 @@ class AffiliatePaymentService
                             ->where('platform', $connection->platform)
                             ->where('status', 'approved')
                             ->where('payout_status', 'paid')
-                            ->whereNull('paid_at')
+                            ->where(function ($q) use ($paidAt): void {
+                                $q->whereNull('paid_at')
+                                    ->orWhere('paid_at', '!=', $paidAt);
+                            })
                             ->where(function ($q) use ($periodStart, $periodEnd): void {
                                 $q->whereBetween('completed_at', [$periodStart, $periodEnd])
                                     ->orWhere(function ($inner) use ($periodStart, $periodEnd): void {
@@ -380,8 +383,10 @@ class AffiliatePaymentService
             || str_contains($normalized, 'settled')
             || str_contains($normalized, 'complete')
             || str_contains($normalized, 'success')
+            || str_contains($normalized, 'đã thanh toán')
             || $normalized === '2'
             || $normalized === '3'
+            || $normalized === '6'
         ) {
             return 'paid';
         }

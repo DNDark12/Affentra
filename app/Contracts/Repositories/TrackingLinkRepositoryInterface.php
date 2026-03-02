@@ -51,6 +51,20 @@ interface TrackingLinkRepositoryInterface extends RepositoryInterface
     public function aggregateCountersForScope(?array $scopeUserIds, array $filters = []): array;
 
     /**
+     * Aggregate unattributed click/order reasons for diagnostics on Tracking Links page.
+     *
+     * @param  list<int>|null  $scopeUserIds
+     * @param  array<string, mixed>  $filters
+     * @return array{
+     *   unattributed_clicks:int,
+     *   unattributed_click_reasons:list<array{reason:string,label:string,count:int}>,
+     *   unattributed_orders:int,
+     *   unattributed_order_reasons:list<array{reason:string,label:string,count:int}>
+     * }
+     */
+    public function attributionGapSummaryForScope(?array $scopeUserIds, array $filters = []): array;
+
+    /**
      * @param  array<string, mixed>  $data
      */
     public function createLink(array $data): TrackingLink;
@@ -72,4 +86,12 @@ interface TrackingLinkRepositoryInterface extends RepositoryInterface
      * @return int affected rows
      */
     public function recomputeClicksCountBulk(array $linkIds): int;
+
+    /**
+     * Recompute orders_count for specific tracking links in bulk.
+     *
+     * @param  list<int>  $linkIds
+     * @return int affected rows
+     */
+    public function recomputeOrdersCountBulk(array $linkIds): int;
 }

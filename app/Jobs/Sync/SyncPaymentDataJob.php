@@ -25,7 +25,8 @@ class SyncPaymentDataJob implements ShouldQueue
     public function __construct(
         protected PlatformConnection $platformConnection,
         protected ?Carbon $since = null,
-        protected ?Carbon $until = null
+        protected ?Carbon $until = null,
+        protected string $triggerType = 'auto'
     ) {
         $defaultBackfillDays = (int) ($platformConnection->backfill_days_override
             ?? config("integrations.{$platformConnection->platform}.backfill_days", 90));
@@ -48,7 +49,7 @@ class SyncPaymentDataJob implements ShouldQueue
             'platform_connection_id' => $this->platformConnection->id,
             'user_id' => $this->platformConnection->user_id,
             'integration' => $this->platformConnection->platform,
-            'type' => 'auto',
+            'type' => $this->triggerType,
             'status' => 'processing',
             'started_at' => now(),
         ]);
@@ -79,9 +80,21 @@ class SyncPaymentDataJob implements ShouldQueue
             try {
                 $payouts = $adapter->fetchPayouts($this->platformConnection, $this->since, $this->until);
                 $payoutFetched = true;
-                $payoutsCount = $paymentService->upsertPayoutsFromApi($this->platformConnection, $payouts);
             } catch (Throwable $payoutError) {
                 $warnings[] = 'Payout: '.$payoutError->getMessage();
+            }
+
+            // Fallback: derive payout rows from billing payload when payout endpoint is unavailable.
+            if ($payouts === [] && $billings !== []) {
+                $derivedPayouts = $this->derivePayoutsFromBillings($billings);
+                if ($derivedPayouts !== []) {
+                    $payouts = $derivedPayouts;
+                    $warnings[] = 'Payout: dùng dữ liệu suy luận từ billing.';
+                }
+            }
+
+            if ($payouts !== []) {
+                $payoutsCount = $paymentService->upsertPayoutsFromApi($this->platformConnection, $payouts);
             }
 
             // 3. Fetch service-fee invoices (optional)
@@ -108,13 +121,33 @@ class SyncPaymentDataJob implements ShouldQueue
             );
 
             // 5. Update Sync Run
+            $detailMessage = $this->buildSyncDetailMessage(
+                billingsFetched: count($billings),
+                payoutsFetched: count($payouts),
+                serviceFeeFetched: count($serviceFeeInvoices),
+                billingsUpserted: $billingsCount,
+                payoutsUpserted: $payoutsCount,
+                ordersReconciled: $reconciledOrders,
+                warnings: $warnings,
+            );
+            $details = $this->buildSyncDetails(
+                billingsFetched: count($billings),
+                payoutsFetched: count($payouts),
+                serviceFeeFetched: count($serviceFeeInvoices),
+                billingsUpserted: $billingsCount,
+                payoutsUpserted: $payoutsCount,
+                ordersReconciled: $reconciledOrders,
+                warnings: $warnings,
+            );
+
             $syncRun->update([
                 'status' => 'completed',
                 'finished_at' => now(),
                 'records_fetched' => count($billings) + count($payouts) + count($serviceFeeInvoices),
                 'records_upserted' => $billingsCount + $payoutsCount + $reconciledOrders,
                 'records_failed' => 0,
-                'error_message' => $warnings !== [] ? mb_substr(implode("\n", $warnings), 0, 1000) : null,
+                'error_message' => $detailMessage,
+                'details' => $details,
             ]);
 
             $this->platformConnection->update([
@@ -138,6 +171,12 @@ class SyncPaymentDataJob implements ShouldQueue
                 'status' => 'failed',
                 'finished_at' => now(),
                 'error_message' => $e->getMessage(),
+                'details' => [
+                    'modules' => [
+                        'finance' => ['status' => 'failed'],
+                    ],
+                    'warnings' => [$e->getMessage()],
+                ],
             ]);
 
             $this->platformConnection->update([
@@ -153,5 +192,110 @@ class SyncPaymentDataJob implements ShouldQueue
 
             throw $e;
         }
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $billings
+     * @return list<array<string, mixed>>
+     */
+    private function derivePayoutsFromBillings(array $billings): array
+    {
+        $rows = [];
+        $seenPayoutIds = [];
+
+        foreach ($billings as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $payoutId = trim((string) ($row['payout_id'] ?? $row['payoutId'] ?? ''));
+            if ($payoutId === '' || isset($seenPayoutIds[$payoutId])) {
+                continue;
+            }
+
+            $seenPayoutIds[$payoutId] = true;
+
+            $rows[] = [
+                'payout_id' => $payoutId,
+                'payout_time' => $row['payment_completed_time']
+                    ?? $row['payout_created_time']
+                    ?? $row['payment_time']
+                    ?? null,
+                'amount' => $row['bill_total_amount']
+                    ?? $row['total_payment_amount']
+                    ?? $row['bill_commission_amount']
+                    ?? $row['eligible_total_amount']
+                    ?? 0,
+                'status' => $row['validation_payout_status']
+                    ?? $row['payment_status']
+                    ?? $row['status']
+                    ?? null,
+                'currency' => 'VND',
+                'raw_payload' => $row,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  list<string>  $warnings
+     */
+    private function buildSyncDetailMessage(
+        int $billingsFetched,
+        int $payoutsFetched,
+        int $serviceFeeFetched,
+        int $billingsUpserted,
+        int $payoutsUpserted,
+        int $ordersReconciled,
+        array $warnings,
+    ): string {
+        $lines = [
+            sprintf('Billing: fetched=%d | upserted=%d', $billingsFetched, $billingsUpserted),
+            sprintf('Payout: fetched=%d | upserted=%d', $payoutsFetched, $payoutsUpserted),
+            sprintf('Service fee invoices: fetched=%d', $serviceFeeFetched),
+            sprintf('Orders payout reconciled: %d', $ordersReconciled),
+            $warnings === [] ? 'Warnings: none' : 'Warnings: ' . implode(' | ', $warnings),
+        ];
+
+        return mb_substr(implode("\n", $lines), 0, 2000);
+    }
+
+    /**
+     * @param  list<string>  $warnings
+     * @return array<string, mixed>
+     */
+    private function buildSyncDetails(
+        int $billingsFetched,
+        int $payoutsFetched,
+        int $serviceFeeFetched,
+        int $billingsUpserted,
+        int $payoutsUpserted,
+        int $ordersReconciled,
+        array $warnings,
+    ): array {
+        return [
+            'modules' => [
+                'finance_billing' => [
+                    'status' => 'ok',
+                    'fetched' => $billingsFetched,
+                    'upserted' => $billingsUpserted,
+                ],
+                'finance_payout' => [
+                    'status' => 'ok',
+                    'fetched' => $payoutsFetched,
+                    'upserted' => $payoutsUpserted,
+                ],
+                'finance_service_fee' => [
+                    'status' => 'ok',
+                    'fetched' => $serviceFeeFetched,
+                ],
+                'finance_order_reconcile' => [
+                    'status' => 'ok',
+                    'updated' => $ordersReconciled,
+                ],
+            ],
+            'warnings' => $warnings,
+        ];
     }
 }

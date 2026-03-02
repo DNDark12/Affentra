@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Integration;
 
 use App\Jobs\Sync\SyncPlatformConnectionJob;
+use App\Jobs\Sync\SyncPaymentDataJob;
+use App\Jobs\Sync\SyncShopeeCampaignsForConnectionJob;
 use App\Models\PlatformConnection;
+use App\Models\SyncRun;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use RuntimeException;
@@ -83,6 +86,7 @@ class IntegrationService
                             // Backward-compatible alias for older UI keys.
                             'records_inserted' => $run->records_upserted,
                             'error_message' => $run->error_message,
+                            'details' => $run->details,
                             'finished_at' => $run->finished_at?->toIso8601String(),
                             // Backward-compatible alias for older UI keys.
                             'completed_at' => $run->finished_at?->toIso8601String(),
@@ -314,6 +318,7 @@ class IntegrationService
                 'records_upserted' => $run->records_upserted,
                 'records_failed'   => $run->records_failed,
                 'error_message'    => $run->error_message,
+                'details'          => $run->details,
             ])
             ->all();
     }
@@ -328,13 +333,36 @@ class IntegrationService
         return IntegrationFactory::supports($connection->platform);
     }
 
-    public function dispatchManualSync(User $actor, PlatformConnection $connection): void
+    public function dispatchManualSync(User $actor, PlatformConnection $connection): SyncRun
     {
+        $syncRun = SyncRun::create([
+            'user_id' => $actor->id,
+            'platform_connection_id' => $connection->id,
+            'integration' => $connection->platform,
+            'type' => 'manual',
+            'status' => 'pending',
+            'started_at' => now(),
+            'records_fetched' => 0,
+            'records_upserted' => 0,
+            'records_failed' => 0,
+            'error_message' => 'Queued for execution.',
+        ]);
+
         SyncPlatformConnectionJob::dispatch(
             connectionId: $connection->id,
             type: 'manual',
             userId: $actor->id,
+            syncRunId: $syncRun->id,
         )->onQueue('sync');
+
+        // Keep payout status/settlement data in sync with manual sync requests.
+        SyncPaymentDataJob::dispatch($connection, triggerType: 'manual')->onQueue('sync');
+
+        if ($connection->platform === 'shopee') {
+            SyncShopeeCampaignsForConnectionJob::dispatch($connection->id, 'manual')->onQueue('sync');
+        }
+
+        return $syncRun;
     }
 
     /**
