@@ -13,16 +13,6 @@
                 </button>
             </div>
 
-            <div v-if="feedback" class="af-surface px-3 py-2 flex items-center justify-between"
-                :style="feedback.type === 'error' ? 'border-color: var(--danger-text); background: var(--danger-bg)' : 'border-color: var(--success-text); background: var(--success-bg)'">
-                <p class="text-xs font-medium" :style="feedback.type === 'error' ? 'color: var(--danger-text)' : 'color: var(--success-text)'">
-                    {{ feedback.message }}
-                </p>
-                <button @click="feedback = null" class="w-6 h-6 rounded flex items-center justify-center" style="color: var(--text-muted)">
-                    <X :size="14" />
-                </button>
-            </div>
-
             <div
                 v-if="Number(summary.unattributed_clicks || 0) > 0 || Number(summary.unattributed_orders || 0) > 0"
                 class="af-surface px-3 py-2"
@@ -67,6 +57,18 @@
                             <option value="underperforming">Underperforming</option>
                         </select>
                     </div>
+
+                    <div class="flex items-center gap-2">
+                        <select v-model="sortBy" @change="applySorting" class="af-input h-9 text-sm" style="width: 165px;">
+                            <option value="created_at">Sort: Created</option>
+                            <option value="clicks_count">Sort: Clicks</option>
+                            <option value="orders_count">Sort: Orders</option>
+                        </select>
+                        <select v-model="sortDirection" @change="applySorting" class="af-input h-9 text-sm" style="width: 100px;">
+                            <option value="desc">Desc</option>
+                            <option value="asc">Asc</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -82,9 +84,9 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <input v-model="dateFrom" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
+                        <input v-model="dateFrom" @click="$event.target.showPicker?.()" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
                         <span class="text-xs" style="color: var(--text-muted)">→</span>
-                        <input v-model="dateTo" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
+                        <input v-model="dateTo" @click="$event.target.showPicker?.()" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
                     </div>
 
                     <div class="relative">
@@ -118,7 +120,7 @@
                             <th v-if="hasColumn('commission')" class="text-right px-4 py-2.5 font-medium" style="color: var(--text-muted)">Commission</th>
                             <th v-if="hasColumn('cr')" class="text-right px-4 py-2.5 font-medium" style="color: var(--text-muted)">Order Rate</th>
                             <th v-if="hasColumn('created')" class="text-right px-4 py-2.5 font-medium" style="color: var(--text-muted)">Created</th>
-                            <th class="px-4 py-2.5 font-medium" style="color: var(--text-muted); width: 160px">Actions</th>
+                            <th class="px-4 py-2.5 font-medium" style="color: var(--text-muted); width: 220px">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -187,6 +189,12 @@
                                     </button>
                                     <button @click="copyLink(link)" class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" title="Copy link">
                                         <Copy :size="13" style="color: var(--text-secondary)" />
+                                    </button>
+                                    <button @click="refreshProduct(link)" :disabled="actionLoadingId === link.id" class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" title="Refresh Product Info">
+                                        <RotateCcw :size="13" :class="{ 'animate-spin': actionLoadingId === link.id && currentAction === 'refresh' }" style="color: var(--text-secondary)" />
+                                    </button>
+                                    <button @click="createAIContent(link)" class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" title="Create AI Content">
+                                        <Sparkles :size="13" style="color: var(--color-primary-500)" />
                                     </button>
                                     <button
                                         v-if="link.status !== 'archived'"
@@ -289,6 +297,17 @@
                             </p>
                         </div>
 
+                        <div>
+                            <label class="af-label">Campaign (optional)</label>
+                            <select v-model="createForm.campaign_id" class="af-input" :class="{ error: createErrors.campaign_id }">
+                                <option value="">-- No Campaign --</option>
+                                <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
+                            </select>
+                            <p v-if="createErrors.campaign_id" class="mt-1 text-xs" style="color: var(--danger-text)">
+                                {{ createErrors.campaign_id[0] }}
+                            </p>
+                        </div>
+
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="af-label">Source</label>
@@ -328,6 +347,17 @@
                             <input v-model="editForm.destination_url" type="url" class="af-input" :class="{ error: editErrors.destination_url }" required />
                             <p v-if="editErrors.destination_url" class="mt-1 text-xs" style="color: var(--danger-text)">
                                 {{ editErrors.destination_url[0] }}
+                            </p>
+                        </div>
+
+                        <div>
+                            <label class="af-label">Campaign (optional)</label>
+                            <select v-model="editForm.campaign_id" class="af-input" :class="{ error: editErrors.campaign_id }">
+                                <option value="">-- No Campaign --</option>
+                                <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
+                            </select>
+                            <p v-if="editErrors.campaign_id" class="mt-1 text-xs" style="color: var(--danger-text)">
+                                {{ editErrors.campaign_id[0] }}
                             </p>
                         </div>
 
@@ -379,14 +409,18 @@ import {
     Pencil,
     Play,
     Plus,
+    RotateCcw,
     Search,
+    Sparkles,
     X,
 } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useDialog } from '@/Composables/useDialog';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     links: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1, from: 0, to: 0 }) },
+    campaigns: { type: Array, default: () => [] },
     filters: { type: Object, default: () => ({}) },
     summary: {
         type: Object,
@@ -405,6 +439,7 @@ const props = defineProps({
 
 const page = usePage();
 const { confirmDialog } = useDialog();
+const toast = useToast();
 
 const showCreate = ref(false);
 const showEdit = ref(false);
@@ -413,7 +448,7 @@ const creating = ref(false);
 const editing = ref(false);
 const actionLoadingId = ref(null);
 const editId = ref(null);
-const feedback = ref(null);
+const currentAction = ref(null);
 
 const createErrors = ref({});
 const editErrors = ref({});
@@ -423,6 +458,8 @@ const activeStatusTab = ref(props.filters.status || 'all');
 const activePreset = ref(props.filters.preset || '');
 const dateFrom = ref(props.filters.date_from || '');
 const dateTo = ref(props.filters.date_to || '');
+const sortBy = ref(props.filters.sort || 'created_at');
+const sortDirection = ref(props.filters.direction || 'desc');
 
 const createForm = ref({
     destination_url: '',
@@ -430,6 +467,7 @@ const createForm = ref({
     source: '',
     channel: '',
     sub_id: '',
+    campaign_id: '',
 });
 
 const editForm = ref({
@@ -437,6 +475,7 @@ const editForm = ref({
     source: '',
     channel: '',
     status: 'active',
+    campaign_id: '',
 });
 
 const statusTabs = [
@@ -462,14 +501,10 @@ const visibleColumns = ref(loadColumns());
 
 const visibleColumnCount = computed(() => visibleColumns.value.length);
 const totalCR = computed(() => {
-    const clicks = Number(props.summary.total_clicks || 0);
-    const orders = Number(props.summary.total_orders || 0);
-
-    if (!clicks) {
-        return orders > 0 ? '—' : '0.0';
-    }
-
-    return ((orders / clicks) * 100).toFixed(1);
+    return formatOrderRate(
+        Number(props.summary.total_orders || 0),
+        Number(props.summary.total_clicks || 0),
+    );
 });
 const unattributedClickReasonText = computed(() => {
     const reasons = Array.isArray(props.summary.unattributed_click_reasons)
@@ -499,6 +534,8 @@ watch(() => props.filters, (nextFilters) => {
     activePreset.value = nextFilters.preset || '';
     dateFrom.value = nextFilters.date_from || '';
     dateTo.value = nextFilters.date_to || '';
+    sortBy.value = nextFilters.sort || 'created_at';
+    sortDirection.value = nextFilters.direction || 'desc';
 }, { deep: true });
 
 function loadColumns() {
@@ -580,14 +617,18 @@ function metricCommission(link) {
 }
 
 function convRate(link) {
-    const clicks = metricClicks(link);
-    const orders = metricOrders(link);
+    return formatOrderRate(metricOrders(link), metricClicks(link));
+}
 
+function formatOrderRate(orders, clicks) {
     if (!clicks) {
         return orders > 0 ? '—' : '0.0';
     }
 
-    return ((orders / clicks) * 100).toFixed(1);
+    // One click can fan out to multiple item rows; cap at 100% for user-facing order rate.
+    const normalizedOrders = Math.min(orders, clicks);
+
+    return ((normalizedOrders / clicks) * 100).toFixed(1);
 }
 
 function formatDate(value) {
@@ -615,6 +656,14 @@ function applyDateRange() {
     navigateWithFilters({
         date_from: dateFrom.value || undefined,
         date_to: dateTo.value || undefined,
+        page: 1,
+    });
+}
+
+function applySorting() {
+    navigateWithFilters({
+        sort: sortBy.value || 'created_at',
+        direction: sortDirection.value || 'desc',
         page: 1,
     });
 }
@@ -666,13 +715,14 @@ function openCreate() {
 
 function openEdit(link) {
     editId.value = link.id;
-    editErrors.value = {};
     editForm.value = {
-        destination_url: link.destination_url,
+        destination_url: link.destination_url || '',
         source: link.source || '',
         channel: link.channel || '',
-        status: link.status,
+        status: link.status || 'active',
+        campaign_id: link.campaign_id || '',
     };
+    editErrors.value = {};
     showEdit.value = true;
 }
 
@@ -718,14 +768,11 @@ async function submitCreate() {
         });
 
         showCreate.value = false;
-        feedback.value = {
-            type: 'success',
-            message: response.message || 'Tracking link created.',
-        };
+        toast.success(response.message || 'Đã tạo tracking link.');
         router.reload({ only: ['links', 'summary'] });
     } catch (error) {
         createErrors.value = error.payload?.errors || {};
-        feedback.value = { type: 'error', message: error.message || 'Create failed.' };
+        toast.error(error.message || 'Không thể tạo tracking link.');
     } finally {
         creating.value = false;
     }
@@ -746,14 +793,46 @@ async function submitEdit() {
         });
 
         showEdit.value = false;
-        feedback.value = { type: 'success', message: 'Tracking link updated.' };
+        toast.success('Đã cập nhật tracking link.');
         router.reload({ only: ['links', 'summary'] });
     } catch (error) {
         editErrors.value = error.payload?.errors || {};
-        feedback.value = { type: 'error', message: error.message || 'Update failed.' };
+        toast.error(error.message || 'Không thể cập nhật tracking link.');
     } finally {
         editing.value = false;
     }
+}
+
+async function refreshProduct(link) {
+    actionLoadingId.value = link.id;
+    currentAction.value = 'refresh';
+    try {
+        const response = await apiRequest(route('api.links.refresh-product', link.id), {
+            method: 'POST',
+        });
+        toast.success(response.message || 'Đã làm mới thông tin sản phẩm.');
+        router.reload({ only: ['links', 'summary'] });
+    } catch (error) {
+        toast.error(error.message || 'Không thể làm mới thông tin sản phẩm.');
+    } finally {
+        actionLoadingId.value = null;
+        currentAction.value = null;
+    }
+}
+
+function createAIContent(link) {
+    router.visit(route('ai.content.index', { link_id: link.id }));
+}
+
+function copyLink(link) {
+    const url = window.location.origin + route('redirect', link.short_code);
+    navigator.clipboard.writeText(url)
+        .then(() => {
+            toast.success('Đã copy link tracking.');
+        })
+        .catch(() => {
+            toast.error('Không thể copy link.');
+        });
 }
 
 async function toggleStatus(link) {
@@ -770,10 +849,10 @@ async function toggleStatus(link) {
             body: JSON.stringify({ status: nextStatus }),
         });
 
-        feedback.value = { type: 'success', message: `Link ${nextStatus === 'paused' ? 'paused' : 'resumed'}.` };
+        toast.success(nextStatus === 'paused' ? 'Đã tạm dừng link.' : 'Đã bật lại link.');
         router.reload({ only: ['links', 'summary'] });
     } catch (error) {
-        feedback.value = { type: 'error', message: error.message || 'Status update failed.' };
+        toast.error(error.message || 'Không thể cập nhật trạng thái link.');
     } finally {
         actionLoadingId.value = null;
     }
@@ -803,22 +882,13 @@ async function archiveLink(link) {
             method: 'PATCH',
         });
 
-        feedback.value = { type: 'success', message: 'Tracking link archived.' };
+        toast.success('Đã lưu trữ tracking link.');
         router.reload({ only: ['links', 'summary'] });
     } catch (error) {
-        feedback.value = { type: 'error', message: error.message || 'Archive failed.' };
+        toast.error(error.message || 'Không thể lưu trữ tracking link.');
     } finally {
         actionLoadingId.value = null;
     }
 }
 
-function copyLink(link) {
-    navigator.clipboard.writeText(`${window.location.origin}/go/${link.short_code}`)
-        .then(() => {
-            feedback.value = { type: 'success', message: 'Copied tracking URL.' };
-        })
-        .catch(() => {
-            feedback.value = { type: 'error', message: 'Cannot copy to clipboard.' };
-        });
-}
 </script>

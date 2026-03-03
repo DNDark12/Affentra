@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Contracts;
 
 use App\DataTransferObjects\AI\GeneratedTextResult;
+use App\DataTransferObjects\AI\GeneratedMediaResult;
 
 interface AIProviderClient
 {
@@ -16,6 +17,16 @@ interface AIProviderClient
      * @return GeneratedTextResult
      */
     public function generateText(string $prompt, array $options = []): GeneratedTextResult;
+
+    /**
+     * Generate image or video from a prompt.
+     *
+     * @param  string $prompt
+     * @param  string $type         'image' or 'video'
+     * @param  array  $options      Provider-specific options (size, quality, etc.)
+     * @return GeneratedMediaResult
+     */
+    public function generateMedia(string $prompt, string $type = 'image', array $options = []): GeneratedMediaResult;
 
     /**
      * Provider identifier key, e.g. "gemini", "openai".

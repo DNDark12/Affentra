@@ -7,6 +7,25 @@
 
         <title inertia>{{ config('app.name', 'Affentra') }}</title>
 
+        <script>
+            (() => {
+                try {
+                    const cookieMatch = document.cookie.match(/(?:^|;\s*)theme=([^;]+)/);
+                    const cookieTheme = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+                    const localTheme = localStorage.getItem('theme');
+                    const theme = localTheme || cookieTheme;
+
+                    if (theme === 'dark') {
+                        document.documentElement.classList.add('dark');
+                    } else if (theme === 'light') {
+                        document.documentElement.classList.remove('dark');
+                    }
+                } catch (_) {
+                    // no-op
+                }
+            })();
+        </script>
+
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=inter:300,400,500,600,700&display=swap" rel="stylesheet" />
 

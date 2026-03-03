@@ -2,15 +2,20 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AlertController;
+use App\Http\Controllers\API\AiSettingController;
+use App\Http\Controllers\API\ContentGenerationController;
+use App\Http\Controllers\API\ImageUploadController;
+use App\Http\Controllers\API\ScraperController;
 use App\Http\Controllers\CampaignController;
 use App\Http\Controllers\ClickAnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FinanceController;
 use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\Integrations\PortalExportController;
 use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PartnerController;
-use App\Http\Controllers\FinanceController;
-use App\Http\Controllers\AlertController;
 use App\Http\Controllers\PayoutApprovalController;
 use App\Http\Controllers\PayoutBatchController;
 use App\Http\Controllers\TrackingLinkController;
@@ -53,6 +58,9 @@ Route::middleware(['auth'])->group(function () {
             ->middleware('throttle:30,1');
         Route::patch('/{trackingLink}/archive', [TrackingLinkController::class, 'archive'])
             ->name('archive')
+            ->middleware('throttle:30,1');
+        Route::post('/{trackingLink}/refresh-product', [TrackingLinkController::class, 'refreshProduct'])
+            ->name('refresh-product')
             ->middleware('throttle:30,1');
     });
 
@@ -100,7 +108,7 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('integrations')->name('api.integrations.')->group(function () {
         Route::post('/', [IntegrationController::class, 'store'])->name('store');
         Route::patch('/{connection}', [IntegrationController::class, 'update'])->name('update');
-        Route::post('/{connection}/portal-export', [\App\Http\Controllers\Integrations\PortalExportController::class, 'upload'])
+        Route::post('/{connection}/portal-export', [PortalExportController::class, 'upload'])
             ->name('portal-export.upload')
             ->middleware('throttle:10,1');
         Route::delete('/{connection}', [IntegrationController::class, 'destroy'])->name('destroy');
@@ -237,12 +245,19 @@ Route::middleware(['auth'])->group(function () {
     |----------------------------------------------------------------------
     */
     Route::prefix('links/{trackingLink}/content')->name('api.content.')->group(function () {
-        Route::post('/generate', [\App\Http\Controllers\API\ContentGenerationController::class, 'generate'])
+        Route::post('/generate', [ContentGenerationController::class, 'generate'])
             ->name('generate')
             ->middleware('throttle:10,1');
-        Route::get('/history', [\App\Http\Controllers\API\ContentGenerationController::class, 'history'])
+        Route::get('/history', [ContentGenerationController::class, 'history'])
             ->name('history');
     });
+
+    Route::post('images/upload', [ImageUploadController::class, 'upload'])
+        ->name('api.images.upload')
+        ->middleware('throttle:30,1');
+
+    Route::get('content-generations/{id}', [ContentGenerationController::class, 'show'])
+        ->name('api.content-generations.show');
 
     /*
     |----------------------------------------------------------------------
@@ -250,10 +265,21 @@ Route::middleware(['auth'])->group(function () {
     |----------------------------------------------------------------------
     */
     Route::prefix('ai/settings')->name('api.ai.settings.')->group(function () {
-        Route::get('/',              [\App\Http\Controllers\API\AiSettingController::class, 'index'])   ->name('index');
-        Route::get('/providers',     [\App\Http\Controllers\API\AiSettingController::class, 'providers'])->name('providers');
-        Route::post('/',             [\App\Http\Controllers\API\AiSettingController::class, 'upsert'])  ->name('upsert');
-        Route::post('/test',         [\App\Http\Controllers\API\AiSettingController::class, 'test'])    ->name('test')->middleware('throttle:5,1');
-        Route::delete('/{key}',      [\App\Http\Controllers\API\AiSettingController::class, 'destroy']) ->name('destroy');
+        Route::get('/',              [AiSettingController::class, 'index'])   ->name('index');
+        Route::get('/providers',     [AiSettingController::class, 'providers'])->name('providers');
+        Route::post('/',             [AiSettingController::class, 'upsert'])  ->name('upsert');
+        Route::post('/test',         [AiSettingController::class, 'test'])    ->name('test')->middleware('throttle:5,1');
+        Route::delete('/{key}',      [AiSettingController::class, 'destroy']) ->name('destroy');
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | AI Tools & Utilities
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('tools')->name('api.tools.')->group(function () {
+        Route::post('/scrape-product', [ScraperController::class, 'scrapeProduct'])
+            ->name('scrape-product')
+            ->middleware('throttle:20,10');
     });
 });

@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Helpers\ApiResponse;
 use App\Http\Requests\Offers\GetOfferLinkRequest;
 use App\Http\Requests\Offers\SearchOffersRequest;
+use App\Models\Campaign;
 use App\Services\Integration\IntegrationService;
 use App\Services\Offer\OfferService;
 use Illuminate\Http\JsonResponse;
@@ -28,8 +29,15 @@ class OfferController extends Controller
      */
     public function index(Request $request): Response
     {
+        $user = $request->user();
+        $campaigns = Campaign::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get(['id', 'name']);
+
         return Inertia::render('Offers/Index', [
-            'connections' => $this->integrationService->listConnectionsForOfferDiscovery($request->user()),
+            'connections' => $this->integrationService->listConnectionsForOfferDiscovery($user),
+            'campaigns'   => $campaigns,
         ]);
     }
 
@@ -43,8 +51,9 @@ class OfferController extends Controller
             'shop_id' => ['nullable', 'string', 'max:100'],
         ]);
 
+        $user = $request->user();
         $detail = $this->offerService->getDetail(
-            actor: $request->user(),
+            actor: $user,
             validated: [
                 'connection_id' => (int) $validated['connection_id'],
                 'offer_id' => $offerId,
@@ -52,10 +61,16 @@ class OfferController extends Controller
             ],
         );
 
+        $campaigns = Campaign::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get(['id', 'name']);
+
         return Inertia::render('Offers/Show', [
-            'offer' => $detail,
+            'offer'        => $detail,
             'connectionId' => (int) $validated['connection_id'],
-            'connections' => $this->integrationService->listConnectionsForOfferDiscovery($request->user()),
+            'connections'  => $this->integrationService->listConnectionsForOfferDiscovery($user),
+            'campaigns'    => $campaigns,
         ]);
     }
 

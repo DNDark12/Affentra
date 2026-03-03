@@ -140,6 +140,7 @@ import { computed } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
 import { Copy } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     trackingLink: {
@@ -149,6 +150,7 @@ const props = defineProps({
 });
 
 const page = usePage();
+const toast = useToast();
 
 const conversionRate = computed(() => {
     const clicks = Number(props.trackingLink.clicks_count || 0);
@@ -158,7 +160,9 @@ const conversionRate = computed(() => {
         return '0.0';
     }
 
-    return ((orders / clicks) * 100).toFixed(1);
+    const normalizedOrders = Math.min(orders, clicks);
+
+    return ((normalizedOrders / clicks) * 100).toFixed(1);
 });
 
 function statusLabel(status) {
@@ -214,6 +218,12 @@ function formatDateTime(value) {
 }
 
 function copyTrackUrl() {
-    navigator.clipboard.writeText(props.trackingLink.track_url);
+    navigator.clipboard.writeText(props.trackingLink.track_url)
+        .then(() => {
+            toast.success('Đã copy tracking URL.');
+        })
+        .catch(() => {
+            toast.error('Không thể copy tracking URL.');
+        });
 }
 </script>

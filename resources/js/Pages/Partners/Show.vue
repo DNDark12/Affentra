@@ -15,9 +15,9 @@
                         <ArrowLeft :size="14" />
                         Quay lại
                     </button>
-                    <button class="af-btn-primary text-sm h-9 px-3 flex items-center gap-1.5">
-                        <LinkIcon :size="14" />
-                        Tạo link mời
+                    <button class="af-btn-primary text-sm h-9 px-3 flex items-center gap-1.5" @click="viewOrdersTab">
+                        <ListOrdered :size="14" />
+                        Xem đơn hàng
                     </button>
                 </div>
             </div>
@@ -69,7 +69,9 @@
                 <div class="af-surface p-4 rounded-xl border border-[var(--border)] flex flex-col min-h-[300px]">
                     <div class="flex items-center justify-between mb-3">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary)">Recent Orders by this CTV</h2>
-                        <a href="#" class="text-xs font-medium" style="color: var(--color-primary-500)">View All &rarr;</a>
+                        <button @click="viewOrdersTab" class="text-xs font-medium" style="color: var(--color-primary-500)">
+                            View All &rarr;
+                        </button>
                     </div>
                     
                     <div class="flex flex-col">
@@ -285,7 +287,7 @@
 <script setup>
 import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
-import { ArrowLeft, Link as LinkIcon, AlertTriangle } from 'lucide-vue-next';
+import { ArrowLeft, AlertTriangle, ListOrdered } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 
 const props = defineProps({
@@ -308,6 +310,10 @@ const activeTab = ref('overview');
 
 function backToList() {
     router.visit(route('partners.index'));
+}
+
+function viewOrdersTab() {
+    activeTab.value = 'orders';
 }
 
 function fmtNum(v) {

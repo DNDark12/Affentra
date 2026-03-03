@@ -47,8 +47,8 @@
 
             <div class="flex items-center justify-between gap-2 flex-wrap">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <input v-model="dateFrom" type="date" class="af-input af-input-date h-9 text-sm" @change="applyFilters" />
-                    <input v-model="dateTo" type="date" class="af-input af-input-date h-9 text-sm" @change="applyFilters" />
+                    <input v-model="dateFrom" type="date" class="af-input af-input-date h-9 text-sm" @click="$event.target.showPicker?.()" @change="applyFilters" />
+                    <input v-model="dateTo" type="date" class="af-input af-input-date h-9 text-sm" @click="$event.target.showPicker?.()" @change="applyFilters" />
                     <button class="af-btn-outline text-sm h-9 px-3" @click="applyFilters">Apply</button>
                 </div>
                 <p v-if="syncMessage" class="text-xs" style="color: var(--text-muted)">{{ syncMessage }}</p>

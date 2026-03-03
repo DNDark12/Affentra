@@ -9,7 +9,7 @@
         <div class="flex items-center gap-3">
             <span class="text-xs px-2 py-1 rounded-md font-medium"
                   style="background: var(--surface-2); color: var(--text-secondary)">
-                Platform: Shopee
+                Platform: {{ platformLabel }}
             </span>
 
             <button class="relative w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--surface-2)] transition-colors"
@@ -32,25 +32,31 @@
                 <Moon v-else        :size="16" :stroke-width="1.75" style="color: var(--text-secondary)" />
             </button>
 
-            <button class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+            <Link
+                    :href="route('profile.edit')"
+                    class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+                    title="Hồ sơ tài khoản"
                     style="background-color: var(--color-primary-500)">
                 {{ initials }}
-            </button>
+            </Link>
         </div>
     </header>
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from 'vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import { Bell, Sun, Moon } from 'lucide-vue-next';
+import { applyTheme, getCurrentTheme, resolveThemePreference } from '@/Utils/theme';
 
 const page   = usePage();
 const user   = computed(() => page.props.auth?.user);
 const isDark = ref(false);
 
 onMounted(() => {
-    isDark.value = document.documentElement.classList.contains('dark');
+    const initialTheme = resolveThemePreference();
+    applyTheme(initialTheme);
+    isDark.value = getCurrentTheme() === 'dark';
 });
 
 const ROUTE_TITLES = {
@@ -90,18 +96,20 @@ const pageTitle = computed(() => {
 });
 
 const alertSummary = computed(() => page.props.alerts || { unseen_count: 0 });
+const platformLabel = computed(() => page.props.ui?.current_platform_label || 'Shopee');
 
 const initials = computed(() =>
     (user.value?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 );
 
 function toggleTheme() {
-    isDark.value = !isDark.value;
-    document.documentElement.classList.toggle('dark', isDark.value);
-    document.cookie = `theme=${isDark.value ? 'dark' : 'light'};path=/;max-age=31536000`;
+    const nextTheme = isDark.value ? 'light' : 'dark';
+    applyTheme(nextTheme);
+    isDark.value = getCurrentTheme() === 'dark';
 }
 
 function goAlerts() {
     router.visit(route('alerts.index'));
 }
+
 </script>

@@ -73,12 +73,15 @@ class SyncPlatformConnectionJob implements ShouldQueue
             $backfillDays = (int) ($connection->backfill_days_override
                 ?? config("integrations.{$connection->platform}.backfill_days", 14));
             $configuredHardLimitDays = (int) config("integrations.{$connection->platform}.hard_limit_days", 30);
+            $incrementalOverlapHours = max((int) config('integrations.sync.incremental_overlap_hours', 6), 1);
             // Do not silently clamp below the requested backfill window.
             $hardLimitDays = max($configuredHardLimitDays, $backfillDays, 1);
 
             $since = $connection->last_sync_at
-                ? $connection->last_sync_at->copy()->subDays($backfillDays)
-                : now()->subDays($hardLimitDays);
+                // Incremental sync: only a small overlap window to avoid full backfill on every run.
+                ? $connection->last_sync_at->copy()->subHours($incrementalOverlapHours)
+                // First sync: use configured backfill depth (still clamped by hard limit).
+                : now()->subDays($backfillDays);
 
             // Clamp to hard limit
             $earliest = now()->subDays($hardLimitDays);

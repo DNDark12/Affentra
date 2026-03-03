@@ -305,4 +305,59 @@ class ShopeePaymentSyncTest extends TestCase
             'payout_id' => 'PAY-FROM-BILLING',
         ]);
     }
+
+    public function test_payment_sync_uses_incremental_overlap_window_after_first_sync(): void
+    {
+        config()->set('integrations.shopee.backfill_days', 90);
+        config()->set('integrations.shopee.hard_limit_days', 90);
+        config()->set('integrations.sync.incremental_overlap_hours', 6);
+
+        $user = User::factory()->create();
+        $lastSyncAt = now()->subHours(2);
+
+        $connection = PlatformConnection::create([
+            'user_id' => $user->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'last_sync_at' => $lastSyncAt,
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=test-cookie',
+                'affiliate_program_type' => '1',
+                'profiles' => [
+                    'billing' => [],
+                ],
+            ], JSON_THROW_ON_ERROR),
+            'cookie_user_agent' => 'test-ua',
+        ]);
+
+        Http::fake([
+            'affiliate.shopee.vn/api/v3/payment/billing_list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [],
+                    'total_count' => 0,
+                ],
+            ]),
+            'affiliate.shopee.vn/api/v3/gql*' => Http::response([
+                'data' => [],
+            ]),
+        ]);
+
+        $expectedSince = $lastSyncAt->copy()->subHours(6)->timestamp;
+        SyncPaymentDataJob::dispatchSync($connection);
+
+        Http::assertSent(function ($request) use ($expectedSince): bool {
+            if (! str_contains($request->url(), '/api/v3/payment/billing_list')) {
+                return false;
+            }
+
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            if (! isset($query['order_completed_start_time'])) {
+                return false;
+            }
+
+            return abs((int) $query['order_completed_start_time'] - $expectedSince) <= 5;
+        });
+    }
 }

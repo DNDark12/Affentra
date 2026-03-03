@@ -48,12 +48,14 @@
                         v-model="dateFrom"
                         type="date"
                         class="af-input af-input-date h-9 text-sm"
+                        @click="$event.target.showPicker?.()"
                         @change="applyFilters"
                     />
                     <input
                         v-model="dateTo"
                         type="date"
                         class="af-input af-input-date h-9 text-sm"
+                        @click="$event.target.showPicker?.()"
                         @change="applyFilters"
                     />
                 </div>

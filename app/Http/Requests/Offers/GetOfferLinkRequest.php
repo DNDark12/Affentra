@@ -20,6 +20,7 @@ class GetOfferLinkRequest extends FormRequest
     {
         return [
             'connection_id'   => ['required', 'integer'],
+            'campaign_id'     => ['nullable', 'integer', 'exists:campaigns,id'],
             'offer_link'      => ['required', 'url', 'max:2048'],
             'item_id'         => ['required', 'string', 'max:100'],
             'shop_id'         => ['nullable', 'string', 'max:100'],

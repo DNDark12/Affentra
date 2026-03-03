@@ -40,6 +40,7 @@ class TextGenerationRunner
             $result = $this->client->generateText($prompt, [
                 'max_tokens'  => 2048,
                 'temperature' => 0.9,
+                'images'      => $generation->prompt_attributes['images'] ?? [],
             ]);
 
             // 3. Persist successful result

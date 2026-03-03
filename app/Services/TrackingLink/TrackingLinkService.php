@@ -10,10 +10,11 @@ use App\Enums\LinkStatus;
 use App\Enums\Platform;
 use App\Models\DailyStat;
 use App\Models\TrackingLink;
-use App\Support\TrackingLinkIdentity;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
 use App\Services\Scope\ScopeResolver;
+use App\Services\Scraping\ProductScraperService;
+use App\Support\TrackingLinkIdentity;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
@@ -28,6 +29,7 @@ class TrackingLinkService
         private readonly CampaignRepositoryInterface $campaignRepository,
         private readonly ScopeResolver $scopeResolver,
         private readonly AuditLogger $auditLogger,
+        private readonly ProductScraperService $scraperService,
     ) {}
 
     /**
@@ -161,6 +163,8 @@ class TrackingLinkService
             'source' => $link->source,
             'channel' => $link->channel,
             'sub_id' => $link->sub_id,
+            'product_name' => $link->product_name,
+            'product_image_urls' => $link->product_image_urls ?? [],
             'clicks_count' => $link->clicks_count,
             'orders_count' => $link->orders_count,
             'metrics_clicks_30d' => (int) ($metrics30?->clicks ?? 0),
@@ -220,6 +224,32 @@ class TrackingLinkService
 
         if (empty($data['short_code'])) {
             $data['short_code'] = $this->generateUniqueCode();
+        }
+
+        if (empty($data['product_name']) && !empty($destinationUrl)) {
+            try {
+                $scraped = $this->scraperService->scrape($destinationUrl, $user);
+                if (! $this->hasMeaningfulScrapedData($scraped)) {
+                    throw new \RuntimeException('Không lấy được dữ liệu sản phẩm từ URL này.');
+                }
+                $data['product_name'] = $scraped['data']['title'] ?? null;
+                $data['product_price'] = $scraped['data']['price_display'] ?? null;
+                $data['product_price_value'] = $scraped['data']['price_value'] ?? null;
+                $data['product_image_urls'] = $scraped['data']['images'] ?? null;
+                $data['product_scrape_confidence'] = $scraped['confidence'] ?? null;
+                $data['product_scrape_source'] = $scraped['source'] ?? null;
+                $data['product_last_scraped_at'] = now();
+                
+                if ($data['product_name'] && mb_strlen($data['product_name']) > 1000) {
+                    $data['product_name'] = mb_substr($data['product_name'], 0, 997) . '...';
+                }
+            } catch (\Exception $e) {
+                Log::warning('tracking_links.scrape_failed', [
+                    'url' => $destinationUrl,
+                    'error' => $e->getMessage(),
+                ]);
+                $data['product_scrape_error'] = $e->getMessage();
+            }
         }
 
         $data['user_id']  = $user->id;
@@ -442,6 +472,12 @@ class TrackingLinkService
             'source' => $link->source,
             'channel' => $link->channel,
             'sub_id' => $link->sub_id,
+            'product_name' => $link->product_name,
+            'product_price' => $link->product_price,
+            'product_price_value' => $link->product_price_value,
+            'product_last_scraped_at' => $link->product_last_scraped_at?->toIso8601String(),
+            'product_scrape_confidence' => $link->product_scrape_confidence,
+            'product_scrape_source' => $link->product_scrape_source,
         ];
     }
 
@@ -496,4 +532,65 @@ class TrackingLinkService
         }
     }
 
+    public function refreshProductInfo(User $user, int $trackingLinkId): TrackingLink
+    {
+        $link = $this->findOrFailForUser($user, $trackingLinkId);
+        $previousState = $this->snapshotTrackingLink($link);
+
+        try {
+            $scraped = $this->scraperService->scrape($link->destination_url, $user);
+            if (! $this->hasMeaningfulScrapedData($scraped)) {
+                throw new \RuntimeException('Không lấy được dữ liệu sản phẩm từ Shopee. Vui lòng thử lại sau.');
+            }
+            
+            $updateData = [
+                'product_name' => $scraped['data']['title'] ?? $link->product_name,
+                'product_price' => $scraped['data']['price_display'] ?? $link->product_price,
+                'product_price_value' => $scraped['data']['price_value'] ?? $link->product_price_value,
+                'product_image_urls' => $scraped['data']['images'] ?? $link->product_image_urls,
+                'product_scrape_confidence' => $scraped['confidence'] ?? null,
+                'product_scrape_source' => $scraped['source'] ?? null,
+                'product_last_scraped_at' => now(),
+                'product_scrape_error' => null,
+            ];
+
+            if ($updateData['product_name'] && mb_strlen($updateData['product_name']) > 1000) {
+                $updateData['product_name'] = mb_substr($updateData['product_name'], 0, 997) . '...';
+            }
+
+            $updated = $this->trackingLinkRepository->updateLink($link->id, $updateData);
+
+            $this->auditLogger->log(
+                actor: $user,
+                action: 'tracking_link.refresh_product',
+                target: $updated,
+                previousState: $previousState,
+                newState: $this->snapshotTrackingLink($updated),
+            );
+
+            return $updated;
+        } catch (\Exception $e) {
+            $this->trackingLinkRepository->updateLink($link->id, [
+                'product_scrape_error' => $e->getMessage(),
+                'product_last_scraped_at' => now(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $scraped
+     */
+    private function hasMeaningfulScrapedData(array $scraped): bool
+    {
+        $data = is_array($scraped['data'] ?? null) ? $scraped['data'] : [];
+
+        $title = trim((string) ($data['title'] ?? ''));
+        $price = $data['price_value'] ?? null;
+        $images = is_array($data['images'] ?? null) ? $data['images'] : [];
+
+        return $title !== ''
+            || (is_numeric($price) && (float) $price > 0)
+            || ! empty($images);
+    }
 }

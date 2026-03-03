@@ -448,8 +448,10 @@ class IntegrationService
         $adapter = IntegrationFactory::make($connection->platform);
 
         if (method_exists($adapter, 'testConnectionDetailed')) {
+            /** @var mixed */
+            $adapterMixed = $adapter;
             /** @var array{valid: bool, checks?: array<string, mixed>, message?: string} $detailed */
-            $detailed = $adapter->testConnectionDetailed($connection);
+            $detailed = $adapterMixed->testConnectionDetailed($connection);
 
             return [
                 'valid' => (bool) ($detailed['valid'] ?? false),
@@ -489,6 +491,7 @@ class IntegrationService
             'sec_fetch_dest' => (string) ($parsed['sec_fetch_dest'] ?? ''),
             'sec_fetch_mode' => (string) ($parsed['sec_fetch_mode'] ?? ''),
             'sec_fetch_site' => (string) ($parsed['sec_fetch_site'] ?? ''),
+            'origin' => (string) ($parsed['origin'] ?? ''),
             'request_body' => (string) ($parsed['request_body'] ?? ''),
             'raw_headers' => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
             'profiles' => [],
@@ -517,6 +520,7 @@ class IntegrationService
                     'sec_fetch_dest',
                     'sec_fetch_mode',
                     'sec_fetch_site',
+                    'origin',
                     'request_body',
                 ] as $key) {
                     if ($base[$key] === '' && isset($existing[$key])) {
@@ -548,6 +552,7 @@ class IntegrationService
                 'sec_fetch_dest' => (string) ($parsed['sec_fetch_dest'] ?? ''),
                 'sec_fetch_mode' => (string) ($parsed['sec_fetch_mode'] ?? ''),
                 'sec_fetch_site' => (string) ($parsed['sec_fetch_site'] ?? ''),
+                'origin' => (string) ($parsed['origin'] ?? ''),
                 'referer' => (string) ($parsed['referer'] ?? ''),
                 'request_url' => (string) ($parsed['request_url'] ?? ''),
                 'request_body' => (string) ($parsed['request_body'] ?? ''),

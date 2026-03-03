@@ -145,8 +145,6 @@ class ShopeeIntegration extends BaseIntegration
 
         if ($lock->get()) {
             try {
-                // TODO: Implement actual OAuth refresh flow when docs are confirmed
-                // For now, mark connection as error state
                 $connection->update([
                     'status'         => 'error',
                     'last_error'     => 'Authentication failed — token refresh needed',
@@ -156,7 +154,6 @@ class ShopeeIntegration extends BaseIntegration
                 $lock->release();
             }
         }
-        // If lock not acquired, another job is already refreshing — let caller retry
     }
 
     // ─── IntegrationContract Methods ────────────────────────────────────────
@@ -535,7 +532,7 @@ class ShopeeIntegration extends BaseIntegration
     /**
      * @return array<string, string>
      */
-    private function buildCookieHeaders(PlatformConnection $connection, string $referer): array
+    public function buildCookieHeaders(PlatformConnection $connection, string $referer): array
     {
         $rawCookie = trim((string) $connection->cookie_header);
         if ($rawCookie === '') {
@@ -566,6 +563,7 @@ class ShopeeIntegration extends BaseIntegration
             }
 
             $profile = [];
+            $selectedProfileKey = null;
             $profileKey = $this->inferCookieProfileKeyByReferer($referer);
             if (
                 $profileKey !== null
@@ -573,6 +571,16 @@ class ShopeeIntegration extends BaseIntegration
                 && is_array($parsed['profiles'][$profileKey] ?? null)
             ) {
                 $profile = $parsed['profiles'][$profileKey];
+                $selectedProfileKey = $profileKey;
+            } elseif ($profileKey !== null && is_array($parsed['profiles'] ?? null) && $profileKey !== 'offer_product') {
+                // For non-offer endpoints we can still try a nearby profile to preserve backward compatibility.
+                foreach (['campaign_list', 'conversion_report', 'click_report', 'dashboard', 'billing', 'payout_record', 'service_fee_invoice'] as $fallbackKey) {
+                    if (is_array($parsed['profiles'][$fallbackKey] ?? null)) {
+                        $profile = $parsed['profiles'][$fallbackKey];
+                        $selectedProfileKey = $fallbackKey;
+                        break;
+                    }
+                }
             }
 
             $resolved = [
@@ -595,6 +603,8 @@ class ShopeeIntegration extends BaseIntegration
                 'sec_fetch_dest' => (string) ($profile['sec_fetch_dest'] ?? $parsed['sec_fetch_dest'] ?? ''),
                 'sec_fetch_mode' => (string) ($profile['sec_fetch_mode'] ?? $parsed['sec_fetch_mode'] ?? ''),
                 'sec_fetch_site' => (string) ($profile['sec_fetch_site'] ?? $parsed['sec_fetch_site'] ?? ''),
+                'referer' => (string) ($profile['referer'] ?? ''),
+                'origin' => (string) ($profile['origin'] ?? $parsed['origin'] ?? ''),
             ];
             $rawHeaders = array_merge(
                 is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
@@ -663,6 +673,14 @@ class ShopeeIntegration extends BaseIntegration
                 $headers['sec-fetch-site'] = $resolved['sec_fetch_site'];
             }
 
+            if ($resolved['referer'] !== '' && $selectedProfileKey === $profileKey) {
+                $headers['Referer'] = $resolved['referer'];
+            }
+
+            if ($resolved['origin'] !== '' && $selectedProfileKey === $profileKey) {
+                $headers['Origin'] = $resolved['origin'];
+            }
+
             foreach ($rawHeaders as $name => $value) {
                 $headerName = mb_strtolower(trim((string) $name));
                 if ($headerName === '' || in_array($headerName, ['cookie', 'content-length', 'host'], true)) {
@@ -710,6 +728,10 @@ class ShopeeIntegration extends BaseIntegration
 
         if (str_contains($normalized, '/campaign/campaign_list')) {
             return 'campaign_list';
+        }
+
+        if (str_contains($normalized, '/offer/product_offer')) {
+            return 'offer_product';
         }
 
         return null;

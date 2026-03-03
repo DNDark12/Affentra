@@ -27,6 +27,9 @@ class CreateTrackingLinkRequest extends FormRequest
             'sub_id'          => ['nullable', 'string', 'max:100'],
             'tags'            => ['nullable', 'array'],
             'tags.*'          => ['string', 'max:50'],
+            'product_name'    => ['nullable', 'string', 'max:1000'],
+            'product_image_urls'   => ['nullable', 'array'],
+            'product_image_urls.*' => ['string', 'url', 'max:2048'],
         ];
     }
 }

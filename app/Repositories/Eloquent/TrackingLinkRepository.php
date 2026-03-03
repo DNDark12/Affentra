@@ -10,6 +10,7 @@ use App\Models\TrackingLink;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Prettus\Repository\Criteria\RequestCriteria;
 use Prettus\Repository\Eloquent\BaseRepository;
@@ -234,6 +235,13 @@ SQL;
 
     public function attributionGapSummaryForScope(?array $scopeUserIds, array $filters = []): array
     {
+        $from = ! empty($filters['date_from'])
+            ? Carbon::createFromFormat('Y-m-d', (string) $filters['date_from'])->startOfDay()
+            : null;
+        $to = ! empty($filters['date_to'])
+            ? Carbon::createFromFormat('Y-m-d', (string) $filters['date_to'])->endOfDay()
+            : null;
+
         $clickQuery = DB::table('clicks')
             ->where('attribution_status', 'unattributed');
 
@@ -241,12 +249,12 @@ SQL;
             $clickQuery->whereIn('owner_id', $scopeUserIds);
         }
 
-        if (! empty($filters['date_from'])) {
-            $clickQuery->whereDate('created_at', '>=', (string) $filters['date_from']);
+        if ($from !== null) {
+            $clickQuery->where('created_at', '>=', $from);
         }
 
-        if (! empty($filters['date_to'])) {
-            $clickQuery->whereDate('created_at', '<=', (string) $filters['date_to']);
+        if ($to !== null) {
+            $clickQuery->where('created_at', '<=', $to);
         }
 
         $unattributedClicks = (clone $clickQuery)->count();
@@ -264,12 +272,24 @@ SQL;
             $orderQuery->whereIn('user_id', $scopeUserIds);
         }
 
-        if (! empty($filters['date_from'])) {
-            $orderQuery->whereDate(DB::raw('COALESCE(ordered_at, created_at)'), '>=', (string) $filters['date_from']);
+        if ($from !== null) {
+            $orderQuery->where(static function (QueryBuilder $query) use ($from): void {
+                $query->where('ordered_at', '>=', $from)
+                    ->orWhere(static function (QueryBuilder $fallback) use ($from): void {
+                        $fallback->whereNull('ordered_at')
+                            ->where('created_at', '>=', $from);
+                    });
+            });
         }
 
-        if (! empty($filters['date_to'])) {
-            $orderQuery->whereDate(DB::raw('COALESCE(ordered_at, created_at)'), '<=', (string) $filters['date_to']);
+        if ($to !== null) {
+            $orderQuery->where(static function (QueryBuilder $query) use ($to): void {
+                $query->where('ordered_at', '<=', $to)
+                    ->orWhere(static function (QueryBuilder $fallback) use ($to): void {
+                        $fallback->whereNull('ordered_at')
+                            ->where('created_at', '<=', $to);
+                    });
+            });
         }
 
         $unattributedOrders = (clone $orderQuery)->count();

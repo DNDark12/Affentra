@@ -6,9 +6,18 @@ import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { ZiggyVue } from 'ziggy-js';
 import { bootTomSelectEnhancer } from './plugins/tomSelectEnhancer';
+import { applyTheme, resolveThemePreference } from './Utils/theme';
+
+// Keep theme stable across reloads even when CSP blocks inline scripts.
+applyTheme(resolveThemePreference());
 
 createInertiaApp({
-    title: (title) => `${title} - ${import.meta.env.VITE_APP_NAME}`,
+    title: (title) => {
+        const appName = (import.meta.env.VITE_APP_NAME || 'Affentra').trim();
+        const pageTitle = (title || '').trim();
+
+        return pageTitle ? `${pageTitle} - ${appName}` : appName;
+    },
 
     resolve: (name) =>
         resolvePageComponent(

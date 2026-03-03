@@ -31,6 +31,14 @@ class TrackingLink extends Model
         'status',
         'clicks_count',
         'orders_count',
+        'product_name',
+        'product_price',
+        'product_price_value',
+        'product_image_urls',
+        'product_last_scraped_at',
+        'product_scrape_confidence',
+        'product_scrape_source',
+        'product_scrape_error',
     ];
 
     /**
@@ -39,12 +47,15 @@ class TrackingLink extends Model
     protected function casts(): array
     {
         return [
-            'tags'         => 'array',
-            'meta'         => 'array',
-            'clicks_count' => 'integer',
-            'orders_count' => 'integer',
-            'status'       => LinkStatusCast::class,
-            'platform'     => Platform::class,
+            'tags'               => 'array',
+            'meta'               => 'array',
+            'product_image_urls'      => 'array',
+            'product_last_scraped_at' => 'datetime',
+            'product_scrape_confidence' => 'float',
+            'clicks_count'            => 'integer',
+            'orders_count'            => 'integer',
+            'status'                  => LinkStatusCast::class,
+            'platform'                => Platform::class,
         ];
     }
 

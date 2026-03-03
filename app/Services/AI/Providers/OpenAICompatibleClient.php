@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Providers;
 
 use App\DataTransferObjects\AI\GeneratedTextResult;
+use App\DataTransferObjects\AI\GeneratedMediaResult;
 use App\Services\AI\Contracts\AIProviderClient;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -152,5 +153,45 @@ class OpenAICompatibleClient implements AIProviderClient
             'kind' => 'post',
             'text' => $text,
         ], $blocks));
+    }
+
+    public function generateMedia(string $prompt, string $type = 'image', array $options = []): GeneratedMediaResult
+    {
+        if (empty($this->apiKey)) {
+            throw new \RuntimeException("API key not configured.");
+        }
+
+        // Default OpenAI image generation endpoint
+        $endpoint = "{$this->baseUrl}/images/generations";
+        $payload = [
+            'model'  => $options['model'] ?? 'dall-e-3',
+            'prompt' => $prompt,
+            'n'      => (int) ($options['n'] ?? 1),
+            'size'   => $options['size'] ?? '1024x1024',
+        ];
+
+        try {
+            $response = Http::timeout(60) // Images take longer
+                ->withToken($this->apiKey)
+                ->post($endpoint, $payload)
+                ->throw();
+        } catch (RequestException $e) {
+            $errMsg = $e->response?->json('error.message') ?? $e->getMessage();
+            throw new \RuntimeException("Image generation failed: {$errMsg}");
+        }
+
+        $body = $response->json();
+        $data = data_get($body, 'data', []);
+        
+        $media = array_map(fn($item) => [
+            'url'    => $item['url'] ?? '',
+            'base64' => $item['b64_json'] ?? null,
+        ], $data);
+
+        return new GeneratedMediaResult(
+            media:    $media,
+            provider: $this->providerKey(),
+            model:    (string) $payload['model'],
+        );
     }
 }

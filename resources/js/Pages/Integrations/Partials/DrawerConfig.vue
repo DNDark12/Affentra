@@ -129,12 +129,14 @@
                                         Lệnh cURL (Copy as cURL - bash)
                                         <span v-if="editConnection" class="text-xs opacity-70 font-normal ml-1">(Chỉ cần dán nếu muốn đổi Cookie)</span>
                                     </label>
-                                    <textarea v-model="form.curl_command" placeholder="Có thể dán nhiều block cURL. Khuyến nghị: billing + payout_record + service_fee_invoice." rows="6" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
+                                    <textarea v-model="form.curl_command" placeholder="Có thể dán nhiều block cURL. Khuyến nghị: billing + payout_record + service_fee_invoice + offer/product_offer." rows="6" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
                                     <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
                                         Để đồng bộ Finance đầy đủ, hãy dán cURL từ cả 3 trang:
                                         <code>/payment/billing</code>,
                                         <code>/payment/payout_record</code>,
                                         <code>/payment/service_fee_invoice</code>.
+                                        Để làm mới thông tin sản phẩm ổn định, dán thêm cURL từ:
+                                        <code>/offer/product_offer/{item_id}</code>.
                                     </p>
                                     <span v-if="form.errors.curl_command" class="text-xs text-red-500">{{ form.errors.curl_command }}</span>
                                 </div>

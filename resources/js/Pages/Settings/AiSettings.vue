@@ -10,26 +10,6 @@
                 </p>
             </div>
 
-            <!-- Toast banner -->
-            <transition
-                enter-active-class="transition-all duration-300"
-                enter-from-class="opacity-0 -translate-y-2"
-                leave-active-class="transition-all duration-200"
-                leave-to-class="opacity-0"
-            >
-                <div
-                    v-if="toast.visible"
-                    class="px-4 py-3 rounded-lg text-sm flex items-center gap-2"
-                    :style="toast.isError
-                        ? 'background: var(--danger-bg); color: var(--danger-text);'
-                        : 'background: var(--success-bg); color: var(--success-text);'"
-                >
-                    <XCircle v-if="toast.isError" :size="15" class="shrink-0" />
-                    <CheckCircle v-else :size="15" class="shrink-0" />
-                    {{ toast.message }}
-                </div>
-            </transition>
-
             <!-- Provider Grid -->
             <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <!-- Existing configured providers -->
@@ -383,6 +363,7 @@ import { computed, reactive, ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useDialog } from '@/Composables/useDialog';
+import { useToast } from '@/Composables/useToast';
 import {
     Plus, Pencil, Plug2, Trash2, Loader2,
     Eye, EyeOff, X, CheckCircle, CheckCircle2, XCircle,
@@ -390,21 +371,12 @@ import {
 } from 'lucide-vue-next';
 
 const { confirmDialog } = useDialog();
+const toast = useToast();
 
 const props = defineProps({
     userSettings: { type: Array,  default: () => [] },
     registry:     { type: Object, default: () => ({}) },
 });
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-const toast = reactive({ visible: false, message: '', isError: false });
-let toastTimer = null;
-
-function showToast(message, isError = false) {
-    if (toastTimer) clearTimeout(toastTimer);
-    Object.assign(toast, { visible: true, message, isError });
-    toastTimer = setTimeout(() => { toast.visible = false; }, 4000);
-}
 
 // ── Form state ────────────────────────────────────────────────────────────────
 const formOpen    = ref(false);
@@ -497,7 +469,7 @@ async function saveProvider() {
         const res = await axios.post(route('api.ai.settings.upsert'), payload);
         if (!res.data?.ok) throw new Error(res.data?.message ?? 'Lỗi lưu provider');
 
-        showToast(res.data.message ?? 'Đã lưu provider thành công!');
+        toast.success(res.data.message ?? 'Đã lưu provider thành công!');
         closeForm();
         router.reload({ only: ['userSettings'], preserveScroll: true });
     } catch (err) {
@@ -524,14 +496,14 @@ async function testProvider(providerKey) {
     try {
         const res = await axios.post(route('api.ai.settings.test'), { provider_key: providerKey });
         if (res.data?.ok) {
-            showToast(`✓ Kết nối thành công! Model: ${res.data?.data?.model || providerKey}`);
+            toast.success(`Kết nối thành công. Model: ${res.data?.data?.model || providerKey}`);
         } else {
-            showToast(res.data?.message ?? 'Kết nối thất bại.', true);
+            toast.error(res.data?.message ?? 'Kết nối thất bại.');
         }
         // Reload so the card connection badge refreshes from DB
         router.reload({ only: ['userSettings'], preserveScroll: true });
     } catch (err) {
-        showToast(err.response?.data?.message ?? 'Kết nối thất bại.', true);
+        toast.error(err.response?.data?.message ?? 'Kết nối thất bại.');
     } finally {
         testing.value    = false;
         testingKey.value = null;
@@ -579,10 +551,10 @@ async function deleteProvider(providerKey, label) {
     try {
         const res = await axios.delete(route('api.ai.settings.destroy', { key: providerKey }));
         if (!res.data?.ok) throw new Error(res.data?.message ?? 'Lỗi xóa');
-        showToast(res.data.message ?? 'Đã xóa provider.');
+        toast.success(res.data.message ?? 'Đã xóa provider.');
         router.reload({ only: ['userSettings'], preserveScroll: true });
     } catch (err) {
-        showToast(err.response?.data?.message ?? 'Không thể xóa.', true);
+        toast.error(err.response?.data?.message ?? 'Không thể xóa.');
     }
 }
 

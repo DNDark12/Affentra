@@ -156,6 +156,40 @@ class HandleInertiaRequests extends Middleware
                     'lastSyncAt' => $latestSyncAt?->diffForHumans(),
                 ];
             },
+            'ui' => function () use ($request) {
+                /** @var User|null $user */
+                $user = $request->user();
+                if (! $user) {
+                    return [
+                        'current_platform' => 'shopee',
+                        'current_platform_label' => 'Shopee',
+                    ];
+                }
+
+                $activeConnection = PlatformConnection::query()
+                    ->where('user_id', $user->id)
+                    ->where('status', 'active')
+                    ->orderByDesc('last_sync_at')
+                    ->orderByDesc('id')
+                    ->first(['platform']);
+
+                if (! $activeConnection) {
+                    $activeConnection = PlatformConnection::query()
+                        ->where('user_id', $user->id)
+                        ->orderByDesc('last_sync_at')
+                        ->orderByDesc('id')
+                        ->first(['platform']);
+                }
+
+                $platform = strtolower((string) ($activeConnection?->platform ?? 'shopee'));
+                /** @var array<string, string> $platformLabels */
+                $platformLabels = config('affentra.platforms', []);
+
+                return [
+                    'current_platform' => $platform,
+                    'current_platform_label' => $platformLabels[$platform] ?? ucfirst($platform),
+                ];
+            },
         ]);
     }
 }

@@ -52,7 +52,15 @@
                         <form id="linkForm" @submit.prevent="generateLink" class="flex flex-col gap-4">
                             
                             <div class="flex flex-col gap-2">
-                                <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">SubID 1 (Chiến dịch)</label>
+                                <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chiến dịch (Campaign)</label>
+                                <select v-model="form.campaign_id" class="h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full">
+                                    <option value="">-- Tiền xử lý (Mặc định) --</option>
+                                    <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
+                                </select>
+                            </div>
+
+                            <div class="flex flex-col gap-2">
+                                <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">SubID 1 (Nhóm/Vị trí)</label>
                                 <input type="text" v-model="form.sub1" placeholder="VD: tiktok_ads_q1" class="h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
                             </div>
 
@@ -119,17 +127,20 @@
 import { ref, watch } from 'vue';
 import axios from 'axios';
 import { X, CheckCircle, Loader2 } from 'lucide-vue-next';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     isOpen: Boolean,
     offer: Object,        // The selected API offer data returned from search
     connectionId: Number, // The ID of the PlatformConnection chosen
+    campaigns: Array,     // Available campaigns to select
 });
 
 const emit = defineEmits(['close']);
+const toast = useToast();
 
 const form = ref({
-    sub1: '', sub2: '', sub3: '', sub4: '', sub5: ''
+    campaign_id: '', sub1: '', sub2: '', sub3: '', sub4: '', sub5: ''
 });
 
 const loading = ref(false);
@@ -140,7 +151,7 @@ const copied = ref(false);
 watch(() => props.isOpen, (val) => {
     if (val) {
         document.body.style.overflow = 'hidden';
-        form.value = { sub1: '', sub2: '', sub3: '', sub4: '', sub5: '' };
+        form.value = { campaign_id: '', sub1: '', sub2: '', sub3: '', sub4: '', sub5: '' };
         generatedLink.value = '';
         errorMsg.value = '';
         copied.value = false;
@@ -172,6 +183,12 @@ async function generateLink() {
     try {
         const payload = {
             connection_id: props.connectionId,
+            campaign_id: form.value.campaign_id || undefined,
+            sub1: form.value.sub1 || undefined,
+            sub2: form.value.sub2 || undefined,
+            sub3: form.value.sub3 || undefined,
+            sub4: form.value.sub4 || undefined,
+            sub5: form.value.sub5 || undefined,
             offer_link: props.offer.item_url,
             item_id: props.offer.item_id,
             product_name: props.offer.item_name,
@@ -198,9 +215,14 @@ async function generateLink() {
 
 function copyLink() {
     if (!generatedLink.value) return;
-    navigator.clipboard.writeText(generatedLink.value).then(() => {
-        copied.value = true;
-        setTimeout(() => copied.value = false, 2000);
-    });
+    navigator.clipboard.writeText(generatedLink.value)
+        .then(() => {
+            copied.value = true;
+            toast.success('Đã copy link tracking.');
+            setTimeout(() => copied.value = false, 2000);
+        })
+        .catch(() => {
+            toast.error('Không thể copy link tracking.');
+        });
 }
 </script>

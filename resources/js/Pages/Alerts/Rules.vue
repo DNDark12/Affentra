@@ -148,6 +148,7 @@ import { computed, ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useToast } from '@/Composables/useToast';
+import { useDialog } from '@/Composables/useDialog';
 
 const props = defineProps({
     rules: { type: Array, default: () => [] },
@@ -160,6 +161,7 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { confirmDialog } = useDialog();
 const isCreating = ref(false);
 const localRules = ref(props.rules.map((rule) => ({ ...rule })));
 const createForm = ref({
@@ -244,6 +246,15 @@ async function toggleRule(rule) {
 }
 
 async function deleteRule(rule) {
+    const confirmed = await confirmDialog({
+        title: 'Xóa quy tắc cảnh báo?',
+        description: `Quy tắc "${rule.name}" sẽ bị xóa vĩnh viễn.`,
+        confirmText: 'Xóa quy tắc',
+        cancelText: 'Hủy',
+        variant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
         const response = await axios.delete(route('api.alerts.rules.destroy', rule.id));
         if (response.data?.ok) {

@@ -52,7 +52,7 @@ class PromptTemplateRegistry
             };
 
             return <<<PROMPT
-            Bạn là chuyên gia viết content marketing affiliate người Việt.
+            Bạn là chuyên gia viết content marketing affiliate.
 
             Nhiệm vụ: Viết {$count} phiên bản bài đăng Facebook (mỗi phiên bản cách nhau bằng dấu ---) để quảng bá "{$product}"{$this->priceHint($price)}.
             Mục tiêu chiến dịch: {$goal}.
@@ -90,6 +90,16 @@ class PromptTemplateRegistry
 
             return "Tạo {$count} hashtag phù hợp {$platform} cho sản phẩm \"{$product}\". Trả về mỗi hashtag trên một dòng.";
         });
+
+        $this->register('fb_post_image_v1', 'Ảnh quảng cáo Facebook', ['image'], function (array $attrs): string {
+            $product = $attrs['product_title'] ?? 'sản phẩm';
+            $usp     = $attrs['usp']           ?? '';
+            $tone    = $attrs['tone']          ?? 'vibrant';
+
+            return "Tạo một ảnh quảng cáo chuyên nghiệp cho sản phẩm \"{$product}\". " .
+                   "Điểm nổi bật: {$usp}. Phong cách: {$tone}. " .
+                   "Ảnh nên có bố cục sạch sẽ, ánh sáng studio, thu hút người nhìn cho quảng cáo Facebook.";
+        });
     }
 
     /**
@@ -98,6 +108,18 @@ class PromptTemplateRegistry
     public function register(string $id, string $description, array $types, callable $renderer): void
     {
         $this->templates[$id] = compact('description', 'types', 'renderer');
+    }
+
+    /**
+     * Get the raw template array.
+     */
+    public function get(string $templateId): array
+    {
+        if (! isset($this->templates[$templateId])) {
+            throw new InvalidArgumentException("Unknown prompt template: {$templateId}");
+        }
+
+        return $this->templates[$templateId];
     }
 
     /**

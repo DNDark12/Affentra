@@ -98,11 +98,13 @@ class OfferService
         }
 
         $trackingLink = $this->trackingLinkService->create($actor, [
-            'campaign_id'     => null,
+            'campaign_id'     => $validated['campaign_id'] ?? null,
             'destination_url' => $shortLink ?? $validated['offer_link'],
             'sub_id'          => $subId,
             'platform'        => $connection->platform,
             'source'          => 'offer',
+            'product_name'    => $validated['product_name'] ?? null,
+            'product_image_urls' => isset($validated['image_url']) ? [$validated['image_url']] : null,
             'meta'            => [
                 'offer_item_id'            => $validated['item_id'],
                 'offer_shop_id'            => $validated['shop_id'] ?? null,

@@ -31,6 +31,7 @@ class CurlCookieParserService
      *   sec_fetch_dest: string|null,
      *   sec_fetch_mode: string|null,
      *   sec_fetch_site: string|null,
+     *   origin: string|null,
      *   request_url: string|null,
      *   referer: string|null,
      *   request_body: string|null,
@@ -101,6 +102,7 @@ class CurlCookieParserService
      *   sec_fetch_dest: string|null,
      *   sec_fetch_mode: string|null,
      *   sec_fetch_site: string|null,
+     *   origin: string|null,
      *   request_url: string|null,
      *   referer: string|null,
      *   request_body: string|null,
@@ -141,6 +143,7 @@ class CurlCookieParserService
         $secFetchDest = $this->extractHeader('sec-fetch-dest', $curlCommand);
         $secFetchMode = $this->extractHeader('sec-fetch-mode', $curlCommand);
         $secFetchSite = $this->extractHeader('sec-fetch-site', $curlCommand);
+        $origin = $this->extractHeader('origin', $curlCommand) ?? $this->extractHeader('Origin', $curlCommand);
         $referer = $this->extractHeader('referer', $curlCommand) ?? $this->extractHeader('Referer', $curlCommand);
         $requestBody = $this->extractDataPayload($curlCommand);
         $requestUrl = $this->extractRequestUrl($curlCommand);
@@ -174,6 +177,7 @@ class CurlCookieParserService
             'sec_fetch_dest' => $secFetchDest,
             'sec_fetch_mode' => $secFetchMode,
             'sec_fetch_site' => $secFetchSite,
+            'origin' => $origin,
             'request_url' => $requestUrl,
             'referer' => $referer,
             'request_body' => $requestBody,
@@ -264,6 +268,10 @@ class CurlCookieParserService
 
         if (str_contains($haystack, '/campaign/campaign_list') || str_contains($haystack, 'affiliatecampaigndetaillist')) {
             return 'campaign_list';
+        }
+
+        if (str_contains($haystack, '/offer/product_offer') || str_contains($haystack, '/api/v3/offer/product')) {
+            return 'offer_product';
         }
 
         return null;

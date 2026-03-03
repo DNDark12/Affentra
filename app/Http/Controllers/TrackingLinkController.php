@@ -34,10 +34,16 @@ class TrackingLinkController extends Controller
         $links = $this->trackingLinkService->listForUser($user, $filters);
         $summary = $this->trackingLinkService->summarizeForUser($user, $filters);
 
+        $campaigns = \App\Models\Campaign::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get(['id', 'name']);
+
         return Inertia::render('TrackingLinks/Index', [
-            'links'   => $links,
-            'filters' => $filters,
-            'summary' => $summary,
+            'links'     => $links,
+            'filters'   => $filters,
+            'summary'   => $summary,
+            'campaigns' => $campaigns,
         ]);
     }
 
@@ -128,19 +134,41 @@ class TrackingLinkController extends Controller
     /**
      * Archive a tracking link (soft-delete equivalent).
      */
-    public function archive(Request $request, int $trackingLink): JsonResponse
+    public function archive(Request $request, int $id): JsonResponse
     {
-        /** @var \App\Models\User $user */
-        $user = $request->user();
+        $archived = $this->trackingLinkService->archiveForUser($request->user(), $id);
 
+        return response()->json([
+            'ok' => true,
+            'message' => 'Tracking link archived.',
+            'data' => [
+                'id' => $archived->id,
+                'status' => $archived->status->value,
+            ],
+        ]);
+    }
+
+    public function refreshProduct(Request $request, int $id): JsonResponse
+    {
         try {
-            $link = $this->trackingLinkService->archiveForUser($user, $trackingLink);
-        } catch (NotFoundHttpException) {
-            return ApiResponse::error('Not found.', [], 404);
-        } catch (\DomainException $e) {
-            return ApiResponse::error($e->getMessage(), [], 422);
-        }
+            $updated = $this->trackingLinkService->refreshProductInfo($request->user(), $id);
 
-        return ApiResponse::success($link, 'Tracking link archived.');
+            return response()->json([
+                'ok' => true,
+                'message' => 'Product information refreshed successfully.',
+                'data' => [
+                    'id' => $updated->id,
+                    'product_name' => $updated->product_name,
+                    'product_price' => $updated->product_price,
+                    'product_scrape_confidence' => $updated->product_scrape_confidence,
+                    'product_scrape_source' => $updated->product_scrape_source,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Failed to refresh product information: ' . $e->getMessage(),
+            ], 422);
+        }
     }
 }

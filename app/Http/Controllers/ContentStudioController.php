@@ -43,26 +43,31 @@ class ContentStudioController extends Controller
             ->where('user_id', $user->id)
             ->active()                        // uses scopeActive() → LinkStatus::Active enum
             ->with(['campaign:id,name'])
-            ->select(['id', 'short_code', 'destination_url', 'campaign_id', 'created_at'])
+            ->select(['id', 'short_code', 'destination_url', 'campaign_id', 'product_name', 'product_price', 'product_image_urls', 'created_at'])
             ->latest()
             ->limit(100)
             ->get()
             ->map(fn ($link) => [
-                'id'              => $link->id,
-                'short_code'      => $link->short_code,
-                'destination_url' => $link->destination_url,
-                'campaign_name'   => $link->campaign?->name,
+                'id'                 => $link->id,
+                'short_code'         => $link->short_code,
+                'track_url'          => route('redirect', $link->short_code),
+                'destination_url'    => $link->destination_url,
+                'campaign_name'      => $link->campaign?->name,
+                'product_name'       => $link->product_name,
+                'product_price'      => $link->product_price,
+                'product_image_urls' => $link->product_image_urls ?? [],
             ]);
 
         // User's configured AI providers (for provider/model selector)
         $configuredProviders = AiProviderSetting::query()
             ->where('user_id', $user->id)
             ->where('status', 'enabled')
-            ->get(['provider_key', 'default_model', 'label'])
+            ->get(['provider_key', 'default_model', 'label', 'capabilities'])
             ->map(fn ($s) => [
-                'key'   => $s->provider_key,
-                'label' => $s->label ?: AiSettingsService::PROVIDER_REGISTRY[$s->provider_key]['name'] ?? $s->provider_key,
-                'model' => $s->default_model,
+                'key'          => $s->provider_key,
+                'label'        => $s->label ?: AiSettingsService::PROVIDER_REGISTRY[$s->provider_key]['name'] ?? $s->provider_key,
+                'model'        => $s->default_model,
+                'capabilities' => $s->capabilities ?? [],
             ])
             ->values();
 

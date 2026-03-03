@@ -187,6 +187,10 @@ class CampaignSyncService
                 continue;
             }
 
+            if (! $this->shouldProvisionTrackingLink($campaign)) {
+                continue;
+            }
+
             $hasAssignedLink = TrackingLink::query()
                 ->where('campaign_id', $campaign->id)
                 ->where('user_id', $connection->user_id)
@@ -247,6 +251,71 @@ class CampaignSyncService
         }
 
         return $provisioned;
+    }
+
+    private function shouldProvisionTrackingLink(Campaign $campaign): bool
+    {
+        $url = trim((string) ($campaign->campaign_url ?? ''));
+        $name = trim((string) ($campaign->name ?? ''));
+
+        // 1. Missing URL -> Skip
+        if ($url === '') {
+            Log::info("CampaignSyncService: Skipping link provisioning (No URL)", [
+                'campaign_id' => $campaign->id,
+                'external_id' => $campaign->external_id,
+            ]);
+
+            return false;
+        }
+
+        $parsedUrl = parse_url($url);
+        $host = mb_strtolower($parsedUrl['host'] ?? '');
+        $path = $parsedUrl['path'] ?? '';
+
+        // 2. Block-list Host (giaitri.shopee.*)
+        if ($host === 'giaitri.shopee.vn' || str_ends_with($host, '.giaitri.shopee.vn')) {
+            Log::info("CampaignSyncService: Skipping link provisioning (Blocked host: {$host})", [
+                'campaign_id' => $campaign->id,
+                'url' => $url,
+            ]);
+
+            return false;
+        }
+
+        // 3. Block-list Path Prefix (/m/)
+        if (str_starts_with($path, '/m/')) {
+            Log::info("CampaignSyncService: Skipping link provisioning (Blocked path prefix: /m/)", [
+                'campaign_id' => $campaign->id,
+                'url' => $url,
+            ]);
+
+            return false;
+        }
+
+        // 4. Allow-list Product Patterns (Priority check)
+        // Patterns: /product/ or slug + -i.<shopid>.<itemid>
+        if (str_contains($path, '/product/') || preg_match('/-i\.\d+\.\d+$/', $path)) {
+            return true;
+        }
+
+        // 5. Block-list Keywords in Name (Normalized)
+        $normalizedName = Str::lower(Str::ascii($name));
+        $blockedKeywords = ['mission', 'nhiem vu'];
+
+        foreach ($blockedKeywords as $keyword) {
+            if (str_contains($normalizedName, $keyword)) {
+                Log::info("CampaignSyncService: Skipping link provisioning (Blocked keyword: '{$keyword}')", [
+                    'campaign_id' => $campaign->id,
+                    'name' => $name,
+                    'url' => $url,
+                ]);
+
+                return false;
+            }
+        }
+
+        // Default: Allow
+        return true;
     }
 
     private function resolveCampaignDestinationUrl(Campaign $campaign): ?string

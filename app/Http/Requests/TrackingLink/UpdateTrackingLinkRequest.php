@@ -29,6 +29,9 @@ class UpdateTrackingLinkRequest extends FormRequest
             'tags'            => ['nullable', 'array'],
             'tags.*'          => ['string', 'max:50'],
             'status'          => ['sometimes', 'required', Rule::in(['active', 'paused', 'archived', 'inactive'])],
+            'product_name'    => ['nullable', 'string', 'max:1000'],
+            'product_image_urls'   => ['nullable', 'array'],
+            'product_image_urls.*' => ['string', 'url', 'max:2048'],
         ];
     }
 }

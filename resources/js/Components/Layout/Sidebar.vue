@@ -16,7 +16,7 @@
                 <Link
                     v-for="item in navigation"
                     :key="item.route"
-                    :href="routeExists(item.route) ? route(item.route) : '#'"
+                    :href="route(item.route)"
                     class="af-nav-item"
                     :class="{ active: isActive(item.route) }"
                 >
@@ -36,10 +36,6 @@
                 <Cpu :size="16" :stroke-width="1.75" />
                 <span>AI Provider</span>
             </Link>
-            <a href="#" class="af-nav-item">
-                <HelpCircle :size="16" :stroke-width="1.75" />
-                <span>Trợ giúp</span>
-            </a>
             <Link
                 :href="route('logout')"
                 method="post"
@@ -57,7 +53,6 @@
 import { Link } from '@inertiajs/vue3';
 import {
     Settings,
-    HelpCircle,
     LogOut,
     Cpu,
 } from 'lucide-vue-next';
@@ -84,9 +79,5 @@ function isActive(routeName) {
     } catch {
         return false;
     }
-}
-
-function routeExists(routeName) {
-    try { route(routeName); return true; } catch { return false; }
 }
 </script>

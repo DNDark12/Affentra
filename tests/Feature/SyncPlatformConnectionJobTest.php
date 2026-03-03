@@ -180,6 +180,71 @@ class SyncPlatformConnectionJobTest extends TestCase
         });
     }
 
+    public function test_incremental_sync_uses_overlap_hours_instead_of_full_backfill_window(): void
+    {
+        config()->set('integrations.shopee.backfill_days', 90);
+        config()->set('integrations.shopee.hard_limit_days', 90);
+        config()->set('integrations.sync.incremental_overlap_hours', 6);
+
+        $owner = User::factory()->create(['role' => 'owner']);
+        $lastSyncAt = now()->subHours(2);
+        $connection = PlatformConnection::factory()->create([
+            'user_id' => $owner->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'last_sync_at' => $lastSyncAt,
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=dummy-cookie-value',
+                'affiliate_program_type' => '1',
+            ], JSON_THROW_ON_ERROR),
+            'cookie_user_agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/report/list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [],
+                    'total_count' => 0,
+                ],
+            ], 200),
+            'https://affiliate.shopee.vn/api/v1/click_report/list*' => Http::response([
+                'code' => 0,
+                'data' => [
+                    'list' => [],
+                    'total_count' => 0,
+                ],
+            ], 200),
+        ]);
+
+        $expectedSince = $lastSyncAt->copy()->subHours(6)->timestamp;
+
+        $job = new SyncPlatformConnectionJob(
+            connectionId: $connection->id,
+            type: 'manual',
+            userId: $owner->id,
+        );
+
+        $job->handle(
+            app(OrderService::class),
+            app(ClickAnalyticsService::class),
+        );
+
+        Http::assertSent(function ($request) use ($expectedSince): bool {
+            if (! str_starts_with($request->url(), 'https://affiliate.shopee.vn/api/v3/report/list')) {
+                return false;
+            }
+
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            if (! isset($query['purchase_time_s'])) {
+                return false;
+            }
+
+            return abs((int) $query['purchase_time_s'] - $expectedSince) <= 5;
+        });
+    }
+
     public function test_cookie_sync_unauthorized_marks_connection_error(): void
     {
         $owner = User::factory()->create(['role' => 'owner']);

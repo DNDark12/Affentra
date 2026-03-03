@@ -37,12 +37,12 @@ class AiSettingsService
     public const PROVIDER_REGISTRY = [
         'gemini' => [
             'name'         => 'Google Gemini',
-            'capabilities' => ['text', 'image'],
+            'capabilities' => ['text', 'image', 'video'],
             'has_base_url' => false,
         ],
         'openai' => [
             'name'         => 'OpenAI',
-            'capabilities' => ['text', 'image'],
+            'capabilities' => ['text', 'image', 'video'],
             'has_base_url' => false,
         ],
         'self_hosted' => [
@@ -64,9 +64,9 @@ class AiSettingsService
      *
      * @throws RuntimeException If no provider is configured or all are disabled.
      */
-    public function resolveClientForUser(User $user, string $type = 'text'): AIProviderClient
+    public function resolveClientForUser(User $user, string $type = 'text', ?string $providerKey = null, ?string $modelName = null): AIProviderClient
     {
-        $setting = $this->getActiveSettingForUser($user, $type);
+        $setting = $this->getActiveSettingForUser($user, $type, $providerKey);
 
         if ($setting === null) {
             throw new RuntimeException(
@@ -74,7 +74,7 @@ class AiSettingsService
             );
         }
 
-        return $this->buildClient($setting);
+        return $this->buildClient($setting, $modelName);
     }
 
     /**
@@ -213,8 +213,16 @@ class AiSettingsService
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private function getActiveSettingForUser(User $user, string $type): ?AiProviderSetting
+    private function getActiveSettingForUser(User $user, string $type, ?string $providerKey = null): ?AiProviderSetting
     {
+        // If a specific provider is requested, don't use cache as it's an explicit override target
+        if ($providerKey) {
+            return AiProviderSetting::where('user_id', $user->id)
+                ->where('provider_key', $providerKey)
+                ->where('status', 'enabled')
+                ->first();
+        }
+
         $cacheKey = "ai:settings:{$user->id}:{$type}";
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use ($user, $type) {
@@ -226,17 +234,18 @@ class AiSettingsService
         });
     }
 
-    private function buildClient(AiProviderSetting $setting): AIProviderClient
+    private function buildClient(AiProviderSetting $setting, ?string $modelOverride = null): AIProviderClient
     {
         $creds = $setting->getCredentials();
+        $model = $modelOverride ?? $setting->default_model;
 
         return match ($setting->provider_key) {
-            'gemini'      => new GeminiClient($creds['api_key'] ?? null, $setting->default_model),
+            'gemini'      => new GeminiClient($creds['api_key'] ?? null, $model),
             'openai',
             'self_hosted' => new OpenAICompatibleClient(
                 apiKey:  $creds['api_key'] ?? null,
                 baseUrl: $creds['base_url'] ?? null,
-                model:   $setting->default_model,
+                model:   $model,
                 providerKey: $setting->provider_key,
             ),
             default => throw new RuntimeException("Unknown provider: {$setting->provider_key}"),

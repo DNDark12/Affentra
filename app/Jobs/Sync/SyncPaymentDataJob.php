@@ -28,13 +28,7 @@ class SyncPaymentDataJob implements ShouldQueue
         protected ?Carbon $since = null,
         protected ?Carbon $until = null,
         protected string $triggerType = 'auto'
-    ) {
-        $defaultBackfillDays = (int) ($platformConnection->backfill_days_override
-            ?? config("integrations.{$platformConnection->platform}.backfill_days", 90));
-
-        $this->since = $since ?? now()->subDays(max($defaultBackfillDays, 1));
-        $this->until = $until ?? now();
-    }
+    ) {}
 
     /**
      * Execute the job.
@@ -43,6 +37,9 @@ class SyncPaymentDataJob implements ShouldQueue
         IntegrationFactory $factory,
         AffiliatePaymentService $paymentService
     ): void {
+        $this->platformConnection = $this->platformConnection->fresh() ?? $this->platformConnection;
+        [$since, $until] = $this->resolveSyncWindow($this->platformConnection);
+
         $lockTtlSeconds = max(300, (int) config('integrations.sync.lock_ttl_seconds', 900));
         $lock = Cache::lock('sync:payment_connection:' . $this->platformConnection->id, $lockTtlSeconds);
         if (! $lock->get()) {
@@ -79,7 +76,7 @@ class SyncPaymentDataJob implements ShouldQueue
 
             // 1. Fetch & Upsert Billings (primary source)
             try {
-                $billings = $adapter->fetchBillings($this->platformConnection, $this->since, $this->until);
+                $billings = $adapter->fetchBillings($this->platformConnection, $since, $until);
                 $billingFetched = true;
                 $billingsCount = $paymentService->upsertBillingsFromApi($this->platformConnection, $billings);
             } catch (Throwable $billingError) {
@@ -88,7 +85,7 @@ class SyncPaymentDataJob implements ShouldQueue
 
             // 2. Fetch & Upsert Payouts (optional when only 1 cURL profile is available)
             try {
-                $payouts = $adapter->fetchPayouts($this->platformConnection, $this->since, $this->until);
+                $payouts = $adapter->fetchPayouts($this->platformConnection, $since, $until);
                 $payoutFetched = true;
             } catch (Throwable $payoutError) {
                 $warnings[] = 'Payout: '.$payoutError->getMessage();
@@ -110,7 +107,7 @@ class SyncPaymentDataJob implements ShouldQueue
             // 3. Fetch service-fee invoices (optional)
             if (method_exists($adapter, 'fetchBillFeeInvoices')) {
                 try {
-                    $serviceFeeInvoices = $adapter->fetchBillFeeInvoices($this->platformConnection, $this->since, $this->until);
+                    $serviceFeeInvoices = $adapter->fetchBillFeeInvoices($this->platformConnection, $since, $until);
                     $serviceFeeFetched = true;
                 } catch (Throwable $serviceFeeError) {
                     $warnings[] = 'Service fee invoice: '.$serviceFeeError->getMessage();
@@ -204,6 +201,37 @@ class SyncPaymentDataJob implements ShouldQueue
         } finally {
             optional($lock)->release();
         }
+    }
+
+    /**
+     * @return array{0:Carbon,1:Carbon}
+     */
+    private function resolveSyncWindow(PlatformConnection $connection): array
+    {
+        if ($this->since !== null && $this->until !== null) {
+            return [$this->since->copy(), $this->until->copy()];
+        }
+
+        $backfillDays = max((int) ($connection->backfill_days_override
+            ?? config("integrations.{$connection->platform}.backfill_days", 90)), 1);
+        $configuredHardLimitDays = (int) config("integrations.{$connection->platform}.hard_limit_days", 90);
+        $hardLimitDays = max($configuredHardLimitDays, $backfillDays, 1);
+        $incrementalOverlapHours = max((int) config('integrations.sync.incremental_overlap_hours', 6), 1);
+
+        $since = $this->since
+            ? $this->since->copy()
+            : ($connection->last_sync_at
+                ? $connection->last_sync_at->copy()->subHours($incrementalOverlapHours)
+                : now()->subDays($backfillDays));
+
+        $earliest = now()->subDays($hardLimitDays);
+        if ($since->lt($earliest)) {
+            $since = $earliest;
+        }
+
+        $until = $this->until?->copy() ?? now();
+
+        return [$since, $until];
     }
 
     /**

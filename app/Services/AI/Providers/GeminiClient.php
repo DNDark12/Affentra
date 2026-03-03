@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\AI\Providers;
 
 use App\DataTransferObjects\AI\GeneratedTextResult;
+use App\DataTransferObjects\AI\GeneratedMediaResult;
 use App\Services\AI\Contracts\AIProviderClient;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -54,13 +55,27 @@ class GeminiClient implements AIProviderClient
     {
         $maxTokens = (int) ($options['max_tokens'] ?? 2048);
 
+        $parts = [['text' => $prompt]];
+
+        $images = $options['images'] ?? [];
+        foreach ($images as $base64DataScheme) {
+            if (preg_match('/^data:(image\/[^;]+);base64,(.+)$/', $base64DataScheme, $matches)) {
+                $parts[] = [
+                    'inlineData' => [
+                        'mimeType' => $matches[1],
+                        'data'     => $matches[2],
+                    ]
+                ];
+            }
+        }
+
         try {
             $response = Http::timeout(12)
                 ->retry(1, 500)
                 ->withQueryParameters(['key' => $this->apiKey])
                 ->post(self::BASE_URL . "/{$this->model}:generateContent", [
                     'contents' => [
-                        ['role' => 'user', 'parts' => [['text' => $prompt]]],
+                        ['role' => 'user', 'parts' => $parts],
                     ],
                     'generationConfig' => [
                         'maxOutputTokens' => $maxTokens,
@@ -111,5 +126,17 @@ class GeminiClient implements AIProviderClient
             'kind' => 'post',
             'text' => $text,
         ], $blocks));
+    }
+
+    public function generateMedia(string $prompt, string $type = 'image', array $options = []): GeneratedMediaResult
+    {
+        // Currently Gemini Image Generation (Imagen) often requires a different endpoint or Google Cloud Vertex AI.
+        // For 'gemini-1.5-flash/pro', they are mostly multimodal INPUT, not OUTPUT.
+        // We throw a clear error if not supported, or implement if a specific model is detected.
+        
+        throw new \RuntimeException(
+            "Provider 'gemini' hiện chưa hỗ trợ tạo {$type} trực tiếp qua endpoint này. " .
+            "Hãy sử dụng các provider OpenAI-compatible hoặc Local."
+        );
     }
 }

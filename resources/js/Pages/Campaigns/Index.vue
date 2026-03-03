@@ -42,6 +42,26 @@
                         </option>
                     </select>
 
+                    <div class="flex items-center gap-2">
+                        <input
+                            v-model="dateFrom"
+                            type="date"
+                            class="af-input af-input-date h-9 text-sm"
+                            style="width: 150px"
+                            @click="$event.target.showPicker?.()"
+                            @change="applyFilters"
+                        />
+                        <span class="text-xs text-zinc-400">→</span>
+                        <input
+                            v-model="dateTo"
+                            type="date"
+                            class="af-input af-input-date h-9 text-sm"
+                            style="width: 150px"
+                            @click="$event.target.showPicker?.()"
+                            @change="applyFilters"
+                        />
+                    </div>
+
                     <button
                         @click="syncCampaigns"
                         class="h-9 px-4 rounded-lg text-sm font-medium border transition-colors flex items-center gap-1.5"
@@ -318,6 +338,7 @@
                                     v-model="form.date_start"
                                     type="date"
                                     class="af-input"
+                                    @click="$event.target.showPicker?.()"
                                 />
                             </div>
                             <div>
@@ -326,6 +347,7 @@
                                     v-model="form.date_end"
                                     type="date"
                                     class="af-input"
+                                    @click="$event.target.showPicker?.()"
                                 />
                             </div>
                         </div>
@@ -355,7 +377,7 @@
 
 <script setup>
 import axios from 'axios';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import { Megaphone, Plus, RefreshCw, Search, X, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
@@ -375,6 +397,15 @@ const toast = useToast();
 
 const searchInput = ref(props.filters?.search || '');
 const statusFilter = ref(props.filters?.status || '');
+const dateFrom = ref(props.filters?.date_from || '');
+const dateTo = ref(props.filters?.date_to || '');
+
+watch(() => props.filters, (nextFilters) => {
+    searchInput.value = nextFilters?.search || '';
+    statusFilter.value = nextFilters?.status || '';
+    dateFrom.value = nextFilters?.date_from || '';
+    dateTo.value = nextFilters?.date_to || '';
+}, { deep: true });
 
 const form = ref({
     name: '',
@@ -433,6 +464,8 @@ function applyFilters(page = 1) {
     router.get(route('campaigns.index'), {
         search: searchInput.value || undefined,
         status: statusFilter.value || undefined,
+        date_from: dateFrom.value || undefined,
+        date_to: dateTo.value || undefined,
         page,
     }, {
         replace: true,

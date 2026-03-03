@@ -165,7 +165,7 @@ class OrderImportTest extends TestCase
         $response = $this->actingAs($this->ctv)
             ->getJson(route('api.orders.import.status', ['syncRunId' => $syncRun->id]));
 
-        $response->assertStatus(403);
+        $response->assertStatus(404);
     }
 }
 

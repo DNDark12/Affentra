@@ -82,7 +82,7 @@ class OrderController extends Controller
     {
         $status = $this->orderService->getImportStatus($request->user(), $syncRunId);
         if ($status === null) {
-            return response()->json(['ok' => false, 'message' => 'Unauthorized'], 403);
+            return response()->json(['ok' => false, 'message' => 'Not found'], 404);
         }
 
         return response()->json([

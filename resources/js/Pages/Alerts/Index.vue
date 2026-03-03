@@ -92,16 +92,18 @@
                                     <button
                                         v-if="!incident.seen_at"
                                         class="af-btn-outline text-xs h-7 px-2"
+                                        :disabled="pendingSeenIds.has(incident.id)"
                                         @click="markSeen(incident.id)"
                                     >
-                                        Đã xem
+                                        {{ pendingSeenIds.has(incident.id) ? 'Đang lưu...' : 'Đã xem' }}
                                     </button>
                                     <button
                                         v-if="!incident.resolved_at"
                                         class="af-btn-outline text-xs h-7 px-2"
+                                        :disabled="pendingResolveIds.has(incident.id)"
                                         @click="resolveIncident(incident.id)"
                                     >
-                                        Đã xử lý
+                                        {{ pendingResolveIds.has(incident.id) ? 'Đang xử lý...' : 'Đã xử lý' }}
                                     </button>
                                 </div>
                             </td>
@@ -119,6 +121,7 @@ import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useToast } from '@/Composables/useToast';
+import { useDialog } from '@/Composables/useDialog';
 
 const props = defineProps({
     incidents: { type: Object, default: () => ({ data: [] }) },
@@ -127,8 +130,11 @@ const props = defineProps({
 });
 
 const toast = useToast();
+const { confirmDialog } = useDialog();
 const isEvaluating = ref(false);
 const statusFilter = ref(props.filters?.status || '');
+const pendingSeenIds = ref(new Set());
+const pendingResolveIds = ref(new Set());
 
 function applyFilters() {
     router.get(route('alerts.index'), {
@@ -160,20 +166,39 @@ async function evaluateNow() {
 }
 
 async function markSeen(id) {
+    if (pendingSeenIds.value.has(id)) return;
+    pendingSeenIds.value.add(id);
     try {
         await axios.post(route('api.alerts.incidents.seen', id));
+        toast.success('Đã đánh dấu sự cố là đã xem.');
         router.reload({ only: ['incidents', 'summary', 'alerts'] });
     } catch (error) {
         toast.error(error.response?.data?.message || 'Không thể cập nhật sự cố.');
+    } finally {
+        pendingSeenIds.value.delete(id);
     }
 }
 
 async function resolveIncident(id) {
+    const confirmed = await confirmDialog({
+        title: 'Đánh dấu đã xử lý?',
+        description: 'Sự cố này sẽ được chuyển sang trạng thái đã xử lý.',
+        confirmText: 'Đánh dấu đã xử lý',
+        cancelText: 'Hủy',
+        variant: 'warning',
+    });
+    if (!confirmed) return;
+
+    if (pendingResolveIds.value.has(id)) return;
+    pendingResolveIds.value.add(id);
     try {
         await axios.post(route('api.alerts.incidents.resolve', id));
+        toast.success('Đã đánh dấu sự cố là đã xử lý.');
         router.reload({ only: ['incidents', 'summary', 'alerts'] });
     } catch (error) {
         toast.error(error.response?.data?.message || 'Không thể cập nhật sự cố.');
+    } finally {
+        pendingResolveIds.value.delete(id);
     }
 }
 

@@ -48,6 +48,9 @@ return [
         // How often auto-sync runs (minutes)
         'interval_minutes'  => (int) env('SYNC_INTERVAL_MINUTES', 60),
 
+        // Overlap window (hours) for incremental sync after first successful run
+        'incremental_overlap_hours' => (int) env('SYNC_INCREMENTAL_OVERLAP_HOURS', 6),
+
         // Maximum sync duration before lock expires (seconds)
         'lock_ttl_seconds'  => (int) env('SYNC_LOCK_TTL', 900), // 15 minutes
 
