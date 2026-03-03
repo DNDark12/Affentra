@@ -17,6 +17,8 @@
                 </div>
             </main>
         </div>
+        <ToastStack />
+        <AppDialog />
     </div>
 </template>
 
@@ -26,18 +28,21 @@ import { usePage } from '@inertiajs/vue3';
 import {
     LayoutDashboard,
     Link2,
+    Tags,
     Rocket,
     TrendingUp,
     ShoppingCart,
-    Upload,
     Users,
     Banknote,
-    Sparkles,
     Settings2,
+    BellRing,
+    Sparkles,
 } from 'lucide-vue-next';
 import Sidebar from '@/Components/Layout/Sidebar.vue';
 import Topbar  from '@/Components/Layout/Topbar.vue';
 import SyncBanner from '@/Components/Layout/SyncBanner.vue';
+import ToastStack from '@/Components/Feedback/ToastStack.vue';
+import AppDialog from '@/Components/Feedback/AppDialog.vue';
 import { router } from '@inertiajs/vue3';
 
 const page = usePage();
@@ -51,17 +56,29 @@ function handleGlobalSync() {
 const navigation = computed(() => {
     const role = user.value?.role;
     const items = [
-        { label: 'Dashboard',      icon: LayoutDashboard, route: 'dashboard',       roles: ['owner','leader','ctv'] },
-        { label: 'Tracking Links', icon: Link2,           route: 'links.index',     roles: ['owner','leader','ctv'] },
-        { label: 'Campaigns',      icon: Rocket,          route: 'campaigns.index', roles: ['owner','leader','ctv'] },
-        { label: 'Click Analysis', icon: TrendingUp,      route: 'clicks.index',    roles: ['owner','leader'] },
-        { label: 'Orders',         icon: ShoppingCart,    route: 'orders.index',    roles: ['owner','leader','ctv'] },
-        { label: 'Imports',        icon: Upload,          route: 'imports.index',   roles: ['owner','leader'] },
-        { label: 'Partners',       icon: Users,           route: 'partners.index',  roles: ['owner','leader'] },
+        { label: 'Dashboard',      icon: LayoutDashboard, route: 'dashboard',         roles: ['owner','leader','ctv'] },
         { label: 'Integrations',   icon: Settings2,       route: 'integrations.index',roles: ['owner','leader'] },
-        { label: 'Finance',        icon: Banknote,        route: 'finance.index',   roles: ['owner'] },
-        { label: 'AI Content',     icon: Sparkles,        route: 'ai.index',        roles: ['owner','leader','ctv'] },
+        { label: 'Tracking Links', icon: Link2,           route: 'links.index',       roles: ['owner','leader','ctv'] },
+        { label: 'Offers',         icon: Tags,            route: 'offers.index',      roles: ['owner','leader','ctv'] },
+        { label: 'Campaigns',      icon: Rocket,          route: 'campaigns.index',   roles: ['owner','leader','ctv'] },
+        { label: 'Orders',         icon: ShoppingCart,    route: 'orders.index',      roles: ['owner','leader','ctv'] },
+        { label: 'Click Analysis', icon: TrendingUp,      route: 'clicks.index',      roles: ['owner','leader'] },
+        { label: 'Partners',       icon: Users,           route: 'partners.index',    roles: ['owner','leader'] },
+        { label: 'Finance',        icon: Banknote,        route: 'finance.index',     roles: ['owner'] },
+        { label: 'Cảnh báo',       icon: BellRing,        route: 'alerts.index',      roles: ['owner','leader','ctv'] },
+        { label: 'AI Content',      icon: Sparkles,        route: 'ai.content.index',  roles: ['owner','leader','ctv'] },
     ];
-    return items.filter(i => !role || i.roles.includes(role));
+    return items.filter((item) => {
+        if (role && !item.roles.includes(role)) {
+            return false;
+        }
+
+        try {
+            route(item.route);
+            return true;
+        } catch {
+            return false;
+        }
+    });
 });
 </script>

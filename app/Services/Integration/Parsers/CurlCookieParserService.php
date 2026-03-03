@@ -15,6 +15,8 @@ class CurlCookieParserService
      * @return list<array{
      *   cookie: string,
      *   user_agent: string|null,
+     *   accept_language: string|null,
+     *   raw_headers: array<string, string>,
      *   af_ac_enc_dat: string|null,
      *   af_ac_enc_sz_token: string|null,
      *   affiliate_program_type: string|null,
@@ -22,8 +24,16 @@ class CurlCookieParserService
      *   x_sap_ri: string|null,
      *   x_sap_sec: string|null,
      *   x_sz_sdk_version: string|null,
+     *   priority: string|null,
+     *   sec_ch_ua: string|null,
+     *   sec_ch_ua_mobile: string|null,
+     *   sec_ch_ua_platform: string|null,
+     *   sec_fetch_dest: string|null,
+     *   sec_fetch_mode: string|null,
+     *   sec_fetch_site: string|null,
      *   request_url: string|null,
      *   referer: string|null,
+     *   request_body: string|null,
      *   endpoint_key: string|null
      * }>
      */
@@ -75,6 +85,8 @@ class CurlCookieParserService
      * @return array{
      *   cookie: string,
      *   user_agent: string|null,
+     *   accept_language: string|null,
+     *   raw_headers: array<string, string>,
      *   af_ac_enc_dat: string|null,
      *   af_ac_enc_sz_token: string|null,
      *   affiliate_program_type: string|null,
@@ -82,8 +94,16 @@ class CurlCookieParserService
      *   x_sap_ri: string|null,
      *   x_sap_sec: string|null,
      *   x_sz_sdk_version: string|null,
+     *   priority: string|null,
+     *   sec_ch_ua: string|null,
+     *   sec_ch_ua_mobile: string|null,
+     *   sec_ch_ua_platform: string|null,
+     *   sec_fetch_dest: string|null,
+     *   sec_fetch_mode: string|null,
+     *   sec_fetch_site: string|null,
      *   request_url: string|null,
      *   referer: string|null,
+     *   request_body: string|null,
      *   endpoint_key: string|null
      * }
      */
@@ -104,6 +124,8 @@ class CurlCookieParserService
         }
         
         $userAgent = $this->extractHeader('User-Agent', $curlCommand) ?? $this->extractHeader('user-agent', $curlCommand);
+        $acceptLanguage = $this->extractHeader('accept-language', $curlCommand) ?? $this->extractHeader('Accept-Language', $curlCommand);
+        $rawHeaders = $this->extractAllHeaders($curlCommand);
 
         $afAcEncDat = $this->extractHeader('af-ac-enc-dat', $curlCommand);
         $afAcEncSzToken = $this->extractHeader('af-ac-enc-sz-token', $curlCommand);
@@ -112,7 +134,15 @@ class CurlCookieParserService
         $xSapRi = $this->extractHeader('x-sap-ri', $curlCommand);
         $xSapSec = $this->extractHeader('x-sap-sec', $curlCommand);
         $xSzSdkVersion = $this->extractHeader('x-sz-sdk-version', $curlCommand);
+        $priority = $this->extractHeader('priority', $curlCommand);
+        $secChUa = $this->extractHeader('sec-ch-ua', $curlCommand);
+        $secChUaMobile = $this->extractHeader('sec-ch-ua-mobile', $curlCommand);
+        $secChUaPlatform = $this->extractHeader('sec-ch-ua-platform', $curlCommand);
+        $secFetchDest = $this->extractHeader('sec-fetch-dest', $curlCommand);
+        $secFetchMode = $this->extractHeader('sec-fetch-mode', $curlCommand);
+        $secFetchSite = $this->extractHeader('sec-fetch-site', $curlCommand);
         $referer = $this->extractHeader('referer', $curlCommand) ?? $this->extractHeader('Referer', $curlCommand);
+        $requestBody = $this->extractDataPayload($curlCommand);
         $requestUrl = $this->extractRequestUrl($curlCommand);
         $endpointKey = $this->inferEndpointKey($requestUrl, $referer);
 
@@ -128,6 +158,8 @@ class CurlCookieParserService
         return [
             'cookie' => $cookie,
             'user_agent' => $userAgent,
+            'accept_language' => $acceptLanguage,
+            'raw_headers' => $rawHeaders,
             'af_ac_enc_dat' => $afAcEncDat,
             'af_ac_enc_sz_token' => $afAcEncSzToken,
             'affiliate_program_type' => $affiliateProgramType,
@@ -135,10 +167,59 @@ class CurlCookieParserService
             'x_sap_ri' => $xSapRi,
             'x_sap_sec' => $xSapSec,
             'x_sz_sdk_version' => $xSzSdkVersion,
+            'priority' => $priority,
+            'sec_ch_ua' => $secChUa,
+            'sec_ch_ua_mobile' => $secChUaMobile,
+            'sec_ch_ua_platform' => $secChUaPlatform,
+            'sec_fetch_dest' => $secFetchDest,
+            'sec_fetch_mode' => $secFetchMode,
+            'sec_fetch_site' => $secFetchSite,
             'request_url' => $requestUrl,
             'referer' => $referer,
+            'request_body' => $requestBody,
             'endpoint_key' => $endpointKey,
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function extractAllHeaders(string $command): array
+    {
+        $headers = [];
+        $pattern = "/(?:-H|--header)\\s*[\\^]*(['\"])(.*?)[\\^]*\\1/is";
+
+        if (preg_match_all($pattern, $command, $matches, PREG_SET_ORDER) !== false) {
+            foreach ($matches as $match) {
+                $raw = str_replace('\\' . $match[1], $match[1], (string) ($match[2] ?? ''));
+                $parts = explode(':', $raw, 2);
+                if (count($parts) !== 2) {
+                    continue;
+                }
+
+                $name = mb_strtolower(trim($parts[0]));
+                $value = trim($parts[1]);
+                if ($name === '' || $value === '') {
+                    continue;
+                }
+
+                $headers[$name] = $value;
+            }
+        }
+
+        return $headers;
+    }
+
+    private function extractDataPayload(string $command): ?string
+    {
+        $pattern = "/(?:--data-raw|--data-binary|--data)\\s*[\\^]*(['\"])(.*?)[\\^]*\\1/is";
+        if (preg_match($pattern, $command, $matches)) {
+            $value = $matches[2];
+            $value = str_replace('\\' . $matches[1], $matches[1], $value);
+            return trim($value);
+        }
+
+        return null;
     }
 
     private function extractRequestUrl(string $command): ?string

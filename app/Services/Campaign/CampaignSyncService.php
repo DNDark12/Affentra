@@ -7,11 +7,13 @@ namespace App\Services\Campaign;
 use App\Enums\CampaignStatus;
 use App\Models\Campaign;
 use App\Models\PlatformConnection;
+use App\Models\TrackingLink;
 use App\Models\User;
 use App\Services\Integration\IntegrationFactory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class CampaignSyncService
@@ -19,7 +21,7 @@ class CampaignSyncService
     /**
      * Sync Shopee campaigns for all eligible active connections.
      *
-     * @return array{connections: int, fetched: int, upserted: int}
+     * @return array{connections: int, fetched: int, upserted: int, links_provisioned: int}
      */
     public function syncDaily(): array
     {
@@ -35,7 +37,7 @@ class CampaignSyncService
     /**
      * Sync Shopee campaigns for the current user's own connections.
      *
-     * @return array{connections: int, fetched: int, upserted: int}
+     * @return array{connections: int, fetched: int, upserted: int, links_provisioned: int}
      */
     public function syncForUser(User $user): array
     {
@@ -56,7 +58,7 @@ class CampaignSyncService
     /**
      * Sync Shopee campaigns for a single connection.
      *
-     * @return array{connections: int, fetched: int, upserted: int}
+     * @return array{connections: int, fetched: int, upserted: int, links_provisioned: int}
      */
     public function syncForConnection(PlatformConnection $connection): array
     {
@@ -73,12 +75,13 @@ class CampaignSyncService
 
     /**
      * @param  Collection<int, PlatformConnection>  $connections
-     * @return array{connections: int, fetched: int, upserted: int}
+     * @return array{connections: int, fetched: int, upserted: int, links_provisioned: int}
      */
     private function syncMany(Collection $connections): array
     {
         $totalFetched = 0;
         $totalUpserted = 0;
+        $totalLinksProvisioned = 0;
         $processed = 0;
 
         foreach ($connections as $connection) {
@@ -130,7 +133,26 @@ class CampaignSyncService
                         'updated_at',
                     ]
                 );
+
             }
+
+            $externalIdsForProvision = Campaign::query()
+                ->where('user_id', $connection->user_id)
+                ->where('platform', 'shopee')
+                ->where(static function ($query): void {
+                    $query->where('impressions', '>', 0)
+                        ->orWhere('clicks', '>', 0);
+                })
+                ->pluck('external_id')
+                ->filter(static fn ($id): bool => is_string($id) && trim($id) !== '')
+                ->map(static fn (string $id): string => trim($id))
+                ->values()
+                ->all();
+
+            $totalLinksProvisioned += $this->provisionTrackingLinksForCampaigns(
+                connection: $connection,
+                externalIds: $externalIdsForProvision,
+            );
 
             $totalUpserted += count($payload);
             $connection->update(['last_campaign_sync_at' => $now]);
@@ -140,7 +162,121 @@ class CampaignSyncService
             'connections' => $processed,
             'fetched' => $totalFetched,
             'upserted' => $totalUpserted,
+            'links_provisioned' => $totalLinksProvisioned,
         ];
+    }
+
+    /**
+     * @param  list<string>  $externalIds
+     */
+    private function provisionTrackingLinksForCampaigns(PlatformConnection $connection, array $externalIds): int
+    {
+        if ($externalIds === []) {
+            return 0;
+        }
+
+        $campaigns = Campaign::query()
+            ->where('user_id', $connection->user_id)
+            ->where('platform', 'shopee')
+            ->whereIn('external_id', $externalIds)
+            ->get(['id', 'external_id', 'campaign_url', 'impressions', 'clicks', 'name']);
+
+        $provisioned = 0;
+        foreach ($campaigns as $campaign) {
+            if ((int) $campaign->impressions <= 0 && (int) $campaign->clicks <= 0) {
+                continue;
+            }
+
+            $hasAssignedLink = TrackingLink::query()
+                ->where('campaign_id', $campaign->id)
+                ->where('user_id', $connection->user_id)
+                ->where('platform', 'shopee')
+                ->where('status', '!=', 'archived')
+                ->exists();
+            if ($hasAssignedLink) {
+                continue;
+            }
+
+            $destinationUrl = $this->resolveCampaignDestinationUrl($campaign);
+            if ($destinationUrl === null) {
+                continue;
+            }
+
+            $unassignedLink = TrackingLink::query()
+                ->where('user_id', $connection->user_id)
+                ->where('platform', 'shopee')
+                ->whereNull('campaign_id')
+                ->where('destination_url', $destinationUrl)
+                ->where('status', '!=', 'archived')
+                ->first();
+
+            if ($unassignedLink !== null) {
+                $meta = is_array($unassignedLink->meta) ? $unassignedLink->meta : [];
+                $meta['auto_provisioned_campaign'] = true;
+                $meta['campaign_external_id'] = $campaign->external_id;
+                $meta['campaign_name'] = $campaign->name;
+
+                $unassignedLink->update([
+                    'campaign_id' => $campaign->id,
+                    'source' => $unassignedLink->source ?: 'campaign_sync_auto',
+                    'channel' => $unassignedLink->channel ?: 'campaign',
+                    'meta' => $meta,
+                ]);
+                $provisioned++;
+                continue;
+            }
+
+            $link = new TrackingLink();
+            $link->fill([
+                'user_id' => $connection->user_id,
+                'campaign_id' => $campaign->id,
+                'short_code' => $this->generateUniqueShortCode(),
+                'destination_url' => $destinationUrl,
+                'platform' => 'shopee',
+                'source' => 'campaign_sync_auto',
+                'channel' => 'campaign',
+                'status' => 'active',
+                'meta' => [
+                    'auto_provisioned_campaign' => true,
+                    'campaign_external_id' => $campaign->external_id,
+                    'campaign_name' => $campaign->name,
+                ],
+            ]);
+            $link->save();
+            $provisioned++;
+        }
+
+        return $provisioned;
+    }
+
+    private function resolveCampaignDestinationUrl(Campaign $campaign): ?string
+    {
+        $campaignUrl = trim((string) ($campaign->campaign_url ?? ''));
+        if ($campaignUrl !== '') {
+            return $campaignUrl;
+        }
+
+        $externalId = trim((string) ($campaign->external_id ?? ''));
+        if ($externalId === '') {
+            return null;
+        }
+
+        return "https://affiliate.shopee.vn/campaign/campaign_list?campaign_id={$externalId}";
+    }
+
+    private function generateUniqueShortCode(): string
+    {
+        for ($attempt = 0; $attempt < 12; $attempt++) {
+            $candidate = Str::lower(Str::random(8));
+            $exists = TrackingLink::query()
+                ->where('short_code', $candidate)
+                ->exists();
+            if (! $exists) {
+                return $candidate;
+            }
+        }
+
+        throw new RuntimeException('Unable to generate unique short code for campaign tracking link.');
     }
 
     /**

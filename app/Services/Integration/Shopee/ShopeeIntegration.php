@@ -16,6 +16,9 @@ use RuntimeException;
 
 class ShopeeIntegration extends BaseIntegration
 {
+    /** @var list<int> */
+    private const COOKIE_SOFT_BLOCK_CODES = [90309999];
+
     private const COOKIE_REPORT_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/report/list';
     private const COOKIE_DASHBOARD_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/dashboard/detail';
     private const COOKIE_CLICK_REPORT_ENDPOINT = 'https://affiliate.shopee.vn/api/v1/click_report/list';
@@ -37,6 +40,14 @@ class ShopeeIntegration extends BaseIntegration
      */
     private string $baseUrl;
     private int $backfillDays;
+
+    /**
+     * Runtime cache used within the same sync execution to enrich click_report rows
+     * with metadata extracted from conversion_report keyed by click_id.
+     *
+     * @var array<string, array<string, array{sub_id: string|null, campaign_id: string|null, item_ids: array<string, true>}>>
+     */
+    private array $cookieClickAttributionCache = [];
 
     public function __construct()
     {
@@ -161,9 +172,9 @@ class ShopeeIntegration extends BaseIntegration
      * @return array{
      *   valid: bool,
      *   checks: array{
-     *     dashboard: array{ok: bool, status: int, code: int|null, message: string},
-     *     conversion_report: array{ok: bool, status: int, code: int|null, message: string},
-     *     click_report: array{ok: bool, status: int, code: int|null, message: string}
+     *     dashboard: array{ok: bool, status: int, code: int|null, message: string, soft_block?: bool},
+     *     conversion_report: array{ok: bool, status: int, code: int|null, message: string, soft_block?: bool},
+     *     click_report: array{ok: bool, status: int, code: int|null, message: string, soft_block?: bool}
      *   },
      *   message: string
      * }
@@ -219,16 +230,30 @@ class ShopeeIntegration extends BaseIntegration
                     ),
                 ];
 
-                $valid = collect($checks)->contains(static fn (array $check): bool => $check['ok'] === true);
+                $hasHardSuccess = collect($checks)->contains(static fn (array $check): bool => $check['ok'] === true);
+                $hasSoftBlock = collect($checks)->contains(static fn (array $check): bool => ($check['soft_block'] ?? false) === true);
+                $valid = $hasHardSuccess || $hasSoftBlock;
                 $failedChecks = collect($checks)
-                    ->filter(static fn (array $check): bool => $check['ok'] === false)
+                    ->filter(static fn (array $check): bool => $check['ok'] === false && (($check['soft_block'] ?? false) !== true))
+                    ->map(static fn (array $check, string $name): string => "{$name}: {$check['message']}")
+                    ->values()
+                    ->all();
+                $softBlockedChecks = collect($checks)
+                    ->filter(static fn (array $check): bool => ($check['soft_block'] ?? false) === true)
                     ->map(static fn (array $check, string $name): string => "{$name}: {$check['message']}")
                     ->values()
                     ->all();
 
                 if ($valid) {
-                    $warning = $failedChecks !== []
-                        ? mb_substr('Partial cookie validation: ' . implode(' | ', $failedChecks), 0, 500)
+                    $warningParts = [];
+                    if ($failedChecks !== []) {
+                        $warningParts[] = 'Partial cookie validation: ' . implode(' | ', $failedChecks);
+                    }
+                    if ($softBlockedChecks !== []) {
+                        $warningParts[] = 'Shopee anti-bot challenge detected: ' . implode(' | ', $softBlockedChecks);
+                    }
+                    $warning = $warningParts !== []
+                        ? mb_substr(implode(' | ', $warningParts), 0, 500)
                         : null;
 
                     $connection->update([
@@ -241,9 +266,11 @@ class ShopeeIntegration extends BaseIntegration
                     return [
                         'valid' => true,
                         'checks' => $checks,
-                        'message' => $warning !== null
-                            ? 'Cookie is usable, but some endpoints failed.'
-                            : 'Connection valid.',
+                        'message' => $softBlockedChecks !== []
+                            ? 'Cookie hợp lệ nhưng Shopee đang chặn một phần request (anti-bot challenge).'
+                            : ($warning !== null
+                                ? 'Cookie is usable, but some endpoints failed.'
+                                : 'Connection valid.'),
                     ];
                 }
 
@@ -301,7 +328,7 @@ class ShopeeIntegration extends BaseIntegration
 
     /**
      * @param  array<string, mixed>  $query
-     * @return array{ok: bool, status: int, code: int|null, message: string}
+     * @return array{ok: bool, status: int, code: int|null, message: string, soft_block?: bool}
      */
     private function probeCookieEndpoint(
         PlatformConnection $connection,
@@ -330,16 +357,26 @@ class ShopeeIntegration extends BaseIntegration
             $message = "HTTP {$response->status()}";
         }
 
+        $isSoftBlock = $response->successful()
+            && $code !== null
+            && in_array($code, self::COOKIE_SOFT_BLOCK_CODES, true);
+
         $isOk = $response->successful()
             && ($code === null || $code === 0)
             && !(is_array($payload) && array_key_exists('error', $payload));
 
-        return [
+        $result = [
             'ok' => $isOk,
             'status' => $response->status(),
             'code' => $code,
             'message' => $isOk ? 'OK' : $message,
         ];
+
+        if ($isSoftBlock) {
+            $result['soft_block'] = true;
+        }
+
+        return $result;
     }
 
     public function fetchReport(PlatformConnection $connection, Carbon $since, Carbon $until): array
@@ -513,7 +550,14 @@ class ShopeeIntegration extends BaseIntegration
             'Referer' => $referer,
             'User-Agent' => $connection->cookie_user_agent
                 ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            'Priority' => 'u=1, i',
+            'sec-ch-ua-mobile' => '?0',
+            'sec-fetch-dest' => 'empty',
+            'sec-fetch-mode' => 'cors',
+            'sec-fetch-site' => 'same-origin',
         ];
+        $headers['sec-ch-ua'] = $this->defaultSecChUa((string) $headers['User-Agent']);
+        $headers['sec-ch-ua-platform'] = $this->defaultSecChUaPlatform((string) $headers['User-Agent']);
 
         if (str_starts_with($rawCookie, '{')) {
             $parsed = json_decode($rawCookie, true);
@@ -543,7 +587,19 @@ class ShopeeIntegration extends BaseIntegration
                 'x_sap_ri' => (string) ($profile['x_sap_ri'] ?? $parsed['x_sap_ri'] ?? ''),
                 'x_sap_sec' => (string) ($profile['x_sap_sec'] ?? $parsed['x_sap_sec'] ?? ''),
                 'x_sz_sdk_version' => (string) ($profile['x_sz_sdk_version'] ?? $parsed['x_sz_sdk_version'] ?? ''),
+                'accept_language' => (string) ($profile['accept_language'] ?? $parsed['accept_language'] ?? ''),
+                'priority' => (string) ($profile['priority'] ?? $parsed['priority'] ?? ''),
+                'sec_ch_ua' => (string) ($profile['sec_ch_ua'] ?? $parsed['sec_ch_ua'] ?? ''),
+                'sec_ch_ua_mobile' => (string) ($profile['sec_ch_ua_mobile'] ?? $parsed['sec_ch_ua_mobile'] ?? ''),
+                'sec_ch_ua_platform' => (string) ($profile['sec_ch_ua_platform'] ?? $parsed['sec_ch_ua_platform'] ?? ''),
+                'sec_fetch_dest' => (string) ($profile['sec_fetch_dest'] ?? $parsed['sec_fetch_dest'] ?? ''),
+                'sec_fetch_mode' => (string) ($profile['sec_fetch_mode'] ?? $parsed['sec_fetch_mode'] ?? ''),
+                'sec_fetch_site' => (string) ($profile['sec_fetch_site'] ?? $parsed['sec_fetch_site'] ?? ''),
             ];
+            $rawHeaders = array_merge(
+                is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
+                is_array($profile['raw_headers'] ?? null) ? $profile['raw_headers'] : [],
+            );
 
             $headers['Cookie'] = (string) $parsed['cookie'];
 
@@ -573,6 +629,47 @@ class ShopeeIntegration extends BaseIntegration
 
             if ($resolved['x_sz_sdk_version'] !== '') {
                 $headers['x-sz-sdk-version'] = $resolved['x_sz_sdk_version'];
+            }
+
+            if ($resolved['accept_language'] !== '') {
+                $headers['Accept-Language'] = $resolved['accept_language'];
+            }
+
+            if ($resolved['priority'] !== '') {
+                $headers['Priority'] = $resolved['priority'];
+            }
+
+            if ($resolved['sec_ch_ua'] !== '') {
+                $headers['sec-ch-ua'] = $resolved['sec_ch_ua'];
+            }
+
+            if ($resolved['sec_ch_ua_mobile'] !== '') {
+                $headers['sec-ch-ua-mobile'] = $resolved['sec_ch_ua_mobile'];
+            }
+
+            if ($resolved['sec_ch_ua_platform'] !== '') {
+                $headers['sec-ch-ua-platform'] = $resolved['sec_ch_ua_platform'];
+            }
+
+            if ($resolved['sec_fetch_dest'] !== '') {
+                $headers['sec-fetch-dest'] = $resolved['sec_fetch_dest'];
+            }
+
+            if ($resolved['sec_fetch_mode'] !== '') {
+                $headers['sec-fetch-mode'] = $resolved['sec_fetch_mode'];
+            }
+
+            if ($resolved['sec_fetch_site'] !== '') {
+                $headers['sec-fetch-site'] = $resolved['sec_fetch_site'];
+            }
+
+            foreach ($rawHeaders as $name => $value) {
+                $headerName = mb_strtolower(trim((string) $name));
+                if ($headerName === '' || in_array($headerName, ['cookie', 'content-length', 'host'], true)) {
+                    continue;
+                }
+
+                $headers[$headerName] = (string) $value;
             }
 
             return $headers;
@@ -658,93 +755,154 @@ class ShopeeIntegration extends BaseIntegration
     private function fetchCampaignsViaCookie(PlatformConnection $connection): array
     {
         $all = [];
-        $pageNum = 1;
-        $pageSize = 100;
-        $maxPages = 20;
+        $hasCampaignProfile = $this->hasCookieProfile($connection, 'campaign_list');
+        $campaignProfile = $this->getCookieProfile($connection, 'campaign_list');
 
-        $query = <<<'GRAPHQL'
-query affiliateCampaignsList($pageNum: Int, $pageSize: Int) {
-  affiliateCampaignsList(pageNum: $pageNum, pageSize: $pageSize) {
-    affiliateCampaignDetailList {
-      campaignId
-      campaignName
-      campaignStartTime
-      campaignEndTime
-      campaignDescription
-      campaignImpressionNum
-      campaignClickNum
-      bannerImageId
-      campaignStatus
-      campaignUrl
-    }
-  }
-}
-GRAPHQL;
+        $fallbackBodyRaw = <<<'JSON'
+{"operationName":"affiliateCampaignsList","query":"\n      query affiliateCampaignsList ($pageNum: Int, $pageSize: Int){\n        affiliateCampaignsList(pageNum: $pageNum, pageSize: $pageSize) {\n          affiliateCampaignDetailList {\n            campaignId\n            campaignName\n            campaignStartTime\n            campaignEndTime\n            campaignDescription\n            campaignImpressionNum\n            campaignClickNum\n            bannerImageId\n            campaignStatus\n            campaignUrl\n          }\n        }\n      }\n    ","variables":{}}
+JSON;
 
-        while ($pageNum <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::GQL_CAMPAIGN_REFERER);
-            $headers['Content-Type'] = 'application/json; charset=UTF-8';
+        // Shopee campaign anti-bot checks are sensitive to request-body fingerprint
+        // (x-sap-sec token is captured with the original browser payload).
+        // Prefer replaying the raw body captured from cURL if available.
+        $headers = $this->buildCookieHeaders($connection, self::GQL_CAMPAIGN_REFERER);
+        $headers['Content-Type'] = 'application/json; charset=UTF-8';
+        $headers['Origin'] = 'https://affiliate.shopee.vn';
 
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->post(self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList', [
-                    'operationName' => 'affiliateCampaignsList',
-                    'query' => $query,
-                    'variables' => [
-                        'pageNum' => $pageNum,
-                        'pageSize' => $pageSize,
-                    ],
-                ]);
+        $requestBodyRaw = trim((string) ($campaignProfile['request_body'] ?? ''));
+        $http = Http::withHeaders($headers)->timeout(30);
+        if ($requestBodyRaw === '' && $fallbackBodyRaw !== '') {
+            $requestBodyRaw = $fallbackBodyRaw;
+        }
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure(
-                    $connection,
-                    "Cookie authentication failed (HTTP {$response->status()})."
-                );
+        $response = $http
+            ->withBody($requestBodyRaw, 'application/json; charset=UTF-8')
+            ->post(self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList');
 
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+        if (in_array($response->status(), [401, 403], true)) {
+            $this->markCookieAuthFailure(
+                $connection,
+                "Cookie authentication failed (HTTP {$response->status()})."
+            );
+
+            throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+        }
+
+        if ($response->status() === 429) {
+            throw new RuntimeException('Shopee cookie campaign API rate limit exceeded (429).');
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Shopee cookie campaign API error: HTTP {$response->status()}");
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new RuntimeException('Shopee cookie campaign API returned invalid payload.');
+        }
+
+        $code = $payload['code'] ?? $payload['error'] ?? 0;
+        if (is_numeric($code) && (int) $code !== 0) {
+            $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
+            if (in_array((int) $code, [401, 403], true)) {
+                $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
+                throw new RuntimeException("Cookie authentication failed ({$code}).");
             }
 
-            if ($response->status() === 429) {
-                throw new RuntimeException('Shopee cookie campaign API rate limit exceeded (429).');
-            }
-
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee cookie campaign API error: HTTP {$response->status()}");
-            }
-
-            $payload = $response->json();
-            if (! is_array($payload)) {
-                throw new RuntimeException('Shopee cookie campaign API returned invalid payload.');
-            }
-
-            $code = $payload['code'] ?? $payload['error'] ?? 0;
-            if (is_numeric($code) && (int) $code !== 0) {
-                $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
-                if ((int) $code === 90309999 || in_array((int) $code, [401, 403], true)) {
-                    $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
-                    throw new RuntimeException("Cookie authentication failed ({$code}).");
+            if (in_array((int) $code, self::COOKIE_SOFT_BLOCK_CODES, true)) {
+                if (! $hasCampaignProfile) {
+                    throw new RuntimeException(
+                        "Shopee anti-bot challenge (code {$code}): {$message}. ".
+                        'Vui lòng cập nhật cURL từ trang Campaign List để tạo profile campaign_list.'
+                    );
                 }
-                throw new RuntimeException("Shopee cookie campaign API returned code {$code}: {$message}");
+
+                throw new RuntimeException("Shopee anti-bot challenge (code {$code}): {$message}");
             }
 
-            $rows = $this->extractCookieCampaignRows($payload);
-            if ($rows === []) {
-                break;
-            }
+            throw new RuntimeException("Shopee cookie campaign API returned code {$code}: {$message}");
+        }
 
-            foreach ($rows as $row) {
-                $all[] = $row;
-            }
+        $rows = $this->extractCookieCampaignRows($payload);
+        if ($rows === []) {
+            return [];
+        }
 
-            if (count($rows) < $pageSize) {
-                break;
-            }
-
-            $pageNum++;
+        foreach ($rows as $row) {
+            $all[] = $row;
         }
 
         return $all;
+    }
+
+    private function hasCookieProfile(PlatformConnection $connection, string $profileKey): bool
+    {
+        if ($connection->method !== 'cookie') {
+            return false;
+        }
+
+        $rawCookie = trim((string) $connection->cookie_header);
+        if ($rawCookie === '' || ! str_starts_with($rawCookie, '{')) {
+            return false;
+        }
+
+        $decoded = json_decode($rawCookie, true);
+        if (! is_array($decoded)) {
+            return false;
+        }
+
+        return is_array($decoded['profiles'][$profileKey] ?? null);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getCookieProfile(PlatformConnection $connection, string $profileKey): array
+    {
+        if ($connection->method !== 'cookie') {
+            return [];
+        }
+
+        $rawCookie = trim((string) $connection->cookie_header);
+        if ($rawCookie === '' || ! str_starts_with($rawCookie, '{')) {
+            return [];
+        }
+
+        $decoded = json_decode($rawCookie, true);
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $profile = $decoded['profiles'][$profileKey] ?? null;
+        return is_array($profile) ? $profile : [];
+    }
+
+    private function defaultSecChUa(string $userAgent): string
+    {
+        if (preg_match('/Chrome\\/([0-9]+)/i', $userAgent, $matches) === 1) {
+            $major = $matches[1];
+            return sprintf('"Not:A-Brand";v="99", "Google Chrome";v="%s", "Chromium";v="%s"', $major, $major);
+        }
+
+        return '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"';
+    }
+
+    private function defaultSecChUaPlatform(string $userAgent): string
+    {
+        $ua = mb_strtolower($userAgent);
+        if (str_contains($ua, 'mac os') || str_contains($ua, 'macintosh')) {
+            return '"macOS"';
+        }
+
+        if (str_contains($ua, 'windows')) {
+            return '"Windows"';
+        }
+
+        if (str_contains($ua, 'linux')) {
+            return '"Linux"';
+        }
+
+        return '"macOS"';
     }
 
     private function markCookieAuthFailure(PlatformConnection $connection, string $message): void
@@ -767,6 +925,7 @@ GRAPHQL;
         $page = 1;
         $pageSize = 50;
         $maxPages = 200;
+        $this->resetCookieClickAttribution($connection, $since, $until);
 
         while ($page <= $maxPages) {
             $headers = $this->buildCookieHeaders($connection, self::COOKIE_CONVERSION_REFERER);
@@ -815,6 +974,7 @@ GRAPHQL;
             }
 
             $rows = $this->extractCookieConversionRows($payload);
+            $this->storeCookieClickAttribution($connection, $since, $until, $rows);
             foreach ($rows as $row) {
                 $mappedOrders = $this->mapCookieConversionRowToOrders($row);
                 foreach ($mappedOrders as $mapped) {
@@ -841,6 +1001,7 @@ GRAPHQL;
         $page = 1;
         $pageSize = 100;
         $maxPages = 100; // max 10k clicks per sync window
+        $attributionByClickId = $this->getCookieClickAttribution($connection, $since, $until);
 
         while ($page <= $maxPages) {
             $headers = $this->buildCookieHeaders($connection, self::COOKIE_CLICK_REPORT_REFERER);
@@ -896,7 +1057,7 @@ GRAPHQL;
             }
 
             foreach ($list as $row) {
-                $clicks[] = $this->mapCookieClickRow($row);
+                $clicks[] = $this->mapCookieClickRow($row, $attributionByClickId);
             }
 
             $totalCount = (int) ($data['total_count'] ?? 0);
@@ -912,17 +1073,223 @@ GRAPHQL;
         return $clicks;
     }
 
-    private function mapCookieClickRow(array $row): array
+    /**
+     * @param  array<string, array{sub_id: string|null, campaign_id: string|null, item_id: string|null}>  $attributionByClickId
+     */
+    private function mapCookieClickRow(array $row, array $attributionByClickId = []): array
     {
+        $subId = $this->firstValueByPaths($row, ['sub_id1', 'sub_id', 'subId', 'custom_param', 'customParameter']);
+        $campaignId = $this->firstValueByPaths($row, ['campaign_id', 'campaignId']);
+        $itemId = $this->firstValueByPaths($row, [
+            'item_id',
+            'itemId',
+            'itemid',
+            'product_id',
+            'productId',
+            'offer_item_id',
+            'goods_id',
+        ]);
+        $clickId = $this->normalizeLooseString($this->firstValueByPaths($row, ['click_id', 'clickId']));
+
+        if ($clickId !== null && isset($attributionByClickId[$clickId])) {
+            $context = $attributionByClickId[$clickId];
+
+            if ($this->normalizeSubIdCandidate($subId) === null && $context['sub_id'] !== null) {
+                $subId = $context['sub_id'];
+            }
+
+            if ($this->normalizeLooseString($campaignId) === null && $context['campaign_id'] !== null) {
+                $campaignId = $context['campaign_id'];
+            }
+
+            if ($this->normalizeLooseString($itemId) === null && $context['item_id'] !== null) {
+                $itemId = $context['item_id'];
+            }
+        }
+
+        if (($itemId === null || trim((string) $itemId) === '') && is_string($this->firstValueByPaths($row, ['item_link', 'itemLink', 'product_link', 'url']))) {
+            $url = (string) $this->firstValueByPaths($row, ['item_link', 'itemLink', 'product_link', 'url']);
+            if (preg_match('~/(?:product|i)/\d+/(\d+)~', $url, $matches) === 1) {
+                $itemId = $matches[1];
+            }
+        }
+
+        $amountRaw = $this->firstValueByPaths($row, ['click_count', 'clicks', 'count', 'total_clicks']);
+
+        $clickTimeRaw = $this->firstValueByPaths($row, ['click_time', 'clickTime', 'created_at', 'createdAt', 'time']);
+        $clickTime = $this->asCarbon($clickTimeRaw);
+
         return [
             'platform' => 'shopee',
-            'click_time' => isset($row['click_time']) ? Carbon::createFromTimestamp($row['click_time']) : now(),
-            'sub_id' => $row['sub_id1'] ?? $row['sub_id'] ?? null,
-            'campaign_id' => $row['campaign_id'] ?? null,
-            'item_id' => $row['item_id'] ?? null,
-            'amount' => (int) ($row['click_count'] ?? 1),
+            'click_time' => $clickTime ?? now(),
+            'click_id' => $clickId,
+            'sub_id' => $this->normalizeSubIdCandidate($subId),
+            'campaign_id' => $this->normalizeLooseString($campaignId),
+            'item_id' => $this->normalizeLooseString($itemId),
+            'amount' => max(1, (int) ($amountRaw ?? 1)),
             'raw_data' => $row,
         ];
+    }
+
+    private function resetCookieClickAttribution(PlatformConnection $connection, Carbon $since, Carbon $until): void
+    {
+        $this->cookieClickAttributionCache[$this->cookieClickAttributionCacheKey($connection, $since, $until)] = [];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function storeCookieClickAttribution(PlatformConnection $connection, Carbon $since, Carbon $until, array $rows): void
+    {
+        $cacheKey = $this->cookieClickAttributionCacheKey($connection, $since, $until);
+        $existing = $this->cookieClickAttributionCache[$cacheKey] ?? [];
+
+        foreach ($rows as $row) {
+            $clickId = $this->normalizeLooseString($this->firstValueByPaths($row, ['click_id', 'clickId']));
+            if ($clickId === null) {
+                continue;
+            }
+
+            $current = $existing[$clickId] ?? [
+                'sub_id' => null,
+                'campaign_id' => null,
+                'item_ids' => [],
+            ];
+
+            $subId = $this->normalizeSubIdCandidate($this->firstValueByPaths($row, [
+                'utm_content',
+                'sub_id',
+                'subId',
+                'custom_parameters',
+                'customParameters',
+            ]));
+
+            if ($current['sub_id'] === null && $subId !== null) {
+                $current['sub_id'] = $subId;
+            }
+
+            $campaignId = $this->normalizeLooseString($this->firstValueByPaths($row, [
+                'campaign_id',
+                'campaignId',
+                'campaign_mcn_id',
+                'campaignMcnId',
+            ]));
+            if ($current['campaign_id'] === null && $campaignId !== null) {
+                $current['campaign_id'] = $campaignId;
+            }
+
+            foreach ($this->extractCookieConversionItemIds($row) as $itemId) {
+                $current['item_ids'][$itemId] = true;
+            }
+
+            $existing[$clickId] = $current;
+        }
+
+        $this->cookieClickAttributionCache[$cacheKey] = $existing;
+    }
+
+    /**
+     * @return array<string, array{sub_id: string|null, campaign_id: string|null, item_id: string|null}>
+     */
+    private function getCookieClickAttribution(PlatformConnection $connection, Carbon $since, Carbon $until): array
+    {
+        $cacheKey = $this->cookieClickAttributionCacheKey($connection, $since, $until);
+        $raw = $this->cookieClickAttributionCache[$cacheKey] ?? [];
+
+        $normalized = [];
+        foreach ($raw as $clickId => $context) {
+            $itemIds = array_keys($context['item_ids'] ?? []);
+            $itemId = count($itemIds) === 1 ? (string) $itemIds[0] : null;
+
+            $normalized[$clickId] = [
+                'sub_id' => $context['sub_id'] ?? null,
+                'campaign_id' => $context['campaign_id'] ?? null,
+                'item_id' => $itemId,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function cookieClickAttributionCacheKey(PlatformConnection $connection, Carbon $since, Carbon $until): string
+    {
+        return implode(':', [
+            (string) $connection->id,
+            (string) $since->timestamp,
+            (string) $until->timestamp,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return list<string>
+     */
+    private function extractCookieConversionItemIds(array $row): array
+    {
+        $ids = [];
+        $direct = $this->normalizeLooseString($this->firstValueByPaths($row, ['item_id', 'itemId', 'product_id', 'productId']));
+        if ($direct !== null) {
+            $ids[] = $direct;
+        }
+
+        $orders = $row['orders'] ?? null;
+        if (is_array($orders)) {
+            foreach ($orders as $order) {
+                if (! is_array($order)) {
+                    continue;
+                }
+
+                $orderItemId = $this->normalizeLooseString($this->firstValueByPaths($order, ['item_id', 'itemId', 'product_id', 'productId']));
+                if ($orderItemId !== null) {
+                    $ids[] = $orderItemId;
+                }
+
+                $items = $order['items'] ?? null;
+                if (! is_array($items)) {
+                    continue;
+                }
+
+                foreach ($items as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    $itemId = $this->normalizeLooseString($this->firstValueByPaths($item, ['item_id', 'itemId', 'product_id', 'productId']));
+                    if ($itemId !== null) {
+                        $ids[] = $itemId;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    private function normalizeLooseString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $lowered = mb_strtolower($normalized);
+        if (in_array($lowered, ['-', '--', '---', '----', 'n/a', 'na', 'none', 'null', 'undefined', '(not set)'], true)) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    private function normalizeSubIdCandidate(mixed $value): ?string
+    {
+        if (is_array($value)) {
+            $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+
+        return $this->normalizeLooseString($value);
     }
 
     /**
@@ -1816,9 +2183,58 @@ GRAPHQL;
         return round($amount, 2);
     }
 
+    public function getOfferDetail(PlatformConnection $connection, string $offerId, array $filters = []): array
+    {
+        if (in_array($connection->method, ['cookie', 'portal_export'], true)) {
+            return [];
+        }
+
+        $normalizedOfferId = trim($offerId);
+        if ($normalizedOfferId === '' || ! ctype_digit($normalizedOfferId)) {
+            return [];
+        }
+
+        $queryFilters = [
+            'itemId' => (int) $normalizedOfferId,
+            'page' => 1,
+            'limit' => 1,
+        ];
+
+        $shopId = $filters['shopId'] ?? $filters['shop_id'] ?? null;
+        if (is_scalar($shopId)) {
+            $shopIdString = trim((string) $shopId);
+            if ($shopIdString !== '' && ctype_digit($shopIdString)) {
+                $queryFilters['shopId'] = (int) $shopIdString;
+            }
+        }
+
+        $offers = $this->getOffers($connection, $queryFilters);
+        $nodes = is_array($offers['nodes'] ?? null) ? $offers['nodes'] : [];
+        foreach ($nodes as $node) {
+            if (is_array($node) && (string) ($node['itemId'] ?? '') === $normalizedOfferId) {
+                return $node;
+            }
+        }
+
+        if (! array_key_exists('shopId', $queryFilters)) {
+            return [];
+        }
+
+        unset($queryFilters['shopId']);
+        $offers = $this->getOffers($connection, $queryFilters);
+        $nodes = is_array($offers['nodes'] ?? null) ? $offers['nodes'] : [];
+        foreach ($nodes as $node) {
+            if (is_array($node) && (string) ($node['itemId'] ?? '') === $normalizedOfferId) {
+                return $node;
+            }
+        }
+
+        return [];
+    }
+
     public function getOffers(PlatformConnection $connection, array $filters): array
     {
-        if (in_array($connection->method, ['cookie', 'portal_export'])) {
+        if (in_array($connection->method, ['cookie', 'portal_export'], true)) {
             // These methods don't currently support offer discovery.
             return ['nodes' => [], 'pageInfo' => []];
         }
@@ -1878,6 +2294,46 @@ GRAPHQL;
         $result = $this->graphql($connection, $query, $variables);
 
         return $result['productOfferV2'] ?? ['nodes' => [], 'pageInfo' => []];
+    }
+
+    /**
+     * Fetch Shopee product category tree for offer filtering.
+     *
+     * @return list<array{catId: int, catName: string, children?: list<mixed>}>
+     */
+    public function getCategories(PlatformConnection $connection): array
+    {
+        if (in_array($connection->method, ['cookie', 'portal_export'])) {
+            return [];
+        }
+
+        $query = <<<'GRAPHQL'
+        query getProductCategory {
+            getProductCategory {
+                catId
+                catName
+                children {
+                    catId
+                    catName
+                    children {
+                        catId
+                        catName
+                    }
+                }
+            }
+        }
+        GRAPHQL;
+
+        try {
+            $result = $this->graphql($connection, $query);
+            return $result['getProductCategory'] ?? [];
+        } catch (\RuntimeException $e) {
+            Log::warning('Shopee getCategories failed', [
+                'connection_id' => $connection->id,
+                'error'         => $e->getMessage(),
+            ]);
+            return [];
+        }
     }
 
     public function generateShortLink(PlatformConnection $connection, string $originalUrl, ?string $subId = null): ?string

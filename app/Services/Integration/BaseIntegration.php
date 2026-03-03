@@ -62,6 +62,28 @@ abstract class BaseIntegration implements IntegrationContract
         return [];
     }
 
+    public function getCategories(PlatformConnection $connection): array
+    {
+        if (! $this->capabilities()->supportsOfferDiscovery) {
+            return [];
+        }
+
+        throw new \RuntimeException(
+            static::class . ' does not implement getCategories()'
+        );
+    }
+
+    public function getOfferDetail(PlatformConnection $connection, string $offerId, array $filters = []): array
+    {
+        if (! $this->capabilities()->supportsOfferDiscovery) {
+            return [];
+        }
+
+        throw new \RuntimeException(
+            static::class . ' does not implement getOfferDetail()'
+        );
+    }
+
     public function getOffers(PlatformConnection $connection, array $filters): array
     {
         if (! $this->capabilities()->supportsOfferDiscovery) {

@@ -10,7 +10,9 @@ use App\Http\Controllers\OfferController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\FinanceController;
+use App\Http\Controllers\AlertController;
 use App\Http\Controllers\PayoutApprovalController;
+use App\Http\Controllers\PayoutBatchController;
 use App\Http\Controllers\TrackingLinkController;
 use Illuminate\Support\Facades\Route;
 
@@ -125,6 +127,9 @@ Route::middleware(['auth'])->group(function () {
             ->middleware('throttle:20,1');
         Route::get('/categories', [OfferController::class, 'categories'])
             ->name('categories');
+        Route::get('/{offerId}', [OfferController::class, 'show'])
+            ->name('show')
+            ->middleware('throttle:30,1');
     });
 
     /*
@@ -140,6 +145,57 @@ Route::middleware(['auth'])->group(function () {
             ->middleware('throttle:60,1');
     });
 
+    Route::prefix('alerts')->name('api.alerts.')->group(function () {
+        Route::post('/evaluate', [AlertController::class, 'evaluate'])
+            ->name('evaluate')
+            ->middleware('throttle:30,1');
+        Route::get('/templates', [AlertController::class, 'getTemplates'])
+            ->name('templates.get')
+            ->middleware('throttle:60,1');
+        Route::put('/templates', [AlertController::class, 'updateTemplates'])
+            ->name('templates.updateAll')
+            ->middleware('throttle:30,1');
+        Route::put('/templates/{metric}', [AlertController::class, 'updateTemplate'])
+            ->name('templates.update')
+            ->middleware('throttle:30,1');
+        Route::post('/templates/{metric}/restore', [AlertController::class, 'restoreTemplate'])
+            ->name('templates.restore')
+            ->middleware('throttle:30,1');
+        Route::get('/telegram-config', [AlertController::class, 'getTelegramConfig'])
+            ->name('telegram-config.get')
+            ->middleware('throttle:60,1');
+        Route::put('/telegram-config', [AlertController::class, 'updateTelegramConfig'])
+            ->name('telegram-config.update')
+            ->middleware('throttle:30,1');
+        Route::post('/telegram-config/test', [AlertController::class, 'testTelegramConfig'])
+            ->name('telegram-config.test')
+            ->middleware('throttle:30,1');
+        Route::delete('/telegram-config', [AlertController::class, 'deleteTelegramConfig'])
+            ->name('telegram-config.delete')
+            ->middleware('throttle:30,1');
+        Route::post('/rules', [AlertController::class, 'storeRule'])
+            ->name('rules.store')
+            ->middleware('throttle:30,1');
+        Route::patch('/rules/{alertRule}', [AlertController::class, 'updateRule'])
+            ->name('rules.update')
+            ->middleware('throttle:60,1');
+        Route::delete('/rules/{alertRule}', [AlertController::class, 'destroyRule'])
+            ->name('rules.destroy')
+            ->middleware('throttle:30,1');
+        Route::post('/rules/{alertRule}/toggle', [AlertController::class, 'toggleRule'])
+            ->name('rules.toggle')
+            ->middleware('throttle:60,1');
+        Route::post('/incidents/{incident}/seen', [AlertController::class, 'markSeen'])
+            ->name('incidents.seen')
+            ->middleware('throttle:60,1');
+        Route::post('/incidents/{incident}/resolve', [AlertController::class, 'resolve'])
+            ->name('incidents.resolve')
+            ->middleware('throttle:60,1');
+        Route::post('/incidents/{incident}/comment', [AlertController::class, 'addComment'])
+            ->name('incidents.comment')
+            ->middleware('throttle:60,1');
+    });
+
     /*
     |----------------------------------------------------------------------
     | Finance
@@ -149,6 +205,15 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/sync', [FinanceController::class, 'sync'])
             ->name('sync')
             ->middleware('throttle:3,1');
+    });
+
+    Route::prefix('payout-batches')->name('api.payout-batches.')->group(function () {
+        Route::post('/', [PayoutBatchController::class, 'store'])
+            ->name('store')
+            ->middleware('throttle:20,1');
+        Route::post('/{payoutBatch}/finalize', [PayoutBatchController::class, 'finalize'])
+            ->name('finalize')
+            ->middleware('throttle:20,1');
     });
 
     /*
@@ -164,5 +229,31 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/{userId}/reject', [PayoutApprovalController::class, 'reject'])
             ->name('reject')
             ->middleware('throttle:30,1');
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | AI Content Generation
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('links/{trackingLink}/content')->name('api.content.')->group(function () {
+        Route::post('/generate', [\App\Http\Controllers\API\ContentGenerationController::class, 'generate'])
+            ->name('generate')
+            ->middleware('throttle:10,1');
+        Route::get('/history', [\App\Http\Controllers\API\ContentGenerationController::class, 'history'])
+            ->name('history');
+    });
+
+    /*
+    |----------------------------------------------------------------------
+    | AI Provider Settings (per-user)
+    |----------------------------------------------------------------------
+    */
+    Route::prefix('ai/settings')->name('api.ai.settings.')->group(function () {
+        Route::get('/',              [\App\Http\Controllers\API\AiSettingController::class, 'index'])   ->name('index');
+        Route::get('/providers',     [\App\Http\Controllers\API\AiSettingController::class, 'providers'])->name('providers');
+        Route::post('/',             [\App\Http\Controllers\API\AiSettingController::class, 'upsert'])  ->name('upsert');
+        Route::post('/test',         [\App\Http\Controllers\API\AiSettingController::class, 'test'])    ->name('test')->middleware('throttle:5,1');
+        Route::delete('/{key}',      [\App\Http\Controllers\API\AiSettingController::class, 'destroy']) ->name('destroy');
     });
 });

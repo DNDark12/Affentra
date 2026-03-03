@@ -198,6 +198,118 @@ body { background-color: var(--app-bg); color: var(--text-primary); }
     box-shadow: 0 0 0 3px rgba(244,63,94,0.15);
 }
 
+/* Compact date filter inputs */
+.af-input-date {
+    width: 132px;
+    min-width: 132px;
+}
+
+@media (max-width: 767px) {
+    .af-input-date {
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+/* Tom Select theme alignment */
+.ts-wrapper {
+    min-width: 0;
+    width: auto;
+    border: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Prevent double border when original <select> carries .af-input */
+.ts-wrapper.af-input {
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.ts-wrapper.af-input:focus,
+.ts-wrapper.af-input:focus-within {
+    border: 0;
+    box-shadow: none;
+}
+
+.ts-wrapper.single .ts-control,
+.ts-control {
+    min-height: 40px;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-1);
+    color: var(--text-primary);
+    box-shadow: none;
+}
+
+.ts-wrapper.single .ts-control {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.ts-wrapper.single .ts-control .item {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    line-height: 1.25;
+}
+
+.ts-wrapper.single .ts-control > input {
+    display: none !important;
+}
+
+.ts-wrapper.multi .ts-control {
+    min-height: 40px;
+    height: auto;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.ts-control > input,
+.ts-control .item {
+    color: var(--text-primary);
+}
+
+.ts-control .item[data-value=''] {
+    color: var(--text-muted);
+}
+
+.ts-wrapper.focus .ts-control {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 3px var(--ring);
+}
+
+.ts-dropdown {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-1);
+    color: var(--text-primary);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+}
+
+.ts-dropdown .option {
+    padding: 8px 12px;
+    font-size: 14px;
+}
+
+.ts-dropdown .active {
+    background: var(--surface-2);
+    color: var(--text-primary);
+}
+
 /* Search inputs with left icon */
 .af-input-search {
     padding-left: 2.625rem !important;

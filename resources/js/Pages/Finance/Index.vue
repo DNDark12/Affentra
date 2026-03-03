@@ -10,6 +10,12 @@
                     <p class="text-xs mt-0.5" style="color: var(--text-muted)">Quản lý dòng tiền và đối soát hoa hồng</p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button
+                        class="af-btn-outline text-sm h-9 px-3"
+                        @click="router.visit(route('finance.payout-batches.index'))"
+                    >
+                        Payout Batches
+                    </button>
                     <span
                         v-if="sync?.is_running"
                         class="inline-flex items-center h-9 px-3 rounded-full text-xs font-semibold"
@@ -41,8 +47,8 @@
 
             <div class="flex items-center justify-between gap-2 flex-wrap">
                 <div class="flex items-center gap-2 flex-wrap">
-                    <input v-model="dateFrom" type="date" class="af-input h-9 text-sm" @change="applyFilters" />
-                    <input v-model="dateTo" type="date" class="af-input h-9 text-sm" @change="applyFilters" />
+                    <input v-model="dateFrom" type="date" class="af-input af-input-date h-9 text-sm" @change="applyFilters" />
+                    <input v-model="dateTo" type="date" class="af-input af-input-date h-9 text-sm" @change="applyFilters" />
                     <button class="af-btn-outline text-sm h-9 px-3" @click="applyFilters">Apply</button>
                 </div>
                 <p v-if="syncMessage" class="text-xs" style="color: var(--text-muted)">{{ syncMessage }}</p>
@@ -146,8 +152,8 @@
                                 </td>
                                 <td class="px-4 py-3 text-right font-bold" style="color: var(--success-text)">{{ fmtMoney(p.amount) }}</td>
                                 <td class="px-4 py-3 text-center">
-                                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-green-500/10 text-green-500">
-                                        {{ p.status }}
+                                    <span class="text-xs font-medium px-2 py-0.5 rounded-full" :style="payoutStatusStyle(p.status)">
+                                        {{ payoutStatusLabel(p.status) }}
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right text-xs" style="color: var(--text-muted)">
@@ -273,6 +279,32 @@ function normalizeBillingStatus(value) {
 
 function billingStatusLabel(value) {
     const key = normalizeBillingStatus(value);
+    if (key === 'paid') return 'Đã thanh toán';
+    if (key === 'pending') return 'Đang xử lý';
+    if (key === 'failed') return 'Không thanh toán';
+    return String(value ?? '—');
+}
+
+function normalizePayoutStatus(value) {
+    const raw = String(value ?? '').trim().toLowerCase();
+    if (['2', '3', '6', 'paid', 'settled', 'completed', 'success', 'done'].includes(raw)) return 'paid';
+    if (['0', '1', 'pending', 'processing', 'review', 'created', 'init'].includes(raw)) return 'pending';
+    if (['-1', '4', '5', 'failed', 'rejected', 'cancelled', 'canceled', 'closed'].includes(raw)) return 'failed';
+    return raw || 'pending';
+}
+
+function payoutStatusStyle(value) {
+    const key = normalizePayoutStatus(value);
+    const m = {
+        paid: { background: 'var(--success-bg)', color: 'var(--success-text)' },
+        pending: { background: 'var(--warning-bg)', color: 'var(--warning-text)' },
+        failed: { background: 'var(--danger-bg)', color: 'var(--danger-text)' },
+    };
+    return m[key] ?? { background: 'var(--surface-2)', color: 'var(--text-muted)' };
+}
+
+function payoutStatusLabel(value) {
+    const key = normalizePayoutStatus(value);
     if (key === 'paid') return 'Đã thanh toán';
     if (key === 'pending') return 'Đang xử lý';
     if (key === 'failed') return 'Không thanh toán';

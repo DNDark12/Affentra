@@ -19,7 +19,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // AIProviderClient is now resolved dynamically per-user by AiSettingsService.
+        // No static binding needed — the correct adapter is instantiated at request time.
     }
 
     /**

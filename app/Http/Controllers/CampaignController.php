@@ -108,10 +108,15 @@ class CampaignController extends Controller
             ], 422);
         }
 
+        $linksProvisioned = (int) ($result['links_provisioned'] ?? 0);
+        $message = $linksProvisioned > 0
+            ? "Đã đồng bộ campaign từ Shopee và tạo {$linksProvisioned} tracking link tương ứng."
+            : 'Đã đồng bộ campaign từ Shopee.';
+
         return response()->json([
             'ok' => true,
             'data' => $result,
-            'message' => 'Đã đồng bộ campaign từ Shopee.',
+            'message' => $message,
         ]);
     }
 }

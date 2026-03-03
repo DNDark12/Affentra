@@ -26,42 +26,63 @@
                                 </span>
                                 <div class="px-2 py-0.5 rounded-full flex items-center gap-1.5"
                                      :class="statusBadgeClass(activeRun.status)">
-                                    <i :class="statusIcon(activeRun.status)" class="text-[12px]"></i>
+                                    <component :is="statusIconComponent(activeRun.status)" :size="12" :class="statusIconClass(activeRun.status)" :class2="String(activeRun.status).startsWith('running') ? 'animate-spin' : ''" />
                                     <span class="text-[11px] font-semibold uppercase tracking-wide">{{ activeRun.status }}</span>
                                 </div>
                             </div>
                         </div>
                         <button @click="close" class="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 transition-colors">
-                            <i class="ph ph-x"></i>
+                            <X :size="14" />
                         </button>
                     </div>
 
                     <!-- Body -->
                     <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-                        <!-- Metrics Grid -->
-                        <div class="grid grid-cols-3 gap-4">
-                            <!-- Fetched -->
-                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi API lấy về</span>
-                                <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_fetched ?? '-' }}</span>
+                        <!-- Metrics / Upload Summary Grid -->
+                        <template v-if="isUploadRun">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50 col-span-1 md:col-span-2 lg:col-span-1">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">File Upload</span>
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate" :title="uploadDetails.original_filename || '—'">{{ uploadDetails.original_filename || '—' }}</span>
+                                </div>
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Loại dữ liệu (chọn)</span>
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 uppercase">{{ uploadDetails.selected_type || '—' }}</span>
+                                </div>
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Dữ liệu (nhận diện)</span>
+                                    <span class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 uppercase">{{ uploadDetails.detected_type || '—' }}</span>
+                                </div>
                             </div>
-                            <!-- Inserted -->
-                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Đã thêm/cập nhật</span>
-                                <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_upserted ?? '-' }}</span>
+                            <p class="text-[12px] text-zinc-500 dark:text-zinc-400">
+                                Hệ thống đã tiếp nhận file upload. Chi tiết xử lý sẽ được cập nhật sau khi hoàn tất quét dữ liệu.
+                            </p>
+                        </template>
+                        <template v-else>
+                            <div class="grid grid-cols-3 gap-4">
+                                <!-- Fetched -->
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi API lấy về</span>
+                                    <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_fetched ?? '-' }}</span>
+                                </div>
+                                <!-- Inserted -->
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Đã thêm/cập nhật</span>
+                                    <span class="text-xl font-bold text-zinc-900 dark:text-zinc-100">{{ activeRun.records_upserted ?? '-' }}</span>
+                                </div>
+                                <!-- Failed -->
+                                <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
+                                    <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi bỏ qua/lỗi</span>
+                                    <span class="text-xl font-bold" :class="Number(activeRun.records_failed || 0) > 0 ? 'text-red-600' : 'text-zinc-900 dark:text-zinc-100'">
+                                        {{ activeRun.records_failed ?? 0 }}
+                                    </span>
+                                </div>
                             </div>
-                            <!-- Failed -->
-                            <div class="bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-4 flex flex-col gap-1 border border-zinc-100 dark:border-zinc-700/50">
-                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400 font-medium tracking-wide">Bản ghi bỏ qua/lỗi</span>
-                                <span class="text-xl font-bold" :class="Number(activeRun.records_failed || 0) > 0 ? 'text-red-600' : 'text-zinc-900 dark:text-zinc-100'">
-                                    {{ activeRun.records_failed ?? 0 }}
-                                </span>
-                            </div>
-                        </div>
 
-                        <p class="text-[12px] text-zinc-500 dark:text-zinc-400">
-                            Chỉ số trên là tổng bản ghi đồng bộ (Orders + Clicks hoặc Finance records), không phải số sản phẩm trong Tracking Link.
-                        </p>
+                            <p class="text-[12px] text-zinc-500 dark:text-zinc-400">
+                                Chỉ số trên là tổng bản ghi đồng bộ (Orders + Clicks hoặc Finance records), không phải số sản phẩm trong Tracking Link.
+                            </p>
+                        </template>
 
                         <div v-if="moduleRows.length" class="flex flex-col gap-3">
                             <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Chi tiết theo module</h3>
@@ -111,7 +132,7 @@
                                 <div class="flex justify-between items-center px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
                                     <span class="text-zinc-500 dark:text-zinc-400">Nền tảng:</span>
                                     <div class="flex items-center gap-1.5 font-medium text-zinc-900 dark:text-zinc-100">
-                                        <i class="ph ph-plugs-connected text-indigo-500"></i>
+                                        <Plug :size="14" class="text-indigo-500" />
                                         <span>{{ connectionInfo?.label || connectionInfo?.name || connectionInfo?.platform || 'Unknown' }}</span>
                                     </div>
                                 </div>
@@ -148,6 +169,7 @@
 
 <script setup>
 import { computed, watch } from 'vue';
+import { X, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps({
     isOpen: Boolean,
@@ -202,6 +224,7 @@ const moduleRows = computed(() => {
         finance_service_fee: 'Finance Service Fee',
         finance_order_reconcile: 'Finance Reconcile Orders',
         finance: 'Finance',
+        portal_export: 'Portal Export Upload',
     };
 
     return Object.entries(modules).map(([key, value]) => {
@@ -215,6 +238,14 @@ const moduleRows = computed(() => {
             failed: item.failed ?? 0,
         };
     });
+});
+
+const isUploadRun = computed(() => {
+    return !!activeRun.value?.details?.modules?.portal_export;
+});
+
+const uploadDetails = computed(() => {
+    return activeRun.value?.details?.modules?.portal_export || {};
 });
 
 watch(() => props.isOpen, (val) => {
@@ -237,10 +268,16 @@ function statusBadgeClass(status) {
     return 'bg-amber-100/80 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400';
 }
 
-function statusIcon(status) {
-    if (status === 'completed') return 'ph-check-circle-fill text-emerald-600 dark:text-emerald-500';
-    if (String(status).startsWith('failed')) return 'ph-warning-circle-fill text-red-600 dark:text-red-500';
-    return 'ph-spinner-gap animate-spin text-amber-600 dark:text-amber-500';
+function statusIconComponent(status) {
+    if (status === 'completed') return CheckCircle;
+    if (String(status).startsWith('failed')) return XCircle;
+    return Loader2;
+}
+
+function statusIconClass(status) {
+    if (status === 'completed') return 'text-emerald-600 dark:text-emerald-500';
+    if (String(status).startsWith('failed')) return 'text-red-600 dark:text-red-500';
+    return 'text-amber-600 dark:text-amber-500 animate-spin';
 }
 
 function moduleStatusClass(status) {

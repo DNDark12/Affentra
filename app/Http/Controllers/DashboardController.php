@@ -8,7 +8,6 @@ use App\Helpers\ApiResponse;
 use App\Http\Requests\Dashboard\DashboardSummaryRequest;
 use App\Services\Dashboard\DashboardService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,23 +21,14 @@ class DashboardController extends Controller
     /**
      * Render the dashboard Inertia page.
      */
-    public function index(Request $request): Response
+    public function index(DashboardSummaryRequest $request): Response
     {
         /** @var \App\Models\User $user */
         $user = $request->user();
 
-        $summary = $this->dashboardService->getSummary($user, '30days');
+        $summary = $this->dashboardService->getSummary($user, $request->period());
 
-        return Inertia::render('Dashboard/Index', [
-            'summary' => [
-                'period'     => $summary['period'],
-                'clicks'     => $summary['clicks'],
-                'orders'     => $summary['orders'],
-                'approved'   => $summary['approved'],
-                'commission' => $summary['commission'],
-                'daily'      => $summary['daily'],
-            ],
-        ]);
+        return Inertia::render('Dashboard/Index', ['summary' => $summary]);
     }
 
     /**

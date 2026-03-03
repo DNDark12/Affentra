@@ -134,7 +134,7 @@ class FinanceService
         }
 
         foreach ($connections as $connection) {
-            SyncPaymentDataJob::dispatch($connection)->onQueue('sync');
+            SyncPaymentDataJob::dispatch($connection);
         }
 
         $this->auditLogger->log(

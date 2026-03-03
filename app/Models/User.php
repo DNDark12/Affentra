@@ -11,6 +11,10 @@ use App\Models\PlatformConnection;
 use App\Models\TrackingLink;
 use App\Models\UserIdentity;
 use App\Models\UserProfile;
+use App\Models\AlertRule;
+use App\Models\AlertIncident;
+use App\Models\AlertMessageTemplate;
+use App\Models\UserTelegramConfig;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -100,6 +104,26 @@ class User extends Authenticatable
     public function profile(): HasOne
     {
         return $this->hasOne(UserProfile::class);
+    }
+
+    public function alertRules(): HasMany
+    {
+        return $this->hasMany(AlertRule::class);
+    }
+
+    public function alertIncidents(): HasMany
+    {
+        return $this->hasMany(AlertIncident::class);
+    }
+
+    public function alertMessageTemplates(): HasMany
+    {
+        return $this->hasMany(AlertMessageTemplate::class);
+    }
+
+    public function telegramConfig(): HasOne
+    {
+        return $this->hasOne(UserTelegramConfig::class);
     }
 
 

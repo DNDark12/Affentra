@@ -118,6 +118,7 @@ class ClickAnalyticsService
 
             $sourceMeta = [
                 'platform' => $row['platform'] ?? $connection->platform,
+                'click_id' => $row['click_id'] ?? null,
                 'campaign_id' => $row['campaign_id'] ?? null,
                 'item_id' => $row['item_id'] ?? null,
                 'attribution_status' => $attributionStatus,

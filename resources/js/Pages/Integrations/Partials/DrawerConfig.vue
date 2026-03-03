@@ -25,7 +25,7 @@
                             <p class="text-sm text-zinc-500 dark:text-zinc-400">Kết nối Affiliate API để tự động đồng bộ số liệu</p>
                         </div>
                         <button @click="close" class="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">
-                            <i class="ph ph-x"></i>
+                            <X :size="14" />
                         </button>
                     </div>
 
@@ -48,7 +48,7 @@
                                         <option value="" disabled>--- Chọn nền tảng ---</option>
                                         <option v-for="plat in platforms" :key="plat.id" :value="plat.id">{{ plat.name }}</option>
                                     </select>
-                                    <i class="ph ph-caret-down absolute right-3 top-3.5 text-zinc-400 pointer-events-none"></i>
+                                    <ChevronDown :size="14" class="absolute right-3 top-3.5 text-zinc-400 pointer-events-none" />
                                 </div>
                             </div>
 
@@ -67,7 +67,7 @@
                                         class="border flex-1 h-8 rounded-md text-[13px] font-medium transition-colors flex items-center justify-center gap-1.5"
                                     >
                                         {{ option.label }}
-                                        <i v-if="editConnection && isConfigured(option.value)" class="ph ph-check-circle text-emerald-500 text-[10px]"></i>
+                                        <CheckCircle2 v-if="editConnection && isConfigured(option.value)" :size="10" class="text-emerald-500" />
                                     </button>
                                 </div>
                             </div>
@@ -104,7 +104,7 @@
                             <!-- COOKIE Flow -->
                             <template v-else-if="form.method === 'cookie'">
                                 <div class="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg flex items-start gap-3">
-                                    <i class="ph ph-warning-circle text-amber-600 dark:text-amber-400 text-lg mt-0.5"></i>
+                                    <AlertTriangle :size="18" class="text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                                     <div class="text-sm text-amber-800 dark:text-amber-300">
                                         <b>Cảnh báo rủi ro:</b> Cookie có thể hết hạn bất ngờ, vướng captcha. Mọi thiết lập cookie có thể bị reset hoặc lỗi sync không báo trước.
                                     </div>
@@ -161,9 +161,34 @@
                                 <div class="flex flex-col gap-2">
                                     <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chế độ đồng bộ</label>
                                     <select v-model="form.sync_mode" class="h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm">
-                                        <option value="scheduled">Scheduled (Tự động 15 phút)</option>
+                                        <option value="scheduled">Scheduled (Tự động)</option>
                                         <option value="manual">Manual (Kích hoạt thủ công)</option>
                                     </select>
+                                </div>
+
+                                <!-- Interval -->
+                                <div v-if="form.sync_mode === 'scheduled'" class="flex flex-col gap-2">
+                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chu kỳ đồng bộ</label>
+                                    <div class="flex items-center gap-2">
+                                        <select v-model="form.sync_interval" class="flex-1 h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm">
+                                            <option value="15m">15 phút</option>
+                                            <option value="1h">1 tiếng</option>
+                                            <option value="3h">3 tiếng</option>
+                                            <option value="8h">8 tiếng</option>
+                                            <option value="daily">Hàng ngày</option>
+                                        </select>
+                                        <div v-show="form.sync_interval === 'daily'" class="relative w-32 shrink-0">
+                                            <input
+                                                ref="timeInputRef"
+                                                type="text"
+                                                readonly
+                                                class="w-full h-10 pl-9 pr-3 cursor-pointer rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                                                placeholder="00:00"
+                                            />
+                                            <Clock :size="14" class="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                                        </div>
+                                    </div>
+                                    <span v-if="form.errors.sync_time" class="text-xs text-red-500">{{ form.errors.sync_time }}</span>
                                 </div>
                                 
                                 <!-- Status Force -->
@@ -193,7 +218,7 @@
                         <div class="flex-1"></div>
 
                         <button v-if="editConnection" @click.prevent="emit('delete', editConnection)" type="button" class="text-[14px] font-medium text-red-600 hover:text-red-700 flex items-center gap-1.5 focus:outline-none shrink-0">
-                            <i class="ph ph-trash"></i>
+                            <Trash2 :size="14" />
                             <span class="hidden sm:inline">Xóa kết nối</span>
                         </button>
                     </div>
@@ -207,6 +232,10 @@
 import { computed, ref, watch } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import axios from 'axios';
+import { X, ChevronDown, CheckCircle2, AlertTriangle, Clock, Trash2 } from 'lucide-vue-next';
+import { useToast } from '@/Composables/useToast';
+import flatpickr from 'flatpickr';
+import 'flatpickr/dist/flatpickr.css';
 
 const props = defineProps({
     isOpen: Boolean,
@@ -216,8 +245,29 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'delete']);
+const toast = useToast();
 
 const cookieInputMode = ref('curl');
+const timeInputRef = ref(null);
+let fpInstance = null;
+
+function initFlatpickr() {
+    if (!timeInputRef.value) return;
+    if (fpInstance) fpInstance.destroy();
+    
+    fpInstance = flatpickr(timeInputRef.value, {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+        defaultDate: form.sync_time || '00:00',
+        allowInput: true,
+        onChange: (selectedDates, dateStr) => {
+            form.sync_time = dateStr;
+        }
+    });
+}
+
 const methodLabelMap = {
     open_api: 'Open API',
     portal_export: 'Portal Export',
@@ -257,12 +307,17 @@ const form = useForm({
     curl_command: '',
     consent_acknowledged: false,
     sync_mode: 'scheduled',
+    sync_interval: '15m',
+    sync_time: '00:00',
     status: 'active',
 });
 
 watch(() => props.isOpen, (val) => {
     if (val) {
         document.body.style.overflow = 'hidden';
+        const mainEl = document.querySelector('main');
+        if (mainEl) mainEl.style.overflow = 'hidden';
+
         form.reset();
         form.clearErrors();
         cookieInputMode.value = 'curl';
@@ -279,13 +334,37 @@ watch(() => props.isOpen, (val) => {
             form.curl_command = '';
             form.consent_acknowledged = false;
             form.sync_mode = props.editConnection.sync_mode || 'scheduled';
+            form.sync_interval = props.editConnection.sync_interval || '15m';
+            form.sync_time = props.editConnection.sync_time || '00:00';
             form.status = props.editConnection.status || 'active';
         } else if (props.platforms?.length) {
             form.platform = props.platforms[0].id;
             form.method = defaultMethod;
         }
+
+        setTimeout(() => {
+            initFlatpickr();
+        }, 50);
     } else {
         document.body.style.overflow = '';
+        const mainEl = document.querySelector('main');
+        if (mainEl) mainEl.style.overflow = '';
+        
+        if (fpInstance) {
+            fpInstance.destroy();
+            fpInstance = null;
+        }
+    }
+});
+
+watch(() => form.sync_interval, (newVal) => {
+    if (newVal === 'daily') {
+        setTimeout(initFlatpickr, 50);
+    } else {
+        if (fpInstance) {
+            fpInstance.destroy();
+            fpInstance = null;
+        }
     }
 });
 
@@ -304,7 +383,14 @@ async function submit() {
     form.processing = true;
 
     try {
-        const payload = form.data();
+        const payload = { ...form.data() };
+
+        if (payload.sync_mode !== 'scheduled') {
+            delete payload.sync_interval;
+            delete payload.sync_time;
+        } else if (payload.sync_interval !== 'daily') {
+            delete payload.sync_time;
+        }
 
         // Prevent silent method switch if an existing legacy method is not selectable in current policy.
         if (props.editConnection?.method && !availableMethods.value.includes(props.editConnection.method)) {
@@ -313,10 +399,10 @@ async function submit() {
 
         if (props.editConnection) {
             await axios.patch(route('api.integrations.update', props.editConnection.id), payload);
-            alert('Cập nhật cấu hình thành công!');
+            toast.success('Cập nhật cấu hình thành công.');
         } else {
             await axios.post(route('api.integrations.store'), payload);
-            alert('Thêm kết nối thành công!');
+            toast.success('Thêm kết nối thành công.');
         }
         
         close();
@@ -328,7 +414,7 @@ async function submit() {
                 form.setError(key, errors[key][0]);
             }
         } else {
-            alert(`Lỗi: ${error.response?.data?.message || 'Có lỗi xảy ra khi lưu kết nối.'}`);
+            toast.error(error.response?.data?.message || 'Có lỗi xảy ra khi lưu kết nối.');
         }
     } finally {
         form.processing = false;

@@ -104,4 +104,56 @@ class IntegrationControllerTest extends TestCase
 
         $response->assertStatus(422);
     }
+
+    public function test_cookie_profiles_can_be_updated_incrementally_with_one_curl_per_request(): void
+    {
+        $user = User::factory()->create(['role' => 'owner']);
+        $connection = PlatformConnection::factory()->create([
+            'user_id' => $user->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'inactive',
+            'cookie_header' => null,
+            'consent_acknowledged_at' => now(),
+        ]);
+
+        $dashboardCurl = "curl 'https://affiliate.shopee.vn/api/v3/dashboard/detail?start_time=1&end_time=2' "
+            . "-H 'referer: https://affiliate.shopee.vn/dashboard' "
+            . "-H 'user-agent: test-dashboard-ua' "
+            . "-H 'affiliate-program-type: 1' "
+            . "-H 'x-sap-ri: ri-dashboard' "
+            . "-H 'x-sap-sec: sec-dashboard' "
+            . "-H 'x-sz-sdk-version: 1.12.21' "
+            . "-b 'SPC_EC=dummy-cookie-value'";
+
+        $conversionCurl = "curl 'https://affiliate.shopee.vn/api/v3/report/list?page_size=1&page_num=1' "
+            . "-H 'referer: https://affiliate.shopee.vn/report/conversion_report' "
+            . "-H 'user-agent: test-conversion-ua' "
+            . "-H 'affiliate-program-type: 1' "
+            . "-H 'x-sap-ri: ri-conversion' "
+            . "-H 'x-sap-sec: sec-conversion' "
+            . "-H 'x-sz-sdk-version: 1.12.21' "
+            . "-b 'SPC_EC=dummy-cookie-value'";
+
+        $this->actingAs($user)
+            ->patchJson("/api/integrations/{$connection->id}", [
+                'curl_command' => $dashboardCurl,
+            ])
+            ->assertOk();
+
+        $this->actingAs($user)
+            ->patchJson("/api/integrations/{$connection->id}", [
+                'curl_command' => $conversionCurl,
+            ])
+            ->assertOk();
+
+        $connection->refresh();
+
+        $decoded = json_decode((string) $connection->cookie_header, true);
+        $this->assertIsArray($decoded);
+        $this->assertIsArray($decoded['profiles'] ?? null);
+        $this->assertArrayHasKey('dashboard', $decoded['profiles']);
+        $this->assertArrayHasKey('conversion_report', $decoded['profiles']);
+        $this->assertSame('SPC_EC=dummy-cookie-value', $decoded['cookie']);
+    }
 }

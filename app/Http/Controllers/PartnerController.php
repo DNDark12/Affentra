@@ -9,6 +9,7 @@ use App\Http\Requests\Partners\StorePartnerRequest;
 use App\Models\User;
 use App\Services\Partner\PartnerService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -59,5 +60,25 @@ class PartnerController extends Controller
         $partner = $this->partnerService->create($auth, $request->validated());
 
         return response()->json(['ok' => true, 'data' => $partner], 201);
+    }
+
+    public function show(Request $request, User $partner): Response
+    {
+        /** @var User $auth */
+        $auth = $request->user();
+
+        Gate::authorize('viewAny', User::class);
+
+        $payload = $this->partnerService->detailForManager($auth, $partner);
+
+        return Inertia::render('Partners/Show', [
+            'partner' => $payload['partner'],
+            'overview' => $payload['overview'],
+            'financeSummary' => $payload['finance_summary'],
+            'recentOrders' => $payload['recent_orders'],
+            'recentBillings' => $payload['recent_billings'],
+            'recentPayouts' => $payload['recent_payouts'],
+            'activity' => $payload['activity'],
+        ]);
     }
 }

@@ -141,8 +141,16 @@ class IntegrationService
             'label'      => $data['label'] ?? null,
             'method'     => $method,
             'status'     => 'inactive',
-            'sync_mode'  => 'manual',
+            'sync_mode'  => $data['sync_mode'] ?? 'manual',
         ];
+
+        if (array_key_exists('sync_interval', $data)) {
+            $payload['sync_interval'] = $data['sync_interval'];
+        }
+
+        if (array_key_exists('sync_time', $data)) {
+            $payload['sync_time'] = $data['sync_time'];
+        }
 
         if ($payload['method'] === 'open_api') {
             $payload['app_id'] = $data['app_id'] ?? null;
@@ -278,6 +286,14 @@ class IntegrationService
             $payload['sync_mode'] = $data['sync_mode'];
         }
 
+        if (array_key_exists('sync_interval', $data)) {
+            $payload['sync_interval'] = $data['sync_interval'];
+        }
+
+        if (array_key_exists('sync_time', $data)) {
+            $payload['sync_time'] = $data['sync_time'];
+        }
+
         if (array_key_exists('status', $data)) {
             $payload['status'] = $data['status'];
         }
@@ -396,13 +412,13 @@ class IntegrationService
             type: 'manual',
             userId: $actor->id,
             syncRunId: $syncRun->id,
-        )->onQueue('sync');
+        );
 
         // Keep payout status/settlement data in sync with manual sync requests.
-        SyncPaymentDataJob::dispatch($connection, triggerType: 'manual')->onQueue('sync');
+        SyncPaymentDataJob::dispatch($connection, triggerType: 'manual');
 
         if ($connection->platform === 'shopee') {
-            SyncShopeeCampaignsForConnectionJob::dispatch($connection->id, 'manual')->onQueue('sync');
+            SyncShopeeCampaignsForConnectionJob::dispatch($connection->id, 'manual');
         }
 
         $this->auditLogger->log(
@@ -465,6 +481,16 @@ class IntegrationService
             'x_sap_ri' => (string) ($parsed['x_sap_ri'] ?? ''),
             'x_sap_sec' => (string) ($parsed['x_sap_sec'] ?? ''),
             'x_sz_sdk_version' => (string) ($parsed['x_sz_sdk_version'] ?? ''),
+            'accept_language' => (string) ($parsed['accept_language'] ?? ''),
+            'priority' => (string) ($parsed['priority'] ?? ''),
+            'sec_ch_ua' => (string) ($parsed['sec_ch_ua'] ?? ''),
+            'sec_ch_ua_mobile' => (string) ($parsed['sec_ch_ua_mobile'] ?? ''),
+            'sec_ch_ua_platform' => (string) ($parsed['sec_ch_ua_platform'] ?? ''),
+            'sec_fetch_dest' => (string) ($parsed['sec_fetch_dest'] ?? ''),
+            'sec_fetch_mode' => (string) ($parsed['sec_fetch_mode'] ?? ''),
+            'sec_fetch_site' => (string) ($parsed['sec_fetch_site'] ?? ''),
+            'request_body' => (string) ($parsed['request_body'] ?? ''),
+            'raw_headers' => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
             'profiles' => [],
         ];
 
@@ -483,10 +509,23 @@ class IntegrationService
                     'x_sap_ri',
                     'x_sap_sec',
                     'x_sz_sdk_version',
+                    'accept_language',
+                    'priority',
+                    'sec_ch_ua',
+                    'sec_ch_ua_mobile',
+                    'sec_ch_ua_platform',
+                    'sec_fetch_dest',
+                    'sec_fetch_mode',
+                    'sec_fetch_site',
+                    'request_body',
                 ] as $key) {
                     if ($base[$key] === '' && isset($existing[$key])) {
                         $base[$key] = (string) $existing[$key];
                     }
+                }
+
+                if (($base['raw_headers'] ?? []) === [] && is_array($existing['raw_headers'] ?? null)) {
+                    $base['raw_headers'] = $existing['raw_headers'];
                 }
             }
         }
@@ -501,8 +540,18 @@ class IntegrationService
                 'x_sap_ri' => (string) ($parsed['x_sap_ri'] ?? ''),
                 'x_sap_sec' => (string) ($parsed['x_sap_sec'] ?? ''),
                 'x_sz_sdk_version' => (string) ($parsed['x_sz_sdk_version'] ?? ''),
+                'accept_language' => (string) ($parsed['accept_language'] ?? ''),
+                'priority' => (string) ($parsed['priority'] ?? ''),
+                'sec_ch_ua' => (string) ($parsed['sec_ch_ua'] ?? ''),
+                'sec_ch_ua_mobile' => (string) ($parsed['sec_ch_ua_mobile'] ?? ''),
+                'sec_ch_ua_platform' => (string) ($parsed['sec_ch_ua_platform'] ?? ''),
+                'sec_fetch_dest' => (string) ($parsed['sec_fetch_dest'] ?? ''),
+                'sec_fetch_mode' => (string) ($parsed['sec_fetch_mode'] ?? ''),
+                'sec_fetch_site' => (string) ($parsed['sec_fetch_site'] ?? ''),
                 'referer' => (string) ($parsed['referer'] ?? ''),
                 'request_url' => (string) ($parsed['request_url'] ?? ''),
+                'request_body' => (string) ($parsed['request_body'] ?? ''),
+                'raw_headers' => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
             ];
         }
 
@@ -557,6 +606,8 @@ class IntegrationService
             'method' => $connection->method,
             'status' => $connection->status,
             'sync_mode' => $connection->sync_mode,
+            'sync_interval' => $connection->sync_interval,
+            'sync_time' => $connection->sync_time,
             'cookie_source' => $connection->cookie_source,
             'last_sync_status' => $connection->last_sync_status,
         ];

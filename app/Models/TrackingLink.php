@@ -65,6 +65,11 @@ class TrackingLink extends Model
         return $this->hasMany(Click::class);
     }
 
+    public function contentGenerations(): HasMany
+    {
+        return $this->hasMany(ContentGeneration::class);
+    }
+
     // ─── Scopes ───────────────────────────────────────────────────────────────
 
     /**

@@ -174,7 +174,7 @@ class SyncPlatformConnectionJob implements ShouldQueue
                             platform: $connection->platform,
                             minDate: (string) $clickResult['min_date'],
                             maxDate: (string) $clickResult['max_date'],
-                        )->onQueue('sync');
+                        );
                     }
                 } catch (\Throwable $e) {
                     $segmentsFailed[] = 'clicks_upsert';

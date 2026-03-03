@@ -44,7 +44,7 @@ class AggregateDailyClicksCommand extends Command
 
         $this->info("Dispatching AggregateDailyClicksJob for {$platform} from {$minDate} to {$maxDate}");
 
-        AggregateDailyClicksJob::dispatch($platform, $minDate, $maxDate)->onQueue('sync');
+        AggregateDailyClicksJob::dispatch($platform, $minDate, $maxDate);
 
         $this->info('Done.');
     }

@@ -267,6 +267,8 @@ import axios from 'axios';
 import { computed, ref } from 'vue';
 import { router, useForm, usePage } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
+import { useToast } from '@/Composables/useToast';
+import { useDialog } from '@/Composables/useDialog';
 
 const props = defineProps({
     settings: {
@@ -285,6 +287,8 @@ const props = defineProps({
 
 const page = usePage();
 const activeTab = ref('settings');
+const toast = useToast();
+const { promptDialog } = useDialog();
 
 const settingsForm = useForm({
     name: props.settings.name || '',
@@ -384,40 +388,49 @@ async function approvePayout(userId) {
     try {
         const response = await axios.post(route('api.payout-approvals.approve', userId));
         if (!response.data?.ok) {
-            alert(response.data?.message || 'Không thể duyệt hồ sơ.');
+            toast.error(response.data?.message || 'Không thể duyệt hồ sơ.');
             return;
         }
 
-        alert(response.data?.message || 'Đã duyệt hồ sơ payout.');
+        toast.success(response.data?.message || 'Đã duyệt hồ sơ payout.');
         router.reload({ only: ['payout', 'approval', 'flash'], preserveScroll: true });
     } catch (error) {
-        alert(error.response?.data?.message || 'Không thể duyệt hồ sơ.');
+        toast.error(error.response?.data?.message || 'Không thể duyệt hồ sơ.');
     } finally {
         approvingUserId.value = null;
     }
 }
 
 async function rejectPayout(userId) {
-    const reason = window.prompt('Nhập lý do từ chối hồ sơ payout:');
-    if (!reason || reason.trim().length < 3) {
-        alert('Vui lòng nhập lý do tối thiểu 3 ký tự.');
+    const reason = await promptDialog({
+        variant: 'danger',
+        title: 'Từ chối hồ sơ payout',
+        description: 'Vui lòng nhập lý do từ chối để hệ thống gửi lại cho CTV.',
+        confirmText: 'Xác nhận từ chối',
+        cancelText: 'Hủy',
+        inputLabel: 'Lý do từ chối',
+        inputPlaceholder: 'Ví dụ: Sai số tài khoản ngân hàng...',
+        inputMinLength: 3,
+    });
+
+    if (!reason) {
         return;
     }
 
     approvingUserId.value = userId;
     try {
         const response = await axios.post(route('api.payout-approvals.reject', userId), {
-            reason: reason.trim(),
+            reason,
         });
         if (!response.data?.ok) {
-            alert(response.data?.message || 'Không thể từ chối hồ sơ.');
+            toast.error(response.data?.message || 'Không thể từ chối hồ sơ.');
             return;
         }
 
-        alert(response.data?.message || 'Đã từ chối hồ sơ payout.');
+        toast.success(response.data?.message || 'Đã từ chối hồ sơ payout.');
         router.reload({ only: ['payout', 'approval', 'flash'], preserveScroll: true });
     } catch (error) {
-        alert(error.response?.data?.message || 'Không thể từ chối hồ sơ.');
+        toast.error(error.response?.data?.message || 'Không thể từ chối hồ sơ.');
     } finally {
         approvingUserId.value = null;
     }

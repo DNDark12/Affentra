@@ -71,7 +71,7 @@
                     ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-300'
                     : 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-300'"
             >
-                <i class="ph" :class="canSyncCampaigns ? 'ph-check-circle' : 'ph-warning-circle'"></i>
+                <component :is="canSyncCampaigns ? CheckCircle : AlertTriangle" :size="14" />
                 <span v-if="canSyncCampaigns">
                     Kết nối Shopee sẵn sàng.
                     <span v-if="props.campaignSync?.last_synced_at">
@@ -158,7 +158,7 @@
                                         class="font-medium text-indigo-600 hover:underline dark:text-indigo-400 inline-flex items-center gap-1"
                                     >
                                         {{ campaign.name }}
-                                        <i class="ph ph-arrow-square-out text-xs"></i>
+                                        <ExternalLink :size="11" />
                                     </a>
                                     <span v-else class="font-medium text-zinc-900 dark:text-zinc-100">
                                         {{ campaign.name }}
@@ -357,8 +357,9 @@
 import axios from 'axios';
 import { computed, ref } from 'vue';
 import { router } from '@inertiajs/vue3';
-import { Megaphone, Plus, RefreshCw, Search, X } from 'lucide-vue-next';
+import { Megaphone, Plus, RefreshCw, Search, X, CheckCircle, AlertTriangle, ExternalLink } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     campaigns: { type: Object, default: () => ({ data: [] }) },
@@ -370,6 +371,7 @@ const props = defineProps({
 const showCreate = ref(false);
 const creating = ref(false);
 const syncingCampaigns = ref(false);
+const toast = useToast();
 
 const searchInput = ref(props.filters?.search || '');
 const statusFilter = ref(props.filters?.status || '');
@@ -460,11 +462,12 @@ async function syncCampaigns() {
                 only: ['campaigns', 'campaignSync', 'filters', 'summary'],
                 preserveScroll: true,
             });
+            toast.success(response.data?.message || 'Đồng bộ campaign thành công.');
         } else {
-            alert(response.data?.message || 'Không thể đồng bộ campaign.');
+            toast.error(response.data?.message || 'Không thể đồng bộ campaign.');
         }
     } catch (error) {
-        alert(error.response?.data?.message || 'Không thể đồng bộ campaign.');
+        toast.error(error.response?.data?.message || 'Không thể đồng bộ campaign.');
     } finally {
         syncingCampaigns.value = false;
     }
@@ -473,16 +476,8 @@ async function syncCampaigns() {
 async function submitCreate() {
     creating.value = true;
     try {
-        const response = await fetch(route('api.campaigns.store'), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]').content,
-            },
-            body: JSON.stringify(form.value),
-        });
-
-        const payload = await response.json();
+        const response = await axios.post(route('api.campaigns.store'), form.value);
+        const payload = response.data;
         if (payload?.ok) {
             showCreate.value = false;
             form.value = {
@@ -493,11 +488,12 @@ async function submitCreate() {
                 date_end: '',
             };
             router.reload({ only: ['campaigns', 'filters', 'summary'], preserveScroll: true });
+            toast.success(payload?.message || 'Tạo campaign thành công.');
         } else {
-            alert(payload?.message || 'Không thể tạo campaign.');
+            toast.error(payload?.message || 'Không thể tạo campaign.');
         }
     } catch (error) {
-        alert(error?.message || 'Không thể tạo campaign.');
+        toast.error(error.response?.data?.message || 'Không thể tạo campaign.');
     } finally {
         creating.value = false;
     }

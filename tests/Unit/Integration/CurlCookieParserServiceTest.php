@@ -32,5 +32,26 @@ class CurlCookieParserServiceTest extends TestCase
         $this->assertSame('payout_record', $parsed[1]['endpoint_key']);
         $this->assertSame('test-ua', $parsed[0]['user_agent']);
     }
-}
 
+    public function test_parse_detects_campaign_endpoint_from_gql_query_param(): void
+    {
+        $service = new CurlCookieParserService();
+
+        $input = <<<'CURL'
+        curl 'https://affiliate.shopee.vn/api/v3/gql?q=affiliateCampaignDetailList' \
+          -H 'referer: https://affiliate.shopee.vn/campaign/campaign_list' \
+          -H 'user-agent: test-ua' \
+          --data-raw '{"operationName":"affiliateCampaignsList","query":"\n query ...","variables":{}}' \
+          -b 'SPC_EC=test-campaign;'
+        CURL;
+
+        $parsed = $service->parse($input);
+
+        $this->assertSame('campaign_list', $parsed['endpoint_key']);
+        $this->assertSame('test-ua', $parsed['user_agent']);
+        $this->assertNotNull($parsed['request_body']);
+        $this->assertStringContainsString('affiliateCampaignsList', (string) $parsed['request_body']);
+        $this->assertIsArray($parsed['raw_headers']);
+        $this->assertArrayHasKey('referer', $parsed['raw_headers']);
+    }
+}

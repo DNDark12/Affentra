@@ -139,7 +139,7 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
             ->where('role', UserRole::CTV);
 
         if ($manager->isLeader()) {
-            $query->whereIn('id', $this->getDescendantIds($manager->id));
+            $query->whereIn('id', $manager->getDescendantIds());
         }
 
         if (! empty($filters['search'])) {
@@ -154,13 +154,6 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
             $query->where('status', (string) $filters['status']);
         }
 
-        $dateFrom = ! empty($filters['date_from']) ? (string) $filters['date_from'] : null;
-        $dateTo = ! empty($filters['date_to']) ? (string) $filters['date_to'] : null;
-
-        // "New This Month" strictly respects the current calendar month unless filters dictate otherwise
-        $startOfMonth = now()->startOfMonth();
-        $endOfMonth = now()->endOfMonth();
-
         $row = (clone $query)
             ->selectRaw('COUNT(*) as total_partners')
             ->selectRaw(
@@ -169,22 +162,14 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
             )
             ->selectRaw(
                 'COALESCE(SUM(CASE WHEN created_at >= ? AND created_at <= ? THEN 1 ELSE 0 END), 0) as new_this_month',
-                [$startOfMonth, $endOfMonth],
-            );
-
-        if ($dateFrom) {
-            $row->where('created_at', '>=', $dateFrom . ' 00:00:00');
-        }
-        if ($dateTo) {
-            $row->where('created_at', '<=', $dateTo . ' 23:59:59');
-        }
-
-        $result = $row->first();
+                [now()->startOfMonth(), now()->endOfMonth()],
+            )
+            ->first();
 
         return [
-            'total_partners' => (int) ($result?->total_partners ?? 0),
-            'active_partners' => (int) ($result?->active_partners ?? 0),
-            'new_this_month' => (int) ($result?->new_this_month ?? 0),
+            'total_partners' => (int) ($row?->total_partners ?? 0),
+            'active_partners' => (int) ($row?->active_partners ?? 0),
+            'new_this_month' => (int) ($row?->new_this_month ?? 0),
         ];
     }
 

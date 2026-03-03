@@ -549,7 +549,7 @@ class OrderService
                     platform: $platform,
                     minDate: $dates->min(),
                     maxDate: $dates->max(),
-                )->onQueue('sync');
+                );
             }
         }
 

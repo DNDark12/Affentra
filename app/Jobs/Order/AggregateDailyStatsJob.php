@@ -23,9 +23,7 @@ class AggregateDailyStatsJob implements ShouldQueue
         public readonly string $platform,
         public readonly string $minDate,
         public readonly string $maxDate,
-    ) {
-        $this->onQueue('sync');
-    }
+    ) {}
 
     public function handle(): void
     {

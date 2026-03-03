@@ -82,9 +82,9 @@
                     </div>
 
                     <div class="flex items-center gap-2">
-                        <input v-model="dateFrom" @change="applyDateRange" type="date" class="af-input h-9 text-sm" />
+                        <input v-model="dateFrom" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
                         <span class="text-xs" style="color: var(--text-muted)">→</span>
-                        <input v-model="dateTo" @change="applyDateRange" type="date" class="af-input h-9 text-sm" />
+                        <input v-model="dateTo" @change="applyDateRange" type="date" class="af-input af-input-date h-9 text-sm" />
                     </div>
 
                     <div class="relative">
@@ -172,8 +172,8 @@
                             </td>
 
                             <td v-if="hasColumn('cr')" class="px-4 py-3 text-right text-xs tabular-nums"
-                                :style="{ color: Number(convRate(link)) >= 3 ? 'var(--success-text)' : 'var(--text-secondary)' }">
-                                {{ convRate(link) }}%
+                                :style="{ color: convRate(link) === '—' ? 'var(--text-muted)' : (Number(convRate(link)) >= 3 ? 'var(--success-text)' : 'var(--text-secondary)') }">
+                                {{ convRate(link) === '—' ? '—' : `${convRate(link)}%` }}
                             </td>
 
                             <td v-if="hasColumn('created')" class="px-4 py-3 text-right text-xs" style="color: var(--text-muted)">
@@ -231,7 +231,7 @@
                                 {{ fmtCurrency(summary.total_commission) }}
                             </td>
                             <td v-if="hasColumn('cr')" class="px-4 py-2.5 text-right text-xs tabular-nums" style="color: var(--text-secondary)">
-                                {{ totalCR }}%
+                                {{ totalCR === '—' ? '—' : `${totalCR}%` }}
                             </td>
                             <td v-if="hasColumn('created')"></td>
                             <td></td>
@@ -383,6 +383,7 @@ import {
     X,
 } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
+import { useDialog } from '@/Composables/useDialog';
 
 const props = defineProps({
     links: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1, from: 0, to: 0 }) },
@@ -403,6 +404,7 @@ const props = defineProps({
 });
 
 const page = usePage();
+const { confirmDialog } = useDialog();
 
 const showCreate = ref(false);
 const showEdit = ref(false);
@@ -464,7 +466,7 @@ const totalCR = computed(() => {
     const orders = Number(props.summary.total_orders || 0);
 
     if (!clicks) {
-        return '0.0';
+        return orders > 0 ? '—' : '0.0';
     }
 
     return ((orders / clicks) * 100).toFixed(1);
@@ -582,7 +584,7 @@ function convRate(link) {
     const orders = metricOrders(link);
 
     if (!clicks) {
-        return '0.0';
+        return orders > 0 ? '—' : '0.0';
     }
 
     return ((orders / clicks) * 100).toFixed(1);
@@ -782,7 +784,15 @@ async function archiveLink(link) {
         return;
     }
 
-    if (!confirm(`Archive link ${link.short_code}?`)) {
+    const confirmed = await confirmDialog({
+        variant: 'warning',
+        title: 'Archive tracking link?',
+        description: `Link ${link.short_code} sẽ chuyển sang trạng thái lưu trữ và không còn nhận click mới.`,
+        confirmText: 'Archive',
+        cancelText: 'Hủy',
+    });
+
+    if (!confirmed) {
         return;
     }
 

@@ -47,13 +47,13 @@
                     <input
                         v-model="dateFrom"
                         type="date"
-                        class="af-input h-9 text-sm"
+                        class="af-input af-input-date h-9 text-sm"
                         @change="applyFilters"
                     />
                     <input
                         v-model="dateTo"
                         type="date"
-                        class="af-input h-9 text-sm"
+                        class="af-input af-input-date h-9 text-sm"
                         @change="applyFilters"
                     />
                 </div>
@@ -101,6 +101,7 @@
                         </tr>
 
                         <tr v-for="p in partners.data" :key="p.id"
+                            @click="goToPartner(p.id)"
                             style="border-bottom: 1px solid var(--border)"
                             class="hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
                             <td class="px-4 py-3">
@@ -123,7 +124,7 @@
                                 đ{{ fmtNum(p.total_commission) }}
                             </td>
                             <td class="px-4 py-3">
-                                <button class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]">
+                                <button class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" @click.stop="goToPartner(p.id)">
                                     <ChevronRight :size="14" style="color: var(--text-muted)" />
                                 </button>
                             </td>
@@ -178,8 +179,10 @@ import { computed, ref } from 'vue';
 import { usePage, router } from '@inertiajs/vue3';
 import { UserPlus, Search, Users, ChevronRight, X, Link as LinkIcon } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
+import { useToast } from '@/Composables/useToast';
 
 const page = usePage();
+const toast = useToast();
 
 const props = defineProps({
     partners: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1 }) },
@@ -224,6 +227,10 @@ function goToPage(page) {
     applyFilters(page);
 }
 
+function goToPartner(partnerId) {
+    router.visit(route('partners.show', partnerId));
+}
+
 async function submitAdd() {
     adding.value = true;
     try {
@@ -239,11 +246,11 @@ async function submitAdd() {
         if (json.ok) { 
             showAdd.value = false; 
             addForm.value = { email: '' };
-            alert('Đã gửi email mời thành công!');
+            toast.success('Đã gửi email mời thành công!');
             router.reload({ only: ['partners', 'summary', 'filters'] });
         } else {
             const firstError = json.errors ? Object.values(json.errors).flat()[0] : null;
-            alert(firstError || json.message || 'Có lỗi xảy ra.');
+            toast.error(firstError || json.message || 'Có lỗi xảy ra.');
         }
     } finally { adding.value = false; }
 }
@@ -253,10 +260,10 @@ async function copyReferralLink() {
         const userId = page.props.auth.user.id;
         const url = `${window.location.origin}/register?ref=${userId}`;
         await navigator.clipboard.writeText(url);
-        alert('Đã copy Referral Link vào Clipboard!');
+        toast.success('Đã copy Referral Link vào clipboard.');
     } catch (err) {
         console.error('Failed to copy: ', err);
-        alert('Trình duyệt không hỗ trợ copy tự động.');
+        toast.error('Trình duyệt không hỗ trợ copy tự động.');
     }
 }
 </script>

@@ -39,7 +39,7 @@
                 class="flex items-center gap-2 px-4 py-3 rounded-lg border"
                 :class="calloutConfig.wrapperClass"
             >
-                <i :class="['text-lg', calloutConfig.icon, calloutConfig.iconClass]"></i>
+                <component :is="calloutConfig.icon" :size="16" :class="calloutConfig.iconClass" />
                 <span class="text-[13px] font-medium" :class="calloutConfig.textClass">
                     {{ calloutConfig.message }}
                 </span>
@@ -51,7 +51,7 @@
                 :class="feedbackClasses(uiFeedback.type)"
             >
                 <div class="flex items-start gap-2">
-                    <i :class="feedbackIcon(uiFeedback.type)"></i>
+                    <component :is="feedbackIcon(uiFeedback.type)" :size="15" class="mt-0.5 shrink-0" />
                     <div class="text-[13px]">
                         <p class="font-medium">{{ uiFeedback.message }}</p>
                         <p v-if="uiFeedback.details" class="mt-0.5 opacity-80 whitespace-pre-line text-[12px]">{{ uiFeedback.details }}</p>
@@ -70,7 +70,7 @@
                 <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-6 flex flex-col gap-4">
                     <div class="flex items-center gap-3">
                         <div class="h-11 w-11 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center">
-                            <i class="ph ph-plugs text-lg text-indigo-700 dark:text-indigo-300"></i>
+                            <Plug2 :size="20" class="text-indigo-700 dark:text-indigo-300" />
                         </div>
                         <div class="flex flex-col">
                             <h3 class="text-[16px] font-semibold text-zinc-900 dark:text-zinc-100">
@@ -121,7 +121,7 @@
                                 class="h-7 w-7 rounded-lg flex items-center justify-center"
                                 :style="{ backgroundColor: platform.color }"
                             >
-                                <i :class="['ph text-white text-sm', platform.icon]"></i>
+                                <component :is="platform.icon" :size="14" class="text-white" />
                             </div>
                             <span class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
                                 {{ platform.name }}
@@ -142,7 +142,7 @@
                         <span class="text-[12px] text-zinc-400 dark:text-zinc-500">0 lượt chạy</span>
                     </div>
                     <div class="flex flex-col items-center gap-2 py-6">
-                        <i class="ph ph-clock text-zinc-400 dark:text-zinc-500"></i>
+                        <Clock :size="16" class="text-zinc-400 dark:text-zinc-500" />
                         <p class="text-[13px] font-medium text-zinc-600 dark:text-zinc-300">Chưa có lần đồng bộ nào</p>
                         <p class="text-[12px] text-zinc-400 dark:text-zinc-500">
                             Sau khi kết nối thành công, lịch sử sync sẽ hiển thị tại đây.
@@ -163,7 +163,7 @@
                                 class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                                 :style="{ backgroundColor: getPlatform(connection.platform).color }"
                             >
-                                <i :class="['ph text-xl text-white', getPlatform(connection.platform).icon]"></i>
+                                <component :is="getPlatform(connection.platform).icon" :size="20" class="text-white" />
                             </div>
                             <div class="flex flex-col gap-1">
                                 <div class="flex items-center gap-2">
@@ -174,7 +174,7 @@
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
                                         :class="connectionStatusBadgeClass(connection.status)"
                                     >
-                                        <i :class="connectionStatusIcon(connection.status)"></i>
+                                        <component :is="connectionStatusIcon(connection.status)" :size="10" />
                                         {{ connectionStatusLabel(connection.status) }}
                                     </span>
                                 </div>
@@ -202,7 +202,7 @@
                                     <span class="uppercase font-bold tracking-tight">
                                         {{ connection.method === 'open_api' ? 'API' : (connection.method === 'cookie' ? 'Cookie' : 'Portal') }}
                                     </span>
-                                    <i class="ph ph-caret-down text-[10px] opacity-60 ml-0.5"></i>
+                                    <ChevronDown :size="10" class="opacity-60 ml-0.5" />
                                 </button>
                                 <div 
                                     v-if="activeDropdownId === connection.id" 
@@ -215,13 +215,13 @@
                                         class="flex items-center justify-between w-full px-3 py-2 text-[12px] text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                                         :class="connection.method === m ? 'bg-indigo-50/50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold' : ''"
                                     >
-                                        <span class="flex items-center gap-2">
-                                            <i v-if="m === 'open_api'" class="ph ph-globe text-sm opacity-70"></i>
-                                            <i v-if="m === 'cookie'" class="ph ph-cookie text-sm opacity-70"></i>
-                                            <i v-if="m === 'portal_export'" class="ph ph-file-csv text-sm opacity-70"></i>
+                                            <span class="flex items-center gap-2">
+                                            <Globe v-if="m === 'open_api'" :size="13" class="opacity-70" />
+                                            <Cookie v-if="m === 'cookie'" :size="13" class="opacity-70" />
+                                            <FileSpreadsheet v-if="m === 'portal_export'" :size="13" class="opacity-70" />
                                             {{ m === 'open_api' ? 'Open API' : (m === 'cookie' ? 'Cookie' : 'Portal Export') }}
                                         </span>
-                                        <i v-if="(m === 'open_api' && connection.has_open_api) || (m === 'cookie' && connection.has_cookie)" class="ph ph-check-circle text-[10px] text-emerald-500"></i>
+                                        <CheckCircle2 v-if="(m === 'open_api' && connection.has_open_api) || (m === 'cookie' && connection.has_cookie)" :size="10" class="text-emerald-500" />
                                     </button>
                                 </div>
                             </div>
@@ -231,7 +231,7 @@
                                 class="h-8 px-3 rounded-md border border-zinc-200 bg-white text-zinc-700 text-[12px] font-medium hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                                 :disabled="testingConnection === connection.id"
                             >
-                                <i v-if="testingConnection === connection.id" class="ph ph-spinner animate-spin mr-1"></i>
+                                <Loader2 v-if="testingConnection === connection.id" :size="12" class="animate-spin mr-1" />
                                 {{ secondaryActionLabel(connection) }}
                             </button>
                             <button
@@ -242,14 +242,14 @@
                                     ? 'bg-zinc-900 hover:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600'
                                     : 'bg-indigo-600 hover:bg-indigo-700'"
                             >
-                                <i v-if="syncingConnection === connection.id" class="ph ph-spinner animate-spin mr-1"></i>
+                                <Loader2 v-if="syncingConnection === connection.id" :size="12" class="animate-spin mr-1" />
                                 {{ syncingConnection === connection.id ? 'Đang sync...' : primaryActionLabel(connection) }}
                             </button>
                             <button
                                 @click="openConfigModal(getPlatform(connection.platform), connection)"
                                 class="h-8 px-3 rounded-md border border-zinc-200 text-zinc-600 bg-white hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 flex items-center gap-1.5 text-[12px] font-medium"
                             >
-                                <i class="ph ph-gear-six"></i>
+                                <Settings :size="13" />
                                 <span>Cấu hình</span>
                             </button>
                         </div>
@@ -278,7 +278,9 @@
 
                     <div class="px-5 py-4 flex flex-col gap-3">
                         <div class="flex items-center justify-between">
-                            <h4 class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">Lịch sử đồng bộ gần đây</h4>
+                            <h4 class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
+                                {{ connection.method === 'portal_export' ? 'Lịch sử upload gần đây' : 'Lịch sử đồng bộ gần đây' }}
+                            </h4>
                             <button
                                 v-if="connection.sync_runs_count > getRecentRuns(connection).length"
                                 type="button"
@@ -286,7 +288,7 @@
                                 @click="openHistoryModal(connection)"
                             >
                                 {{ connection.status === 'error' ? 'Xem log lỗi' : 'Xem tất cả' }}
-                                <i class="ph ph-arrow-right"></i>
+                                <ArrowRight :size="12" />
                             </button>
                         </div>
 
@@ -306,18 +308,30 @@
                                         <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 w-[80px]">{{ run.type === 'manual' ? 'Manual' : 'Auto' }}</td>
                                         <td class="py-2.5 px-4 w-[130px]">
                                             <div class="flex items-center gap-1.5 font-medium" :class="runStatusClass(run.status)">
-                                                <i :class="runStatusIcon(run.status)"></i>
+                                                <component :is="runStatusIcon(run.status)" :size="12" :class="runStatusClass(run.status)" />
                                                 <span>{{ runStatusLabel(run.status) }}</span>
                                             </div>
                                         </td>
                                         <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 text-right font-medium w-[150px]">
-                                            <div class="leading-tight">
-                                                <div class="text-[11px]">API {{ run.records_fetched ?? 0 }}</div>
-                                                <div class="text-[11px]">Thêm/Cập nhật {{ run.records_upserted ?? 0 }}</div>
-                                                <div class="text-[11px]" :class="Number(run.records_failed ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'">
-                                                    Bỏ qua/Lỗi {{ run.records_failed ?? 0 }}
+                                            <template v-if="isPortalUploadRun(run, connection)">
+                                                <div class="leading-tight text-right flex flex-col items-end">
+                                                    <div class="text-[11px] font-semibold truncate w-[130px]" :title="run.details?.modules?.portal_export?.original_filename || 'Unknown file'">
+                                                        {{ run.details?.modules?.portal_export?.original_filename || '—' }}
+                                                    </div>
+                                                    <div class="text-[10px] opacity-70 mt-0.5 uppercase tracking-wide">
+                                                        {{ run.details?.modules?.portal_export?.selected_type || '—' }}
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            </template>
+                                            <template v-else>
+                                                <div class="leading-tight">
+                                                    <div class="text-[11px]">API {{ run.records_fetched ?? 0 }}</div>
+                                                    <div class="text-[11px]">Thêm/Cập nhật {{ run.records_upserted ?? 0 }}</div>
+                                                    <div class="text-[11px]" :class="Number(run.records_failed ?? 0) > 0 ? 'text-red-500 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400'">
+                                                        Bỏ qua/Lỗi {{ run.records_failed ?? 0 }}
+                                                    </div>
+                                                </div>
+                                            </template>
                                         </td>
                                         <td class="py-2.5 px-4 text-right w-[70px]">
                                             <button
@@ -394,10 +408,16 @@
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
+import {
+    ShoppingBag, ShoppingCart, PlaySquare, Plug2, Globe, Cookie, FileSpreadsheet,
+    AlertTriangle, Info, CheckCircle, CheckCircle2, PauseCircle, MinusCircle,
+    ArrowRight, Settings, Loader2, Clock,
+} from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 import DrawerHistory from './Partials/DrawerHistory.vue';
 import DrawerConfig from './Partials/DrawerConfig.vue';
 import ModalUpload from './Partials/ModalUpload.vue';
+import { useDialog } from '@/Composables/useDialog';
 
 const props = defineProps({
     connections: {
@@ -419,9 +439,9 @@ function cloneConnections(input) {
 }
 
 const platformCatalog = [
-    { id: 'shopee', name: 'Shopee Vietnam', icon: 'ph-shopping-bag', color: '#EE4D2D' },
-    { id: 'lazada', name: 'Lazada Affiliate', icon: 'ph-shopping-cart', color: '#0B1AA5' },
-    { id: 'tiktok', name: 'TikTok Shop', icon: 'ph-play-square', color: '#111827' },
+    { id: 'shopee', name: 'Shopee Vietnam', icon: ShoppingBag, color: '#EE4D2D' },
+    { id: 'lazada', name: 'Lazada Affiliate', icon: ShoppingCart, color: '#0B1AA5' },
+    { id: 'tiktok', name: 'TikTok Shop', icon: PlaySquare, color: '#111827' },
 ];
 
 const platformConfigs = computed(() => {
@@ -471,7 +491,7 @@ const platformAvailability = computed(() => {
 const calloutConfig = computed(() => {
     if (isEmpty.value) {
         return {
-            icon: 'ph ph-warning-circle',
+            icon: AlertTriangle,
             iconClass: 'text-amber-700 dark:text-amber-400',
             textClass: 'text-amber-800 dark:text-amber-300',
             wrapperClass: 'bg-amber-50 border-amber-300 dark:bg-amber-500/10 dark:border-amber-500/30',
@@ -481,7 +501,7 @@ const calloutConfig = computed(() => {
 
     if (isSingle.value) {
         return {
-            icon: 'ph ph-info',
+            icon: Info,
             iconClass: 'text-indigo-700 dark:text-indigo-300',
             textClass: 'text-indigo-800 dark:text-indigo-200',
             wrapperClass: 'bg-indigo-50 border-indigo-200 dark:bg-indigo-500/10 dark:border-indigo-500/30',
@@ -491,7 +511,7 @@ const calloutConfig = computed(() => {
 
     if (issueConnections.value.length > 0) {
         return {
-            icon: 'ph ph-check-circle',
+            icon: CheckCircle,
             iconClass: 'text-emerald-700 dark:text-emerald-300',
             textClass: 'text-emerald-800 dark:text-emerald-200',
             wrapperClass: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30',
@@ -500,7 +520,7 @@ const calloutConfig = computed(() => {
     }
 
     return {
-        icon: 'ph ph-check-circle',
+        icon: CheckCircle,
         iconClass: 'text-emerald-700 dark:text-emerald-300',
         textClass: 'text-emerald-800 dark:text-emerald-200',
         wrapperClass: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30',
@@ -540,6 +560,7 @@ const selectedDetailedPlatform = ref(null);
 const syncAllDisabled = computed(() => {
     return syncingAll.value || allConnections.value.length === 0;
 });
+const { confirmDialog } = useDialog();
 
 function connectionStatusPriority(status) {
     if (status === 'active') return 0;
@@ -550,7 +571,7 @@ function connectionStatusPriority(status) {
 
 function getPlatform(platformId) {
     return platformConfigs.value.find((platform) => platform.id === platformId)
-        || { id: platformId, name: platformId, icon: 'ph-plugs-connected', color: '#71717A', supported: false };
+        || { id: platformId, name: platformId, icon: Plug2, color: '#71717A', supported: false };
 }
 
 function connectionStatusLabel(status) {
@@ -563,10 +584,10 @@ function connectionStatusLabel(status) {
 }
 
 function connectionStatusIcon(status) {
-    if (status === 'active') return 'ph ph-check-circle';
-    if (status === 'error') return 'ph ph-warning-circle';
-    if (status === 'inactive') return 'ph ph-pause-circle';
-    return 'ph ph-minus-circle';
+    if (status === 'active') return CheckCircle;
+    if (status === 'error') return AlertTriangle;
+    if (status === 'inactive') return PauseCircle;
+    return MinusCircle;
 }
 
 function connectionStatusBadgeClass(status) {
@@ -625,7 +646,23 @@ function formatTimeOnly(isoString) {
 
 function nextRunLabel(connection) {
     if (connection.sync_mode !== 'scheduled' || connection.status === 'error') return 'Manual';
-    return '15 phút nữa';
+    
+    if (connection.sync_interval === 'daily') {
+        const time = connection.sync_time || '00:00';
+        return `Tự động (Hàng ngày lúc ${time})`;
+    }
+    
+    const intervalMap = {
+        '15m': '15 phút',
+        '1h': '1 tiếng',
+        '3h': '3 tiếng',
+        '8h': '8 tiếng',
+    };
+    
+    const interval = connection.sync_interval || '15m';
+    const label = intervalMap[interval] || '15 phút';
+    
+    return `Tự động (${label})`;
 }
 
 function backfillLabel(connection) {
@@ -656,17 +693,22 @@ function runStatusClass(status) {
 }
 
 function runStatusIcon(status) {
-    if (status === 'pending' || status === 'processing') return 'ph ph-spinner-gap animate-spin';
-    if (status === 'completed') return 'ph ph-check-circle';
-    if (status === 'completed_with_warnings') return 'ph ph-warning-circle';
-    if (status === 'rate_limited') return 'ph ph-warning-circle';
-    if (String(status).startsWith('failed')) return 'ph ph-warning-circle';
-    return 'ph ph-clock-counter-clockwise';
+    if (status === 'pending' || status === 'processing') return Loader2;
+    if (status === 'completed') return CheckCircle;
+    if (status === 'completed_with_warnings') return AlertTriangle;
+    if (status === 'rate_limited') return AlertTriangle;
+    if (String(status).startsWith('failed')) return AlertTriangle;
+    return Clock;
+}
+
+function isPortalUploadRun(run, connection) {
+    // Only return true if the run explicitly contains portal_export details.
+    // Relying on connection.method would hide historical API syncs.
+    return !!run?.details?.modules?.portal_export;
 }
 
 function runActionLabel(status) {
     if (status === 'pending' || status === 'processing') return 'Đang chạy';
-    if (String(status).startsWith('failed')) return 'Retry';
     return 'Chi tiết';
 }
 
@@ -678,10 +720,10 @@ function feedbackClasses(type) {
 }
 
 function feedbackIcon(type) {
-    if (type === 'success') return 'ph ph-check-circle text-emerald-600 dark:text-emerald-300 text-[18px]';
-    if (type === 'error') return 'ph ph-warning-circle text-red-600 dark:text-red-300 text-[18px]';
-    if (type === 'warning') return 'ph ph-warning text-amber-600 dark:text-amber-300 text-[18px]';
-    return 'ph ph-info text-indigo-600 dark:text-indigo-300 text-[18px]';
+    if (type === 'success') return CheckCircle;
+    if (type === 'error') return AlertTriangle;
+    if (type === 'warning') return AlertTriangle;
+    return Info;
 }
 
 function showFeedback(type, message, details = '') {
@@ -851,12 +893,23 @@ function closeUploadModal() {
     }, 300);
 }
 
-function deleteConnection(connection) {
-    if (confirm('Bạn có chắc chắn muốn xóa kết nối này? Dữ liệu lịch sử sẽ không bị xóa.')) {
-        router.delete(route('api.integrations.destroy', connection.id), {
-            preserveScroll: true,
-            onSuccess: () => closeConfigModal(),
-        });
+async function deleteConnection(connection) {
+    const confirmed = await confirmDialog({
+        variant: 'danger',
+        title: 'Xóa kết nối?',
+        description: 'Kết nối sẽ bị xóa khỏi hệ thống. Dữ liệu lịch sử đã đồng bộ sẽ không bị xóa.',
+        confirmText: 'Xóa kết nối',
+        cancelText: 'Giữ lại',
+    });
+
+    if (!confirmed) return;
+    try {
+        await axios.delete(route('api.integrations.destroy', connection.id));
+        closeConfigModal();
+        showFeedback('success', 'Đã xóa kết nối thành công.');
+        router.reload({ only: ['connections'], preserveScroll: true, preserveState: true });
+    } catch (error) {
+        showFeedback('error', error.response?.data?.message || 'Không thể xóa kết nối.');
     }
 }
 
@@ -918,7 +971,7 @@ function secondaryActionLabel(connection) {
 function primaryActionLabel(connection) {
     if (connection.status === 'error') return 'Retry Sync';
     if (connection.method === 'portal_export') return 'Upload History';
-    return 'Sync Now';
+    return 'Đồng bộ ngay';
 }
 
 function secondaryAction(connection) {
@@ -972,14 +1025,28 @@ async function switchMethod(connection, newMethod) {
     if (connection.method === newMethod) return;
 
     if (newMethod === 'open_api' && !connection.has_open_api) {
-        if (confirm('Cấu hình Open API chưa đầy đủ. Bạn có muốn mở bảng Cấu hình để thiết lập?')) {
+        const confirmed = await confirmDialog({
+            variant: 'warning',
+            title: 'Open API chưa được cấu hình',
+            description: 'Bạn cần nhập App ID/App Secret trước khi chuyển sang mode Open API.',
+            confirmText: 'Mở cấu hình',
+            cancelText: 'Để sau',
+        });
+        if (confirmed) {
             openConfigModal(getPlatform(connection.platform), connection);
         }
         return;
     }
     
     if (newMethod === 'cookie' && !connection.has_cookie) {
-        if (confirm('Cấu hình Cookie chưa đầy đủ. Bạn có muốn mở bảng Cấu hình để thiết lập?')) {
+        const confirmed = await confirmDialog({
+            variant: 'warning',
+            title: 'Cookie chưa được cấu hình',
+            description: 'Bạn cần dán cookie hợp lệ trước khi chuyển sang mode Cookie.',
+            confirmText: 'Mở cấu hình',
+            cancelText: 'Để sau',
+        });
+        if (confirmed) {
             openConfigModal(getPlatform(connection.platform), connection);
         }
         return;

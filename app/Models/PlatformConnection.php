@@ -36,6 +36,8 @@ class PlatformConnection extends Model
         'token_expires_at',
         'status',
         'sync_mode',
+        'sync_interval',
+        'sync_time',
         'capabilities',
         'backfill_days_override',
         'last_sync_at',
@@ -164,5 +166,17 @@ class PlatformConnection extends Model
     public function isScheduled(): bool
     {
         return $this->sync_mode === 'scheduled';
+    }
+
+    public function getSyncIntervalMinutes(): int
+    {
+        return match ($this->sync_interval) {
+            '15m' => 15,
+            '1h' => 60,
+            '3h' => 180,
+            '8h' => 480,
+            'daily' => 1440,
+            default => 15,
+        };
     }
 }

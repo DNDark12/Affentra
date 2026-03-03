@@ -32,7 +32,6 @@ class SyncPaymentDataJob implements ShouldQueue
         $defaultBackfillDays = (int) ($platformConnection->backfill_days_override
             ?? config("integrations.{$platformConnection->platform}.backfill_days", 90));
 
-        $this->onQueue('sync');
         $this->since = $since ?? now()->subDays(max($defaultBackfillDays, 1));
         $this->until = $until ?? now();
     }

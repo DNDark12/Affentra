@@ -35,9 +35,11 @@ class StoreConnectionRequest extends FormRequest
             'curl_command'         => [
                 'nullable',
                 'string',
-                Rule::requiredIf(fn (): bool => $this->input('method') === 'cookie' && blank($this->input('cookie_header'))),
             ],
             'consent_acknowledged' => ['nullable', 'boolean', 'accepted_if:method,cookie'],
+            'sync_mode'            => ['sometimes', 'required', 'string', Rule::in(['manual', 'scheduled'])],
+            'sync_interval'        => ['nullable', 'string', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled'), Rule::in(['15m', '1h', '3h', '8h', 'daily'])],
+            'sync_time'            => ['nullable', 'string', 'date_format:H:i', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled' && $this->input('sync_interval') === 'daily')],
         ];
     }
 

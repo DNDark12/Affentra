@@ -28,9 +28,13 @@
 
         <!-- Bottom -->
         <div class="flex flex-col gap-0.5">
-            <Link :href="route('profile.edit')" class="af-nav-item">
+            <Link :href="route('profile.edit')" class="af-nav-item" :class="{ active: isActive('profile.edit') }">
                 <Settings :size="16" :stroke-width="1.75" />
-                <span>Cài đặt</span>
+                <span>Hồ sơ</span>
+            </Link>
+            <Link :href="route('settings.ai')" class="af-nav-item" :class="{ active: isActive('settings.ai') }">
+                <Cpu :size="16" :stroke-width="1.75" />
+                <span>AI Provider</span>
             </Link>
             <a href="#" class="af-nav-item">
                 <HelpCircle :size="16" :stroke-width="1.75" />
@@ -55,6 +59,7 @@ import {
     Settings,
     HelpCircle,
     LogOut,
+    Cpu,
 } from 'lucide-vue-next';
 
 defineProps({

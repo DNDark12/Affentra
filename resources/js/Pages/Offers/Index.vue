@@ -6,7 +6,7 @@
                 <div class="flex flex-col gap-1">
                     <div class="flex items-center gap-2">
                         <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
-                            <i class="ph ph-compass text-lg"></i>
+                        <Compass :size="20" />
                         </div>
                         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Khám phá sản phẩm</h1>
                     </div>
@@ -31,13 +31,13 @@
             <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm flex flex-col gap-4">
                 <form @submit.prevent="performSearch" class="flex flex-col md:flex-row items-stretch md:items-center gap-3">
                     <div class="relative flex-1">
-                        <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 text-lg"></i>
+                        <Search :size="18" class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                         <input type="text" v-model="searchUrl" 
                                placeholder="Dán link sản phẩm Shopee hoặc nhập Item ID..." 
                                class="w-full h-12 pl-12 pr-[120px] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30 text-[15px] focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-zinc-100 font-medium" />
                         
                         <button type="submit" :disabled="!searchUrl || isSearching || !selectedConnectionId" class="absolute right-1.5 top-1.5 bottom-1.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm">
-                            <i v-if="isSearching" class="ph ph-spinner animate-spin text-lg"></i>
+                            <Loader2 v-if="isSearching" :size="18" class="animate-spin" />
                             <span v-else>Tìm kiếm</span>
                         </button>
                     </div>
@@ -58,13 +58,13 @@
 
             <!-- Error State -->
             <div v-if="errorMsg" class="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400 text-[14px] flex items-center gap-2">
-                <i class="ph ph-warning-circle text-lg"></i>
+                <AlertTriangle :size="18" />
                 <span>{{ errorMsg }}</span>
             </div>
 
             <!-- Empty / Initial State -->
             <div v-if="!isSearching && !hasSearched && !errorMsg" class="py-16 flex flex-col items-center justify-center text-zinc-500 dark:text-zinc-400">
-                <i class="ph ph-magnifying-glass text-6xl opacity-20 mb-4"></i>
+                <Search :size="60" class="opacity-20 mb-4 text-zinc-500 dark:text-zinc-400" />
                 <p class="text-base font-medium">Nhập link hoặc ID sản phẩm để bắt đầu</p>
                 <p class="text-sm mt-1 opacity-70">Hiện chỉ hỗ trợ nền tảng Shopee Vietnam kết nối qua API.</p>
             </div>
@@ -104,11 +104,11 @@
                         <div class="aspect-square relative overflow-hidden bg-zinc-100 dark:bg-zinc-800 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
                             <!-- Mall Badge -->
                             <div class="absolute top-8 left-2 bg-emerald-50 text-emerald-600 border border-emerald-200 shadow-sm text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 z-10 uppercase tracking-wide">
-                                <i class="ph ph-check-circle-fill"></i> Shopee Mall
+                                <CheckCircle2 :size="10" /> Shopee Mall
                             </div>
                             <img v-if="offer.image_url" :src="offer.image_url" alt="Product Image" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
                             <div v-else class="w-full h-full flex items-center justify-center text-zinc-400">
-                                <i class="ph ph-image text-3xl"></i>
+                                <ImageOff :size="30" />
                             </div>
                         </div>
 
@@ -131,12 +131,15 @@
                             </div>
 
                             <!-- Actions -->
-                            <div class="flex items-center gap-2 mt-4">
-                                <button @click="quickCopy(offer)" class="flex-1 h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-colors">
-                                    <i class="ph ph-copy"></i> Copy Link
+                            <div class="grid grid-cols-3 gap-2 mt-4">
+                                <button @click="openOfferDetail(offer)" class="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors">
+                                    <Info :size="12" /> Chi tiết
                                 </button>
-                                <button @click="openGetLinkModal(offer)" class="flex-1 h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:border-indigo-500/20 dark:text-indigo-400 dark:hover:bg-indigo-500/20 text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-colors">
-                                    <i class="ph ph-link"></i> Lấy Link Động
+                                <button @click="quickCopy(offer)" class="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors">
+                                    <Copy :size="12" /> Copy Link
+                                </button>
+                                <button @click="openGetLinkModal(offer)" class="h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:border-indigo-500/20 dark:text-indigo-400 dark:hover:bg-indigo-500/20 text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors">
+                                    <Link :size="12" /> Lấy Link Động
                                 </button>
                             </div>
                         </div>
@@ -160,8 +163,11 @@
 <script setup>
 import { computed, ref } from 'vue';
 import axios from 'axios';
+import { router } from '@inertiajs/vue3';
+import { Compass, Search, Loader2, AlertTriangle, CheckCircle2, ImageOff, Info, Copy, Link } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 import DrawerGetLink from './Partials/DrawerGetLink.vue';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
     connections: {
@@ -175,6 +181,7 @@ const activeConnections = computed(() => {
     return props.connections.filter((connection) => connection.status === 'active' && connection.platform === 'shopee');
 });
 const selectedConnectionId = ref(activeConnections.value.length ? String(activeConnections.value[0].id) : '');
+const toast = useToast();
 
 function formatPlatformName(p) {
     if (p === 'shopee') return 'Shopee Vietnam';
@@ -249,6 +256,19 @@ function closeGetLinkModal() {
     }, 300);
 }
 
+function openOfferDetail(offer) {
+    if (!selectedConnectionId.value) {
+        toast.error('Vui lòng chọn kết nối trước khi xem chi tiết.');
+        return;
+    }
+
+    router.visit(route('offers.show', {
+        offerId: offer.item_id,
+        connection_id: Number(selectedConnectionId.value),
+        ...(offer.shop_id ? { shop_id: offer.shop_id } : {}),
+    }));
+}
+
 // Quick copy creates standard clean link with no external sub-ids, via simple API request
 async function quickCopy(offer) {
     try {
@@ -268,11 +288,11 @@ async function quickCopy(offer) {
                 throw new Error('No link returned from API.');
             }
             navigator.clipboard.writeText(link).then(() => {
-                alert('Copied link: ' + link);
+                toast.success('Đã copy link thành công.');
             });
         }
     } catch (e) {
-        alert('Có lỗi khi tạo link nhanh.');
+        toast.error('Có lỗi khi tạo link nhanh.');
     }
 }
 

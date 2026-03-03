@@ -10,13 +10,13 @@ use Illuminate\Support\Facades\Schedule;
 |--------------------------------------------------------------------------
 */
 
-Schedule::job(new DispatchScheduledSyncsJob, 'sync')
+Schedule::job(new DispatchScheduledSyncsJob)
     ->everyFifteenMinutes()
     ->withoutOverlapping()
     ->onOneServer();
 
 // Sync Shopee campaigns once per day
-Schedule::job(new SyncShopeeCampaignsDailyJob, 'sync')
+Schedule::job(new SyncShopeeCampaignsDailyJob)
     ->dailyAt((string) config('integrations.shopee.campaign_sync_at', '09:05'))
     ->withoutOverlapping()
     ->onOneServer();

@@ -23,7 +23,7 @@
                             <p class="text-[13px] text-zinc-500 dark:text-zinc-400">Tuỳ chỉnh thông số theo dõi chiến dịch</p>
                         </div>
                         <button @click="close" class="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700 transition-colors">
-                            <i class="ph ph-x"></i>
+                        <X :size="14" />
                         </button>
                     </div>
 
@@ -86,7 +86,7 @@
                         <!-- Generated Link Result -->
                         <div v-if="generatedLink" class="mt-2 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 flex flex-col gap-3">
                             <div class="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-semibold text-sm">
-                                <i class="ph ph-check-circle-fill"></i> Link đã sẵn sàng!
+                                <CheckCircle :size="15" /> Link đã sẵn sàng!
                             </div>
                             <div class="relative">
                                 <input type="text" readonly :value="generatedLink" class="w-full h-10 pl-3 pr-12 rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-white dark:bg-zinc-900 text-sm text-zinc-700 dark:text-zinc-300 outline-none" />
@@ -104,7 +104,7 @@
                             Hủy
                         </button>
                         <button form="linkForm" type="submit" :disabled="loading" class="h-9 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium flex justify-center items-center transition-colors disabled:opacity-50">
-                            <i v-if="loading" class="ph ph-spinner animate-spin mr-2"></i>
+                            <Loader2 v-if="loading" :size="14" class="animate-spin mr-2" />
                             {{ loading ? 'Đang tạo...' : 'Tạo Link Động' }}
                         </button>
                     </div>
@@ -118,6 +118,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import axios from 'axios';
+import { X, CheckCircle, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps({
     isOpen: Boolean,

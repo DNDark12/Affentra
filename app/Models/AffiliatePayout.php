@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AffiliatePayout extends Model
 {
@@ -11,6 +12,7 @@ class AffiliatePayout extends Model
 
     protected $fillable = [
         'platform_connection_id',
+        'payout_batch_id',
         'user_id',
         'platform',
         'payout_id',
@@ -28,4 +30,14 @@ class AffiliatePayout extends Model
         'amount' => 'decimal:2',
         'raw_json' => 'array'
     ];
+
+    public function payoutBatch(): BelongsTo
+    {
+        return $this->belongsTo(PayoutBatch::class, 'payout_batch_id');
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

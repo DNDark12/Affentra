@@ -2,10 +2,10 @@
 
 ## 1. Queue and scheduler startup
 
-Run worker with queue priority `sync,default`:
+Run worker on default queue:
 
 ```bash
-php artisan queue:work database --queue=sync,default --sleep=1 --tries=3 --timeout=120 --memory=256 --no-interaction
+php artisan queue:work --sleep=1 --tries=3 --timeout=120 --memory=256 --no-interaction
 ```
 
 Run scheduler:
@@ -65,11 +65,12 @@ ORDER BY id DESC;
 
 ## 5. Cookie test behavior
 
-Cookie test is now `any endpoint pass`:
+Cookie test is now `any endpoint pass` (or Shopee soft-block code):
 
 - Probes:
   - `dashboard/detail`
   - `report/list` (conversion)
   - `click_report/list`
 - Result is valid when at least one probe returns success.
+- If probes return Shopee anti-bot soft block (`90309999`), connection is marked usable with warning.
 - Failed probes are returned in `checks` and summarized in `message`.

@@ -21,9 +21,7 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
     public function __construct(
         private readonly int $connectionId,
         private readonly string $triggerType = 'manual',
-    ) {
-        $this->onQueue('sync');
-    }
+    ) {}
 
     public function handle(CampaignSyncService $campaignSyncService): void
     {
@@ -54,9 +52,10 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
                 'records_upserted' => (int) ($result['upserted'] ?? 0),
                 'records_failed' => 0,
                 'error_message' => sprintf(
-                    'Campaigns: fetched=%d | upserted=%d | connections=%d',
+                    'Campaigns: fetched=%d | upserted=%d | links_provisioned=%d | connections=%d',
                     (int) ($result['fetched'] ?? 0),
                     (int) ($result['upserted'] ?? 0),
+                    (int) ($result['links_provisioned'] ?? 0),
                     (int) ($result['connections'] ?? 1),
                 ),
                 'details' => [
@@ -65,6 +64,7 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
                             'status' => 'ok',
                             'fetched' => (int) ($result['fetched'] ?? 0),
                             'upserted' => (int) ($result['upserted'] ?? 0),
+                            'links_provisioned' => (int) ($result['links_provisioned'] ?? 0),
                         ],
                     ],
                     'warnings' => [],
@@ -76,6 +76,37 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
                 ...$result,
             ]);
         } catch (\Throwable $e) {
+            if ($this->isShopeeSoftBlock($e)) {
+                $syncRun->update([
+                    'status' => 'completed_with_warnings',
+                    'finished_at' => now(),
+                    'records_failed' => 0,
+                    'error_message' => mb_substr(
+                        'Campaign sync bị Shopee chặn tạm thời (anti-bot challenge 90309999). Hãy lấy cURL từ trang Campaign List và thử lại.',
+                        0,
+                        1000
+                    ),
+                    'details' => [
+                        'modules' => [
+                            'campaign' => [
+                                'status' => 'warning',
+                                'fetched' => 0,
+                                'upserted' => 0,
+                                'reason' => 'soft_block',
+                            ],
+                        ],
+                        'warnings' => [$e->getMessage()],
+                    ],
+                ]);
+
+                Log::warning('SyncShopeeCampaignsForConnectionJob soft blocked', [
+                    'connection_id' => $connection->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return;
+            }
+
             $syncRun->update([
                 'status' => 'failed_api',
                 'finished_at' => now(),
@@ -97,5 +128,12 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
             ]);
         }
     }
-}
 
+    private function isShopeeSoftBlock(\Throwable $e): bool
+    {
+        $message = mb_strtolower($e->getMessage());
+
+        return str_contains($message, '90309999')
+            || str_contains($message, 'anti-bot challenge');
+    }
+}

@@ -25,30 +25,53 @@ class DispatchScheduledSyncsJob implements ShouldQueue
 
     public function handle(): void
     {
-        $intervalMinutes = config('integrations.sync.interval_minutes', 60);
-
         $connections = PlatformConnection::query()
             ->where('status', 'active')
             ->where('sync_mode', 'scheduled')
-            ->where(function ($q) use ($intervalMinutes) {
-                $q->whereNull('last_sync_at')
-                  ->orWhere('last_sync_at', '<=', now()->subMinutes($intervalMinutes));
-            })
             ->get();
 
+        $eligibleConnections = $connections->filter(function (PlatformConnection $connection) {
+            if ($connection->last_sync_at === null) {
+                return true;
+            }
+
+            if ($connection->sync_interval === 'daily') {
+                $syncTimeStr = $connection->sync_time ?? '00:00';
+                $now = now();
+                
+                try {
+                    $targetTimeToday = \Carbon\Carbon::createFromFormat('H:i', $syncTimeStr, config('app.timezone'))->setDateFrom($now);
+                } catch (\Exception $e) {
+                    $targetTimeToday = $now->copy()->startOfDay();
+                }
+                
+                if ($now->gte($targetTimeToday)) {
+                    return $connection->last_sync_at->lt($targetTimeToday);
+                }
+                
+                $targetTimeYesterday = $targetTimeToday->copy()->subDay();
+                return $connection->last_sync_at->lt($targetTimeYesterday);
+            }
+
+            $intervalMinutes = $connection->getSyncIntervalMinutes();
+
+            return $connection->last_sync_at->lte(now()->subMinutes($intervalMinutes));
+        });
+
         Log::info('DispatchScheduledSyncsJob: found eligible connections', [
-            'count' => $connections->count(),
+            'count' => $eligibleConnections->count(),
+            'total_active' => $connections->count(),
         ]);
 
-        foreach ($connections as $connection) {
+        foreach ($eligibleConnections as $connection) {
             SyncPlatformConnectionJob::dispatch(
                 connectionId: $connection->id,
                 type: 'auto',
                 userId: $connection->user_id,
-            )->onQueue('sync');
+            );
 
             // Also schedule payment sync (Finance)
-            SyncPaymentDataJob::dispatch($connection)->onQueue('sync');
+            SyncPaymentDataJob::dispatch($connection);
         }
     }
 }

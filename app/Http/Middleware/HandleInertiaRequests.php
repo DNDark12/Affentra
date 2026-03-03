@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Models\AlertIncident;
 use App\Models\PlatformConnection;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -60,6 +61,29 @@ class HandleInertiaRequests extends Middleware
                 ]);
             },
             'constants' => config('affentra', []),
+            'alerts' => function () use ($request) {
+                /** @var User|null $user */
+                $user = $request->user();
+                if (! $user) {
+                    return ['unseen_count' => 0, 'open_count' => 0];
+                }
+
+                $unseenCount = AlertIncident::query()
+                    ->where('user_id', $user->id)
+                    ->whereNull('seen_at')
+                    ->whereNull('resolved_at')
+                    ->count();
+
+                $openCount = AlertIncident::query()
+                    ->where('user_id', $user->id)
+                    ->whereNull('resolved_at')
+                    ->count();
+
+                return [
+                    'unseen_count' => $unseenCount,
+                    'open_count' => $openCount,
+                ];
+            },
             'sync_status' => function () use ($request) {
                 /** @var User|null $user */
                 $user = $request->user();

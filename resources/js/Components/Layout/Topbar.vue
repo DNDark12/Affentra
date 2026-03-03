@@ -12,9 +12,17 @@
                 Platform: Shopee
             </span>
 
-            <button class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--surface-2)] transition-colors"
+            <button class="relative w-8 h-8 rounded-lg flex items-center justify-center hover:bg-[var(--surface-2)] transition-colors"
+                    @click="goAlerts"
                     aria-label="Notifications">
                 <Bell :size="16" :stroke-width="1.75" style="color: var(--text-secondary)" />
+                <span
+                    v-if="alertSummary.unseen_count > 0"
+                    class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center text-white"
+                    style="background: var(--danger-text)"
+                >
+                    {{ alertSummary.unseen_count > 9 ? '9+' : alertSummary.unseen_count }}
+                </span>
             </button>
 
             <button @click="toggleTheme"
@@ -34,7 +42,7 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue';
-import { usePage } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { Bell, Sun, Moon } from 'lucide-vue-next';
 
 const page   = usePage();
@@ -45,9 +53,43 @@ onMounted(() => {
     isDark.value = document.documentElement.classList.contains('dark');
 });
 
-const pageTitle = computed(() =>
-    page.props.ziggy?.location?.split('/').filter(Boolean).pop() || 'Dashboard'
-);
+const ROUTE_TITLES = {
+    'dashboard':                   'Dashboard',
+    'integrations.index':          'Tích hợp kết nối',
+    'links.index':                 'Tracking Links',
+    'links.show':                  'Chi tiết Link',
+    'offers.index':                'Offers',
+    'offers.show':                 'Chi tiết Offer',
+    'campaigns.index':             'Campaigns',
+    'orders.index':                'Orders',
+    'clicks.index':                'Click Analytics',
+    'clicks.report':               'Báo cáo Click',
+    'clicks.conversion':           'Tỷ lệ chuyển đổi',
+    'partners.index':              'Partners',
+    'partners.show':               'Chi tiết Partner',
+    'finance.index':               'Finance',
+    'finance.payout-batches.index':'Payout Batches',
+    'finance.payout-batches.show': 'Chi tiết Payout Batch',
+    'alerts.index':                'Cảnh báo',
+    'alerts.rules':                'Quy tắc cảnh báo',
+    'alerts.templates':            'Mẫu thông báo',
+    'alerts.telegram-config':      'Cấu hình Telegram',
+    'alerts.incidents.show':       'Chi tiết sự cố',
+    'profile.edit':                'Hồ sơ tài khoản',
+    'settings.ai':                 'AI Provider',
+};
+
+const pageTitle = computed(() => {
+    const currentRoute = route().current();
+    if (currentRoute && ROUTE_TITLES[currentRoute]) {
+        return ROUTE_TITLES[currentRoute];
+    }
+    // Fallback: capitalise last URL segment
+    const seg = page.props.ziggy?.location?.split('/').filter(Boolean).pop() || 'Dashboard';
+    return seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' ');
+});
+
+const alertSummary = computed(() => page.props.alerts || { unseen_count: 0 });
 
 const initials = computed(() =>
     (user.value?.name || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -57,5 +99,9 @@ function toggleTheme() {
     isDark.value = !isDark.value;
     document.documentElement.classList.toggle('dark', isDark.value);
     document.cookie = `theme=${isDark.value ? 'dark' : 'light'};path=/;max-age=31536000`;
+}
+
+function goAlerts() {
+    router.visit(route('alerts.index'));
 }
 </script>

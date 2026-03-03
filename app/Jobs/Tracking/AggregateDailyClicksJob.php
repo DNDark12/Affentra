@@ -25,7 +25,6 @@ class AggregateDailyClicksJob implements ShouldQueue, ShouldBeUnique
         public readonly string $minDate,
         public readonly string $maxDate,
     ) {
-        $this->onQueue('sync');
         $this->uniqueFor = (int) config('integrations.sync.aggregate_unique_for_seconds', 900);
     }
 

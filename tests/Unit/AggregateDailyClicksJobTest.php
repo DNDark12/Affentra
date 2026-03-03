@@ -20,7 +20,7 @@ class AggregateDailyClicksJobTest extends TestCase
 
         $this->assertSame('agg_clicks:shopee:2026-02-20:2026-02-28', $job->uniqueId());
         $this->assertSame(777, $job->uniqueFor);
-        $this->assertSame('sync', $job->queue);
+        $this->assertNull($job->queue);
 
         $middleware = $job->middleware();
         $this->assertCount(1, $middleware);

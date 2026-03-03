@@ -56,6 +56,21 @@ interface IntegrationContract
     public function fetchBillFeeInvoices(PlatformConnection $connection, Carbon $since, Carbon $until): array;
 
     /**
+     * Fetch product category tree for offer filtering (if supported).
+     *
+     * @return list<array{catId: int, catName: string, children?: list<mixed>}>
+     */
+    public function getCategories(PlatformConnection $connection): array;
+
+    /**
+     * Fetch a single offer detail for detail page and link generation.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    public function getOfferDetail(PlatformConnection $connection, string $offerId, array $filters = []): array;
+
+    /**
      * Fetch product offers for discovery (if supported).
      *
      * @param  array<string, mixed>  $filters  (shopId, itemId, productCatId, keyword, page, limit)
