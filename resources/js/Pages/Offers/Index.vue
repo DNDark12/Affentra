@@ -11,7 +11,7 @@
                         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Khám phá sản phẩm</h1>
                     </div>
                     <p class="text-[14px] text-zinc-500 dark:text-zinc-400">
-                        Tìm sản phẩm hoa hồng cao và tạo link affiliate. Kết quả được cache 30 phút.
+                        Tìm sản phẩm hoa hồng cao và tạo link affiliate. Open API hỗ trợ full discovery, cookie hỗ trợ tra cứu theo Item ID/URL.
                     </p>
                 </div>
 
@@ -33,7 +33,7 @@
                     <div class="relative flex-1">
                         <Search :size="18" class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                         <input type="text" v-model="searchUrl" 
-                               placeholder="Dán link sản phẩm Shopee hoặc nhập Item ID..." 
+                               :placeholder="isCookieLookupMode ? 'Nhập Item ID hoặc URL Shopee/affiliate...' : 'Dán link sản phẩm Shopee hoặc nhập từ khóa/Item ID...'" 
                                class="w-full h-12 pl-12 pr-[120px] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30 text-[15px] focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-zinc-100 font-medium" />
                         
                         <button type="submit" :disabled="!searchUrl || isSearching || !selectedConnectionId" class="absolute right-1.5 top-1.5 bottom-1.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm">
@@ -46,27 +46,42 @@
                 <!-- Quick Filters / Tags -->
                 <div class="flex items-center gap-3 text-sm">
                     <span class="text-zinc-500 dark:text-zinc-400">Lọc nhanh:</span>
-                    <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Hoa hồng cao</button>
-                    <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Giá thấp</button>
-                    <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Phổ biến</button>
+                    <template v-if="isCookieLookupMode">
+                        <span class="px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-medium">Chế độ cookie: tra cứu theo Item ID / URL</span>
+                    </template>
+                    <template v-else>
+                        <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Hoa hồng cao</button>
+                        <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Giá thấp</button>
+                        <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Phổ biến</button>
+                    </template>
                 </div>
             </div>
 
             <div v-if="activeConnections.length === 0" class="px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[14px]">
-                Chưa có kết nối Shopee ở trạng thái Active. Hãy cấu hình trong màn Integrations trước khi tìm offer.
+                Chưa có kết nối Shopee active phù hợp cho Offers (open_api/cookie). Hãy cấu hình trong Integrations trước khi tìm offer.
             </div>
 
             <!-- Error State -->
-            <div v-if="errorMsg" class="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400 text-[14px] flex items-center gap-2">
-                <AlertTriangle :size="18" />
-                <span>{{ errorMsg }}</span>
+            <div v-if="errorMsg" class="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400 text-[14px] flex items-start gap-2">
+                <AlertTriangle :size="18" class="mt-0.5 shrink-0" />
+                <div class="flex min-w-0 flex-1 flex-col gap-2">
+                    <span>{{ errorMsg }}</span>
+                    <button
+                        v-if="errorCode === 'SHOPEE_ANTIBOT_90309999'"
+                        type="button"
+                        class="inline-flex w-fit items-center rounded-md border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-400/40 dark:text-red-300 dark:hover:bg-red-500/20"
+                        @click="openIntegrationsPage"
+                    >
+                        Mở Integrations để cập nhật cURL profile
+                    </button>
+                </div>
             </div>
 
             <!-- Empty / Initial State -->
             <div v-if="!isSearching && !hasSearched && !errorMsg" class="py-16 flex flex-col items-center justify-center text-zinc-500 dark:text-zinc-400">
                 <Search :size="60" class="opacity-20 mb-4 text-zinc-500 dark:text-zinc-400" />
                 <p class="text-base font-medium">Nhập link hoặc ID sản phẩm để bắt đầu</p>
-                <p class="text-sm mt-1 opacity-70">Hiện chỉ hỗ trợ nền tảng Shopee Vietnam kết nối qua API.</p>
+                <p class="text-sm mt-1 opacity-70">Open API: tìm theo từ khóa. Cookie: tra cứu theo Item ID/URL Shopee.</p>
             </div>
 
             <!-- Searching Skeleton -->
@@ -182,6 +197,12 @@ const activeConnections = computed(() => {
 });
 const selectedConnectionId = ref(activeConnections.value.length ? String(activeConnections.value[0].id) : '');
 const toast = useToast();
+const selectedConnection = computed(() => {
+    if (!selectedConnectionId.value) return null;
+    return activeConnections.value.find((connection) => String(connection.id) === String(selectedConnectionId.value)) ?? null;
+});
+const selectedOfferMode = computed(() => selectedConnection.value?.offer_mode ?? 'full');
+const isCookieLookupMode = computed(() => selectedOfferMode.value === 'item_lookup');
 
 function formatPlatformName(p) {
     if (p === 'shopee') return 'Shopee Vietnam';
@@ -205,6 +226,7 @@ const searchUrl = ref('');
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const errorMsg = ref('');
+const errorCode = ref('');
 const searchResults = ref([]); // Arrays in case API returns multiple based on shop link search
 
 async function performSearch() {
@@ -212,14 +234,22 @@ async function performSearch() {
     
     isSearching.value = true;
     errorMsg.value = '';
+    errorCode.value = '';
     hasSearched.value = true;
     searchResults.value = [];
 
     try {
+        const searchParams = buildSearchParams(searchUrl.value);
+        if (isCookieLookupMode.value && !searchParams.itemId) {
+            errorMsg.value = 'Kết nối cookie chỉ hỗ trợ Item ID hoặc URL Shopee hợp lệ.';
+            errorCode.value = 'OFFER_COOKIE_ITEMID_REQUIRED';
+            return;
+        }
+
         const res = await axios.get(route('api.offers.search'), {
             params: {
                 connection_id: Number(selectedConnectionId.value),
-                ...buildSearchParams(searchUrl.value),
+                ...searchParams,
             },
         });
 
@@ -229,10 +259,13 @@ async function performSearch() {
                 .map(normalizeOffer)
                 .filter((offer) => offer.item_id && offer.item_url);
         } else {
-            errorMsg.value = res.data?.message || 'Không tìm thấy sản phẩm. Vui lòng kiểm tra lại URL hoặc ID.';
+            errorCode.value = String(res.data?.code || '');
+            errorMsg.value = normalizeOfferError(res.data?.message, res.data?.code);
         }
     } catch (e) {
-        errorMsg.value = e.response?.data?.message || 'Có lỗi hệ thống xảy ra khi tìm dữ liệu Offer.';
+        const response = e?.response?.data ?? {};
+        errorCode.value = String(response?.code || '');
+        errorMsg.value = normalizeOfferError(response?.message, response?.code);
     } finally {
         isSearching.value = false;
     }
@@ -309,16 +342,36 @@ function buildSearchParams(rawInput) {
 
     try {
         const parsedUrl = new URL(input);
-        const pathMatch = parsedUrl.pathname.match(/-i\.(\d+)\.(\d+)$/);
-        if (pathMatch) {
+        const path = parsedUrl.pathname;
+
+        const offerPathMatch = path.match(/\/offer\/product_offer\/(\d+)/);
+        if (offerPathMatch) {
+            return { itemId: Number(offerPathMatch[1]) };
+        }
+
+        const affiliateProductPathMatch = path.match(/\/offer\/product\/(\d+)/);
+        if (affiliateProductPathMatch) {
+            return { itemId: Number(affiliateProductPathMatch[1]) };
+        }
+
+        const shopItemPathMatch = path.match(/\/product\/(\d+)\/(\d+)/);
+        if (shopItemPathMatch) {
             return {
-                shopId: Number(pathMatch[1]),
-                itemId: Number(pathMatch[2]),
+                shopId: Number(shopItemPathMatch[1]),
+                itemId: Number(shopItemPathMatch[2]),
+            };
+        }
+
+        const canonicalPathMatch = path.match(/-i\.(\d+)\.(\d+)/);
+        if (canonicalPathMatch) {
+            return {
+                shopId: Number(canonicalPathMatch[1]),
+                itemId: Number(canonicalPathMatch[2]),
             };
         }
 
         const itemIdParam = parsedUrl.searchParams.get('itemid') || parsedUrl.searchParams.get('item_id');
-        const shopIdParam = parsedUrl.searchParams.get('shopid') || parsedUrl.searchParams.get('shop_id');
+        const shopIdParam = parsedUrl.searchParams.get('shopid') || parsedUrl.searchParams.get('shop_id') || parsedUrl.searchParams.get('shopId');
 
         if (itemIdParam && /^\d+$/.test(itemIdParam)) {
             return {
@@ -331,6 +384,22 @@ function buildSearchParams(rawInput) {
     }
 
     return { keyword: input };
+}
+
+function normalizeOfferError(message, code) {
+    if (code === 'SHOPEE_ANTIBOT_90309999') {
+        return 'Shopee đang chặn anti-bot (90309999). Hãy cập nhật cURL profile offer_product trong Integrations rồi thử lại.';
+    }
+
+    if (code === 'OFFER_COOKIE_ITEMID_REQUIRED') {
+        return 'Kết nối cookie chỉ hỗ trợ Item ID hoặc URL Shopee hợp lệ.';
+    }
+
+    if (code === 'OFFER_ID_INVALID') {
+        return 'Offer ID không hợp lệ cho kết nối cookie.';
+    }
+
+    return message || 'Có lỗi hệ thống xảy ra khi tìm dữ liệu Offer.';
 }
 
 function normalizeOffer(node) {
@@ -346,5 +415,9 @@ function normalizeOffer(node) {
         commission_rate: Number(node.commissionRate ?? 0),
         shop_id: node.shopId ? String(node.shopId) : null,
     };
+}
+
+function openIntegrationsPage() {
+    router.visit(route('integrations.index'));
 }
 </script>

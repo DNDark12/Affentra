@@ -23,6 +23,7 @@ class ApiResponse
             'data'    => $data,
             'message' => $message,
             'errors'  => null,
+            'code'    => null,
         ], $status);
     }
 
@@ -35,12 +36,14 @@ class ApiResponse
         string $message,
         ?array $errors = null,
         int $status = 422,
+        ?string $code = null,
     ): JsonResponse {
         return response()->json([
             'ok'      => false,
             'data'    => null,
             'message' => $message,
             'errors'  => $errors,
+            'code'    => $code,
         ], $status);
     }
 

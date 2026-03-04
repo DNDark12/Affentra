@@ -93,24 +93,42 @@ class ProductScraperService
             return null;
         }
 
+        $affiliateError = null;
+
         // Try Affiliate API if user has a connection
         if ($user) {
             $connection = $user->platformConnections()
                 ->where('platform', 'shopee')
-                ->whereIn('method', ['cookie', 'portal_export'])
+                ->whereIn('method', ['cookie', 'open_api', 'portal_export'])
                 ->where('status', 'active')
-                ->orderByRaw("CASE WHEN method = 'cookie' THEN 0 ELSE 1 END")
+                ->orderByRaw("CASE WHEN method = 'cookie' THEN 0 WHEN method = 'open_api' THEN 1 ELSE 2 END")
                 ->first();
 
             if ($connection) {
-                $affiliateResult = $this->scrapeShopeeAffiliateApi($itemId, $connection);
-                if ($affiliateResult) {
-                    return $affiliateResult;
+                try {
+                    $affiliateResult = $this->scrapeShopeeAffiliateApi($itemId, $connection, $shopId);
+                    if ($affiliateResult) {
+                        return $affiliateResult;
+                    }
+                } catch (\RuntimeException $e) {
+                    // Keep anti-bot/auth errors for final messaging, but still try fallback
+                    // with direct shop/item API when shopId is available.
+                    $affiliateError = $e;
+                    Log::warning('shopee_scraper.affiliate_lookup_failed', [
+                        'item_id' => $itemId,
+                        'shop_id' => $shopId,
+                        'connection_id' => $connection->id,
+                        'method' => $connection->method,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
         }
 
         if (!$shopId) {
+            if ($affiliateError instanceof \RuntimeException) {
+                throw $affiliateError;
+            }
             return null;
         }
 
@@ -197,6 +215,9 @@ class ProductScraperService
             ];
         } catch (Exception $e) {
             Log::warning('shopee_scraper.exception', ['error' => $e->getMessage(), 'url' => $url]);
+            if ($affiliateError instanceof \RuntimeException) {
+                throw $affiliateError;
+            }
             return null;
         }
     }
@@ -204,10 +225,39 @@ class ProductScraperService
     /**
      * Extract product data from Shopee Affiliate API.
      */
-    private function scrapeShopeeAffiliateApi(string $itemId, \App\Models\PlatformConnection $connection): ?array
+    private function scrapeShopeeAffiliateApi(
+        string $itemId,
+        \App\Models\PlatformConnection $connection,
+        ?string $shopId = null
+    ): ?array
     {
         try {
-            $integration = new \App\Services\Integration\Shopee\ShopeeIntegration();
+            $integration = app(\App\Services\Integration\Shopee\ShopeeIntegration::class);
+            $detailFilters = [];
+            if (is_string($shopId) && ctype_digit($shopId)) {
+                $detailFilters['shopId'] = (int) $shopId;
+            }
+
+            $product = null;
+            $integrationError = null;
+            try {
+                $product = $integration->getOfferDetail($connection, $itemId, $detailFilters);
+                if (! is_array($product) || $product === []) {
+                    $product = null;
+                }
+            } catch (\RuntimeException $e) {
+                // Do not fail immediately: legacy endpoints/page-meta may still work.
+                $integrationError = $e;
+                $product = null;
+            }
+
+            if ($connection->method === 'open_api' && $product === null) {
+                if ($integrationError instanceof \RuntimeException) {
+                    throw $integrationError;
+                }
+                return null;
+            }
+
             $referer = "https://affiliate.shopee.vn/offer/product_offer/{$itemId}";
             $headers = $integration->buildCookieHeaders($connection, $referer);
 
@@ -216,40 +266,41 @@ class ProductScraperService
                 "https://affiliate.shopee.vn/api/v3/offer/product_offer?item_id={$itemId}",
             ];
 
-            $product = null;
             $lastOfferCode = null;
-            foreach ($apiCandidates as $apiUrl) {
-                $response = Http::withHeaders($headers)
-                    ->timeout(10)
-                    ->get($apiUrl);
+            if ($product === null) {
+                foreach ($apiCandidates as $apiUrl) {
+                    $response = Http::withHeaders($headers)
+                        ->timeout(10)
+                        ->get($apiUrl);
 
-                if (! $response->successful()) {
-                    Log::warning('shopee_scraper.affiliate_api_failed', [
-                        'status' => $response->status(),
+                    if (! $response->successful()) {
+                        Log::warning('shopee_scraper.affiliate_api_failed', [
+                            'status' => $response->status(),
+                            'itemId' => $itemId,
+                            'user_id' => $connection->user_id,
+                            'url' => $apiUrl,
+                        ]);
+                        continue;
+                    }
+
+                    $json = $response->json();
+                    $apiCode = $this->extractShopeeApiCode($json);
+                    $apiMessage = $this->extractShopeeApiMessage($json);
+                    if ($apiCode !== null && $apiCode !== 0) {
+                        $lastOfferCode = $apiCode;
+                    }
+                    $product = $this->extractAffiliateProductPayload($json);
+                    if ($product !== null) {
+                        break;
+                    }
+
+                    Log::warning('shopee_scraper.affiliate_no_data', [
                         'itemId' => $itemId,
-                        'user_id' => $connection->user_id,
                         'url' => $apiUrl,
-                    ]);
-                    continue;
+                            'code' => $apiCode,
+                            'msg' => $apiMessage,
+                        ]);
                 }
-
-                $json = $response->json();
-                $apiCode = $this->extractShopeeApiCode($json);
-                $apiMessage = $this->extractShopeeApiMessage($json);
-                if ($apiCode !== null && $apiCode !== 0) {
-                    $lastOfferCode = $apiCode;
-                }
-                $product = $this->extractAffiliateProductPayload($json);
-                if ($product !== null) {
-                    break;
-                }
-
-                Log::warning('shopee_scraper.affiliate_no_data', [
-                    'itemId' => $itemId,
-                    'url' => $apiUrl,
-                        'code' => $apiCode,
-                        'msg' => $apiMessage,
-                    ]);
             }
 
             if ($product === null) {
@@ -261,6 +312,9 @@ class ProductScraperService
                 if ($fallback !== null) {
                     return $fallback;
                 }
+                if ($integrationError instanceof \RuntimeException) {
+                    throw $integrationError;
+                }
                 if ($lastOfferCode === 90309999) {
                     throw new \RuntimeException(
                         'Shopee anti-bot challenge (90309999). Vui lòng cập nhật cURL mới từ trang Product Offer rồi thử lại.'
@@ -270,7 +324,7 @@ class ProductScraperService
             }
 
             $data = [
-                'title' => $product['product_name'] ?? $product['name'] ?? $product['item_name'] ?? null,
+                'title' => $product['product_name'] ?? $product['productName'] ?? $product['name'] ?? $product['item_name'] ?? null,
                 'price_value' => $this->normalizeShopeePrice(
                     $product['price']
                     ?? $product['price_min']
@@ -554,6 +608,10 @@ class ProductScraperService
 
         if (is_string($product['image_url'] ?? null) && trim($product['image_url']) !== '') {
             $images[] = trim((string) $product['image_url']);
+        }
+
+        if (is_string($product['imageUrl'] ?? null) && trim($product['imageUrl']) !== '') {
+            $images[] = trim((string) $product['imageUrl']);
         }
 
         $list = $product['images'] ?? $product['image_urls'] ?? null;

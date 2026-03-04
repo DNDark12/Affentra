@@ -35,7 +35,7 @@ class PromptTemplateRegistry
      */
     private function registerBuiltinTemplates(): void
     {
-        $this->register('fb_post_v1', 'Facebook post (short/long)', ['text'], function (array $attrs): string {
+        $this->register('fb_post', 'Facebook post (short/long)', ['text'], function (array $attrs): string {
             $product  = $attrs['product_title']   ?? 'sản phẩm';
             $price    = $attrs['product_price']    ?? '';
             $tone     = $attrs['tone']             ?? 'friendly';
@@ -64,7 +64,7 @@ class PromptTemplateRegistry
             PROMPT;
         });
 
-        $this->register('tiktok_caption_v1', 'TikTok caption + hook', ['text'], function (array $attrs): string {
+        $this->register('tiktok_caption', 'TikTok caption + hook', ['text'], function (array $attrs): string {
             $product  = $attrs['product_title']   ?? 'sản phẩm';
             $price    = $attrs['product_price']    ?? '';
             $tone     = $attrs['tone']             ?? 'hype';
@@ -83,7 +83,7 @@ class PromptTemplateRegistry
             PROMPT;
         });
 
-        $this->register('hashtags_pack_v1', 'Hashtags pack', ['text'], function (array $attrs): string {
+        $this->register('hashtags_pack', 'Hashtags pack', ['text'], function (array $attrs): string {
             $product  = $attrs['product_title']   ?? 'sản phẩm';
             $platform = $attrs['platform']         ?? 'facebook';
             $count    = max(10, (int) ($attrs['variant_count'] ?? 20));
@@ -91,7 +91,7 @@ class PromptTemplateRegistry
             return "Tạo {$count} hashtag phù hợp {$platform} cho sản phẩm \"{$product}\". Trả về mỗi hashtag trên một dòng.";
         });
 
-        $this->register('fb_post_image_v1', 'Ảnh quảng cáo Facebook', ['image'], function (array $attrs): string {
+        $this->register('fb_post_image', 'Ảnh quảng cáo Facebook', ['image'], function (array $attrs): string {
             $product = $attrs['product_title'] ?? 'sản phẩm';
             $usp     = $attrs['usp']           ?? '';
             $tone    = $attrs['tone']          ?? 'vibrant';

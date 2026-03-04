@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
+use App\Exceptions\OfferDomainException;
 use App\Http\Requests\Offers\GetOfferLinkRequest;
 use App\Http\Requests\Offers\SearchOffersRequest;
 use App\Models\Campaign;
@@ -90,6 +91,8 @@ class OfferController extends Controller
             return ApiResponse::success($result);
         } catch (NotFoundHttpException) {
             return ApiResponse::error('Not found.', [], 404);
+        } catch (OfferDomainException $e) {
+            return ApiResponse::error($e->getMessage(), [], 422, $e->errorCode());
         } catch (\DomainException|\InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), [], 422);
         }
@@ -109,6 +112,8 @@ class OfferController extends Controller
             return ApiResponse::success($payload, 'Tracking link created from offer.');
         } catch (NotFoundHttpException) {
             return ApiResponse::error('Not found.', [], 404);
+        } catch (OfferDomainException $e) {
+            return ApiResponse::error($e->getMessage(), [], 422, $e->errorCode());
         } catch (\DomainException|\InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), [], 422);
         }
@@ -131,6 +136,8 @@ class OfferController extends Controller
             return ApiResponse::success($categories);
         } catch (NotFoundHttpException) {
             return ApiResponse::error('Not found.', [], 404);
+        } catch (OfferDomainException $e) {
+            return ApiResponse::error($e->getMessage(), [], 422, $e->errorCode());
         } catch (\DomainException|\InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), [], 422);
         }
@@ -159,6 +166,8 @@ class OfferController extends Controller
             return ApiResponse::success($result);
         } catch (NotFoundHttpException) {
             return ApiResponse::error('Not found.', [], 404);
+        } catch (OfferDomainException $e) {
+            return ApiResponse::error($e->getMessage(), [], 422, $e->errorCode());
         } catch (\DomainException|\InvalidArgumentException $e) {
             return ApiResponse::error($e->getMessage(), [], 422);
         }

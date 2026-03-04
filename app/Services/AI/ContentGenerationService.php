@@ -12,6 +12,7 @@ use App\Services\AI\MediaGenerationRunner;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use App\Jobs\AI\PollSeedanceTaskJob;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 /**
@@ -48,7 +49,7 @@ class ContentGenerationService
      */
     public function generate(TrackingLink $link, User $user, array $payload): ContentGeneration
     {
-        $templateId   = $payload['preset_id'] ?? 'fb_post_v1';
+        $templateId   = $payload['preset_id'] ?? 'fb_post';
         
         // Derive type & platform from Preset (since request no longer explicitly passes them)
         // Or in a real scenario, the template registry provides this info
@@ -76,7 +77,7 @@ class ContentGenerationService
         // 3. Build canonical attributes (sorted for stable hashing)
         $attributes = array_merge($options, [
             'platform'      => $platform,
-            'tracking_url'  => $link->short_url ?? $link->destination_url,
+            'tracking_url'  => route('redirect', $link->short_code),
             'product_title' => $options['product_title'] ?? $link->offer?->title ?? '',
             'product_price' => $options['product_price'] ?? '',
             'images'        => $base64Images, // Include fetched images in attributes
@@ -123,6 +124,29 @@ class ContentGenerationService
             return $generation->refresh();
         }
 
+        // ── Async path: provider returns task_id, poll later ──────────────
+        if ($type === 'video' && $client->supportsAsyncMedia()) {
+            $result = $client->generateMedia(
+                $this->registry->render($templateId, $attributes),
+                'video',
+                $attributes,
+            );
+
+            $generation->update([
+                'status'           => 'queued',
+                'provider_task_id' => $result->meta['task_id'],
+                'provider_status'  => 'queued',
+                'ai_provider'      => $client->providerKey(),
+                'ai_model'         => $client->modelKey(),
+            ]);
+
+            PollSeedanceTaskJob::dispatch($generation->id)
+                ->delay(now()->addSeconds(10));
+
+            return $generation->refresh();
+        }
+
+        // ── Sync path: text generation ────────────────────────────────────
         // Build appropriate runner
         $runner = new TextGenerationRunner($client, $this->registry);
         $generation = $runner->run($generation);

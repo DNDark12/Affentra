@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Offer;
 
 use App\Contracts\Repositories\PlatformConnectionRepositoryInterface;
+use App\Exceptions\OfferDomainException;
 use App\Models\PlatformConnection;
 use App\Models\User;
 use App\Services\Integration\IntegrationFactory;
@@ -34,33 +35,30 @@ class OfferService
             connectionId: (int) $validated['connection_id'],
         );
 
-        if (!IntegrationFactory::supports($connection->platform)) {
-            throw new \DomainException('Platform not supported.');
+        if (! IntegrationFactory::supports($connection->platform)) {
+            throw new OfferDomainException('Platform not supported.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
         $adapter = IntegrationFactory::make($connection->platform);
-        if (!$adapter->capabilities()->supportsOfferDiscovery) {
-            throw new \DomainException('This platform does not support offer discovery.');
+        if (! $adapter->capabilities()->supportsOfferDiscovery) {
+            throw new OfferDomainException('This platform does not support offer discovery.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
-        $filters = [
-            'keyword'      => $validated['keyword'] ?? null,
-            'listType'     => $validated['listType'] ?? null,
-            'sortType'     => $validated['sortType'] ?? null,
-            'page'         => $validated['page'] ?? null,
-            'limit'        => $validated['limit'] ?? null,
-            'shopId'       => $validated['shopId'] ?? null,
-            'itemId'       => $validated['itemId'] ?? null,
-            'productCatId' => $validated['productCatId'] ?? null,
-        ];
+        $filters = $this->buildSearchFilters($connection, $validated);
 
         $filterHash = md5(json_encode($filters, JSON_THROW_ON_ERROR));
-        $cacheKey = "offers:{$connection->platform}:{$connection->id}:{$filterHash}";
-        $cacheTtl = config("integrations.{$connection->platform}.offer_cache_ttl", 30);
+        $cacheKey = "offers:{$connection->platform}:{$connection->method}:{$connection->id}:{$filterHash}";
+        $cacheTtl = $connection->method === 'cookie'
+            ? 10
+            : (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
 
-        return Cache::remember($cacheKey, now()->addMinutes((int) $cacheTtl), function () use ($adapter, $connection, $filters): array {
-            return $adapter->getOffers($connection, array_filter($filters, static fn (mixed $value): bool => $value !== null));
-        });
+        try {
+            return Cache::remember($cacheKey, now()->addMinutes((int) $cacheTtl), function () use ($adapter, $connection, $filters): array {
+                return $adapter->getOffers($connection, array_filter($filters, static fn (mixed $value): bool => $value !== null));
+            });
+        } catch (\RuntimeException $e) {
+            $this->throwAdapterOfferException($e);
+        }
     }
 
     /**
@@ -75,7 +73,7 @@ class OfferService
         );
 
         if (! IntegrationFactory::supports($connection->platform)) {
-            throw new \DomainException('Platform not supported.');
+            throw new OfferDomainException('Platform not supported.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
         if ($connection->platform === 'shopee') {
@@ -167,21 +165,21 @@ class OfferService
         );
 
         if (! IntegrationFactory::supports($connection->platform)) {
-            throw new \DomainException('Platform not supported.');
+            throw new OfferDomainException('Platform not supported.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
         $adapter = IntegrationFactory::make($connection->platform);
         if (! $adapter->capabilities()->supportsOfferDiscovery) {
-            throw new \DomainException('This platform does not support offer detail.');
-        }
-
-        if (in_array($connection->method, ['cookie', 'portal_export'], true)) {
-            throw new \DomainException('Offer detail is only available for Open API connections.');
+            throw new OfferDomainException('This platform does not support offer detail.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
         $offerId = trim((string) ($validated['offer_id'] ?? ''));
         if ($offerId === '') {
-            throw new \InvalidArgumentException('Offer ID is required.');
+            throw new OfferDomainException('Offer ID is required.', 'OFFER_ID_INVALID');
+        }
+
+        if ($connection->method === 'cookie' && ! ctype_digit($offerId)) {
+            throw new OfferDomainException('Offer ID phải là item_id số khi dùng kết nối cookie.', 'OFFER_ID_INVALID');
         }
 
         $shopId = isset($validated['shop_id']) && $validated['shop_id'] !== null
@@ -192,29 +190,36 @@ class OfferService
         }
 
         $cacheKey = sprintf(
-            'offer_detail:%s:%d:%s:%s',
+            'offer_detail:%s:%s:%d:%s:%s',
             $connection->platform,
+            $connection->method,
             $connection->id,
             $offerId,
             $shopId ?? '-',
         );
-        $cacheTtl = config("integrations.{$connection->platform}.offer_cache_ttl", 30);
+        $cacheTtl = $connection->method === 'cookie'
+            ? 10
+            : (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
 
-        return Cache::remember(
-            $cacheKey,
-            now()->addMinutes((int) $cacheTtl),
-            function () use ($adapter, $connection, $offerId, $shopId): array {
-                $raw = $adapter->getOfferDetail($connection, $offerId, [
-                    'shopId' => $shopId,
-                ]);
+        try {
+            return Cache::remember(
+                $cacheKey,
+                now()->addMinutes((int) $cacheTtl),
+                function () use ($adapter, $connection, $offerId, $shopId): array {
+                    $raw = $adapter->getOfferDetail($connection, $offerId, [
+                        'shopId' => $shopId,
+                    ]);
 
-                if ($raw === []) {
-                    throw new NotFoundHttpException('Not found.');
-                }
+                    if ($raw === []) {
+                        throw new NotFoundHttpException('Not found.');
+                    }
 
-                return $this->normalizeOfferDetailPayload($raw);
-            },
-        );
+                    return $this->normalizeOfferDetailPayload($raw);
+                },
+            );
+        } catch (\RuntimeException $e) {
+            $this->throwAdapterOfferException($e);
+        }
     }
 
     /**
@@ -223,50 +228,183 @@ class OfferService
      */
     private function normalizeOfferDetailPayload(array $raw): array
     {
-        $priceMin = (float) ($raw['priceMin'] ?? 0);
-        $priceMax = (float) ($raw['priceMax'] ?? 0);
-        $commissionRate = (float) ($raw['commissionRate'] ?? 0);
+        $itemId = $this->normalizeId($raw['itemId'] ?? $raw['item_id'] ?? null) ?? '';
+        $shopId = $this->normalizeId($raw['shopId'] ?? $raw['shop_id'] ?? null);
+        $priceMin = $this->normalizeMoneyValue($raw['priceMin'] ?? $raw['price_min'] ?? $raw['price'] ?? null);
+        $priceMax = $this->normalizeMoneyValue($raw['priceMax'] ?? $raw['price_max'] ?? $raw['price'] ?? null);
+        $commissionRate = $this->normalizeCommissionRate(
+            $raw['commissionRate']
+            ?? $raw['commission_rate']
+            ?? $raw['platform_commission_rate']
+            ?? 0
+        );
         $offerLink = (string) ($raw['offerLink'] ?? '');
         $productLink = (string) ($raw['productLink'] ?? '');
+        if ($offerLink === '' && $itemId !== '') {
+            $offerLink = "https://affiliate.shopee.vn/offer/product_offer/{$itemId}";
+        }
+        if ($productLink === '' && $itemId !== '' && $shopId !== null) {
+            $productLink = "https://shopee.vn/product/{$shopId}/{$itemId}";
+        }
         $itemUrl = $offerLink !== '' ? $offerLink : $productLink;
 
         return [
-            'item_id' => (string) ($raw['itemId'] ?? ''),
-            'shop_id' => isset($raw['shopId']) ? (string) $raw['shopId'] : null,
-            'item_name' => (string) ($raw['productName'] ?? 'Sản phẩm'),
+            'item_id' => $itemId,
+            'shop_id' => $shopId,
+            'item_name' => (string) ($raw['productName'] ?? $raw['product_name'] ?? $raw['item_name'] ?? 'Sản phẩm'),
             'item_url' => $itemUrl,
             'offer_link' => $offerLink !== '' ? $offerLink : null,
             'product_link' => $productLink !== '' ? $productLink : null,
-            'image_url' => $raw['imageUrl'] ?? null,
+            'image_url' => $raw['imageUrl'] ?? $raw['image_url'] ?? null,
             'price' => $priceMin > 0 ? $priceMin : $priceMax,
             'price_min' => $priceMin,
             'price_max' => $priceMax,
-            'price_discount_rate' => isset($raw['priceDiscountRate']) ? (float) $raw['priceDiscountRate'] : null,
+            'price_discount_rate' => isset($raw['priceDiscountRate']) ? (float) $raw['priceDiscountRate'] : (isset($raw['price_discount_rate']) ? (float) $raw['price_discount_rate'] : null),
             'commission_rate' => $commissionRate,
             'estimated_commission' => round(($priceMin > 0 ? $priceMin : $priceMax) * $commissionRate / 100, 2),
-            'seller_commission_rate' => isset($raw['sellerCommissionRate']) ? (float) $raw['sellerCommissionRate'] : null,
-            'shopee_commission_rate' => isset($raw['shopeeCommissionRate']) ? (float) $raw['shopeeCommissionRate'] : null,
-            'sales' => isset($raw['sales']) ? (int) $raw['sales'] : null,
-            'rating_star' => isset($raw['ratingStar']) ? (float) $raw['ratingStar'] : null,
-            'shop_name' => $raw['shopName'] ?? null,
-            'shop_type' => $raw['shopType'] ?? null,
-            'period_start_at' => $this->normalizeUnixTimestamp($raw['periodStartTime'] ?? null),
-            'period_end_at' => $this->normalizeUnixTimestamp($raw['periodEndTime'] ?? null),
+            'seller_commission_rate' => isset($raw['sellerCommissionRate']) ? $this->normalizeCommissionRate($raw['sellerCommissionRate']) : (isset($raw['seller_commission_rate']) ? $this->normalizeCommissionRate($raw['seller_commission_rate']) : null),
+            'shopee_commission_rate' => isset($raw['shopeeCommissionRate']) ? $this->normalizeCommissionRate($raw['shopeeCommissionRate']) : (isset($raw['shopee_commission_rate']) ? $this->normalizeCommissionRate($raw['shopee_commission_rate']) : null),
+            'sales' => isset($raw['sales']) ? (int) $raw['sales'] : (isset($raw['sold_count']) ? (int) $raw['sold_count'] : null),
+            'rating_star' => isset($raw['ratingStar']) ? (float) $raw['ratingStar'] : (isset($raw['rating_star']) ? (float) $raw['rating_star'] : null),
+            'shop_name' => $raw['shopName'] ?? $raw['shop_name'] ?? null,
+            'shop_type' => $raw['shopType'] ?? $raw['shop_type'] ?? null,
+            'period_start_at' => $this->normalizeUnixTimestamp($raw['periodStartTime'] ?? $raw['period_start_time'] ?? null),
+            'period_end_at' => $this->normalizeUnixTimestamp($raw['periodEndTime'] ?? $raw['period_end_time'] ?? null),
             'commission_tiers' => array_values(array_filter([
-                isset($raw['commissionRate']) ? [
+                isset($raw['commissionRate']) || isset($raw['commission_rate']) || isset($raw['platform_commission_rate']) ? [
                     'name' => 'Total',
-                    'rate' => (float) $raw['commissionRate'],
+                    'rate' => $commissionRate,
                 ] : null,
-                isset($raw['sellerCommissionRate']) ? [
+                isset($raw['sellerCommissionRate']) || isset($raw['seller_commission_rate']) ? [
                     'name' => 'Seller',
-                    'rate' => (float) $raw['sellerCommissionRate'],
+                    'rate' => isset($raw['sellerCommissionRate']) ? $this->normalizeCommissionRate($raw['sellerCommissionRate']) : $this->normalizeCommissionRate($raw['seller_commission_rate']),
                 ] : null,
-                isset($raw['shopeeCommissionRate']) ? [
+                isset($raw['shopeeCommissionRate']) || isset($raw['shopee_commission_rate']) ? [
                     'name' => 'Shopee',
-                    'rate' => (float) $raw['shopeeCommissionRate'],
+                    'rate' => isset($raw['shopeeCommissionRate']) ? $this->normalizeCommissionRate($raw['shopeeCommissionRate']) : $this->normalizeCommissionRate($raw['shopee_commission_rate']),
                 ] : null,
             ])),
             'raw' => $raw,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function buildSearchFilters(PlatformConnection $connection, array $validated): array
+    {
+        if ($connection->method !== 'cookie') {
+            return [
+                'keyword'      => $validated['keyword'] ?? null,
+                'listType'     => $validated['listType'] ?? null,
+                'sortType'     => $validated['sortType'] ?? null,
+                'page'         => $validated['page'] ?? null,
+                'limit'        => $validated['limit'] ?? null,
+                'shopId'       => $validated['shopId'] ?? null,
+                'itemId'       => $validated['itemId'] ?? null,
+                'productCatId' => $validated['productCatId'] ?? null,
+            ];
+        }
+
+        $itemId = isset($validated['itemId']) ? (int) $validated['itemId'] : null;
+        $shopId = isset($validated['shopId']) ? (int) $validated['shopId'] : null;
+        $keyword = trim((string) ($validated['keyword'] ?? ''));
+
+        if (($itemId === null || $itemId <= 0) && $keyword !== '') {
+            $resolved = $this->resolveCookieLookupFromInput($keyword);
+            $itemId = $resolved['itemId'];
+            $shopId = $resolved['shopId'] ?? $shopId;
+        }
+
+        if ($itemId === null || $itemId <= 0) {
+            throw new OfferDomainException(
+                'Cookie mode chỉ hỗ trợ tra cứu theo Item ID hoặc URL Shopee hợp lệ.',
+                'OFFER_COOKIE_ITEMID_REQUIRED'
+            );
+        }
+
+        return array_filter([
+            'itemId' => $itemId,
+            'shopId' => $shopId !== null && $shopId > 0 ? $shopId : null,
+            'page' => 1,
+            'limit' => 1,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * @return array{itemId: int|null, shopId: int|null}
+     */
+    private function resolveCookieLookupFromInput(string $input): array
+    {
+        $trimmed = trim($input);
+        if ($trimmed === '') {
+            return ['itemId' => null, 'shopId' => null];
+        }
+
+        if (ctype_digit($trimmed)) {
+            return ['itemId' => (int) $trimmed, 'shopId' => null];
+        }
+
+        $candidateUrl = $trimmed;
+        if (! str_contains($candidateUrl, '://') && str_contains($candidateUrl, '.')) {
+            $candidateUrl = 'https://' . ltrim($candidateUrl, '/');
+        }
+
+        $host = ShopeeDomainValidator::extractHost($candidateUrl);
+        if ($host === null || ! ShopeeDomainValidator::isAllowedHost($host)) {
+            throw new OfferDomainException(
+                'Cookie mode chỉ hỗ trợ tra cứu theo Item ID hoặc URL Shopee hợp lệ.',
+                'OFFER_COOKIE_ITEMID_REQUIRED'
+            );
+        }
+
+        $path = (string) (parse_url($candidateUrl, PHP_URL_PATH) ?? '');
+        $queryString = (string) (parse_url($candidateUrl, PHP_URL_QUERY) ?? '');
+        parse_str($queryString, $query);
+
+        $itemId = null;
+        $shopId = null;
+
+        if (preg_match('#/offer/product_offer/(\d+)#', $path, $matches) === 1) {
+            $itemId = (int) $matches[1];
+        } elseif (preg_match('#/offer/product/(\d+)#', $path, $matches) === 1) {
+            $itemId = (int) $matches[1];
+        } elseif (preg_match('#-i\.(\d+)\.(\d+)#', $path, $matches) === 1) {
+            $shopId = (int) $matches[1];
+            $itemId = (int) $matches[2];
+        } elseif (preg_match('#/product/(\d+)/(\d+)#', $path, $matches) === 1) {
+            $shopId = (int) $matches[1];
+            $itemId = (int) $matches[2];
+        }
+
+        if ($itemId === null) {
+            $rawItemId = $query['itemid'] ?? $query['item_id'] ?? $query['itemId'] ?? null;
+            if (is_scalar($rawItemId)) {
+                $raw = trim((string) $rawItemId);
+                if ($raw !== '' && ctype_digit($raw)) {
+                    $itemId = (int) $raw;
+                }
+            }
+        }
+
+        if ($shopId === null) {
+            $rawShopId = $query['shopid'] ?? $query['shop_id'] ?? $query['shopId'] ?? null;
+            if (is_scalar($rawShopId)) {
+                $raw = trim((string) $rawShopId);
+                if ($raw !== '' && ctype_digit($raw)) {
+                    $shopId = (int) $raw;
+                }
+            }
+        }
+
+        if ($itemId === null && preg_match('#/(\d{6,})$#', $path, $matches) === 1) {
+            $itemId = (int) $matches[1];
+        }
+
+        return [
+            'itemId' => $itemId,
+            'shopId' => $shopId,
         ];
     }
 
@@ -282,6 +420,65 @@ class OfferService
         }
 
         return Carbon::createFromTimestamp($timestamp)->toIso8601String();
+    }
+
+    private function normalizeMoneyValue(mixed $value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+
+        $amount = is_numeric($value) ? (float) $value : (float) preg_replace('/[^\d.\-]/', '', (string) $value);
+        if ($amount === 0.0) {
+            return 0.0;
+        }
+
+        if ($amount >= 1_000_000) {
+            return round($amount / 100_000, 2);
+        }
+
+        return round($amount, 2);
+    }
+
+    private function normalizeCommissionRate(mixed $value): float
+    {
+        if ($value === null || $value === '') {
+            return 0.0;
+        }
+
+        $rate = is_numeric($value) ? (float) $value : (float) preg_replace('/[^\d.\-]/', '', (string) $value);
+        if ($rate <= 0.0) {
+            return 0.0;
+        }
+
+        if ($rate > 100.0) {
+            $rate = $rate / 1000;
+        }
+
+        return round($rate, 4);
+    }
+
+    private function normalizeId(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $normalized = trim((string) $value);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function throwAdapterOfferException(\RuntimeException $exception): never
+    {
+        $message = $exception->getMessage();
+        if (str_contains($message, '90309999')) {
+            throw new OfferDomainException(
+                'Shopee anti-bot challenge (code 90309999). Hãy cập nhật cURL profile offer_product và thử lại.',
+                'SHOPEE_ANTIBOT_90309999'
+            );
+        }
+
+        throw new \DomainException($message);
     }
 
     private function resolveVisibleConnection(User $actor, int $connectionId): PlatformConnection

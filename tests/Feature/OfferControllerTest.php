@@ -9,6 +9,7 @@ use App\Models\TrackingLink;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 class OfferControllerTest extends TestCase
@@ -42,6 +43,154 @@ class OfferControllerTest extends TestCase
 
         $response->assertStatus(200)
             ->assertJsonPath('data.nodes.0.itemId', '123');
+    }
+
+    public function test_cookie_connection_can_search_by_numeric_item_id(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 0,
+                'msg' => 'success',
+                'data' => [
+                    'product' => [
+                        'item_id' => 19760277380,
+                        'shop_id' => 314455038,
+                        'product_name' => 'Cookie Product',
+                        'price_min' => 10000000,
+                        'price_max' => 12000000,
+                        'commission_rate' => 4500,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&keyword=19760277380');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.nodes.0.itemId', '19760277380')
+            ->assertJsonPath('code', null);
+    }
+
+    public function test_cookie_connection_can_search_by_affiliate_offer_url(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 0,
+                'msg' => 'success',
+                'data' => [
+                    'product' => [
+                        'item_id' => 19760277380,
+                        'shop_id' => 314455038,
+                        'product_name' => 'Cookie Product',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/offers/search?connection_id=' . $conn->id
+            . '&keyword=https%3A%2F%2Faffiliate.shopee.vn%2Foffer%2Fproduct_offer%2F19760277380'
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.nodes.0.itemId', '19760277380');
+    }
+
+    public function test_cookie_connection_can_search_by_shopee_i_pattern_url(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 0,
+                'msg' => 'success',
+                'data' => [
+                    'product' => [
+                        'item_id' => 19760277380,
+                        'shop_id' => 1663031317,
+                        'product_name' => 'Cookie Product',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)->getJson(
+            '/api/offers/search?connection_id=' . $conn->id
+            . '&keyword=https%3A%2F%2Fshopee.vn%2Ffoo-i.1663031317.19760277380'
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.nodes.0.itemId', '19760277380')
+            ->assertJsonPath('data.nodes.0.shopId', '1663031317');
+    }
+
+    public function test_cookie_connection_rejects_non_shopee_url_input(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&keyword=https%3A%2F%2Fexample.com%2Fp%2F123');
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'OFFER_COOKIE_ITEMID_REQUIRED');
+    }
+
+    public function test_cookie_connection_returns_antibot_code_for_soft_block(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 90309999,
+                'msg' => 'Unknown error',
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&keyword=19760277380');
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'SHOPEE_ANTIBOT_90309999');
     }
 
     public function test_user_can_get_link()
@@ -298,6 +447,104 @@ class OfferControllerTest extends TestCase
             ->assertJsonPath('data.item_name', 'Chi tiet san pham')
             ->assertJsonPath('data.shop_id', '1')
             ->assertJsonPath('data.commission_rate', 5.5);
+    }
+
+    public function test_show_offer_detail_returns_200_for_cookie_connection_with_numeric_offer_id(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 0,
+                'msg' => 'success',
+                'data' => [
+                    'product' => [
+                        'item_id' => 19760277380,
+                        'shop_id' => 1663031317,
+                        'product_name' => 'Cookie Detail Product',
+                        'commission_rate' => 4500,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/19760277380?connection_id=' . $conn->id);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.item_id', '19760277380')
+            ->assertJsonPath('data.item_name', 'Cookie Detail Product');
+    }
+
+    public function test_show_offer_detail_rejects_non_numeric_offer_id_for_cookie_connection(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/not-numeric?connection_id=' . $conn->id);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'OFFER_ID_INVALID');
+    }
+
+    public function test_offers_index_connections_exclude_portal_export_and_include_offer_mode(): void
+    {
+        $user = User::factory()->create();
+
+        PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'open_api',
+            'status'   => 'active',
+        ]);
+
+        PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'portal_export',
+            'status'   => 'active',
+        ]);
+
+        $response = $this->actingAs($user)->get('/offers');
+
+        $response->assertStatus(200)
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('Offers/Index')
+                ->has('connections', 2)
+                ->where('connections', function ($connections): bool {
+                    $connectionList = collect($connections);
+                    $methods = $connectionList->pluck('method')->all();
+                    $offerModes = $connectionList->pluck('offer_mode', 'method')->all();
+
+                    return in_array('open_api', $methods, true)
+                        && in_array('cookie', $methods, true)
+                        && ! in_array('portal_export', $methods, true)
+                        && ($offerModes['open_api'] ?? null) === 'full'
+                        && ($offerModes['cookie'] ?? null) === 'item_lookup';
+                })
+            );
     }
 
     public function test_show_offer_detail_returns_404_for_other_users_connection(): void

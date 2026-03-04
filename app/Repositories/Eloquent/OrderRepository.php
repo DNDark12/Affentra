@@ -24,6 +24,8 @@ class OrderRepository extends BaseRepository implements OrderRepositoryInterface
     public function listForUsers(array $userIds, array $filters = [], int $perPage = 20): LengthAwarePaginator
     {
         $query = $this->model->newQuery()
+            ->with(['user:id,name'])
+            ->with(['platformConnection:id,label,platform'])
             ->whereIn('user_id', $userIds)
             ->latest('ordered_at');
 

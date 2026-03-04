@@ -85,6 +85,11 @@ class OpenAICompatibleClient implements AIProviderClient
         return $this->model;
     }
 
+    public function supportsAsyncMedia(): bool
+    {
+        return false;
+    }
+
     /**
      * @throws RuntimeException on provider failure or missing config
      */
@@ -164,9 +169,9 @@ class OpenAICompatibleClient implements AIProviderClient
         // Default OpenAI image generation endpoint
         $endpoint = "{$this->baseUrl}/images/generations";
         $payload = [
-            'model'  => $options['model'] ?? 'dall-e-3',
+            'model'  => $options['model'] ?? 'gemini-3.1-flash-image',
             'prompt' => $prompt,
-            'n'      => (int) ($options['n'] ?? 1),
+            'n'      => (int) ($options['variant_count'] ?? $options['n'] ?? 1),
             'size'   => $options['size'] ?? '1024x1024',
         ];
 

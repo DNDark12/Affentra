@@ -238,17 +238,26 @@
                             <input :value="providerName(form.provider_key)" class="af-input" disabled />
                         </div>
 
-                        <!-- Self-hosted URL -->
-                        <div v-if="form.provider_key === 'self_hosted'">
+                        <!-- Base URL (for providers with has_base_url) -->
+                        <div v-if="selectedProviderInfo?.has_base_url">
                             <label class="af-label">
                                 Base URL <span style="color:var(--color-danger)">*</span>
-                                <span class="ml-1 text-xs font-normal" style="color: var(--text-muted)">(e.g. http://127.0.0.1:8045)</span>
+                                <span v-if="selectedProviderInfo?.default_base_url" class="ml-1 text-xs font-normal" style="color: var(--text-muted)">(tự động điền)</span>
                             </label>
-                            <input v-model="form.base_url" type="url" class="af-input" placeholder="http://127.0.0.1:8045" />
-                            <p class="mt-1 text-xs flex items-center gap-1" style="color: var(--text-muted)">
+                            <input v-model="form.base_url" type="url" class="af-input" :placeholder="selectedProviderInfo?.default_base_url || 'http://127.0.0.1:8045'" />
+                            <p v-if="form.provider_key === 'self_hosted'" class="mt-1 text-xs flex items-center gap-1" style="color: var(--text-muted)">
                                 <Info :size="11" />
                                 Nếu chạy Docker: <code>127.0.0.1</code> sẽ tự động chuyển thành <code>host.docker.internal</code>.
                             </p>
+                        </div>
+
+                        <!-- API Format (for Self Hosted) -->
+                        <div v-if="form.provider_key === 'self_hosted'">
+                            <label class="af-label">Định dạng API <span style="color:var(--color-danger)">*</span></label>
+                            <select v-model="form.api_format" class="af-input">
+                                <option value="openai">OpenAI Compatible (Ollama, vLLM...)</option>
+                                <option value="gemini">Google Gemini API</option>
+                            </select>
                         </div>
 
                         <!-- API Key -->
@@ -287,7 +296,7 @@
                                 :placeholder="modelPlaceholder"
                             />
                             <p class="mt-1 text-xs" style="color: var(--text-muted)">
-                                Gemini: <code>gemini-1.5-flash</code> · OpenAI: <code>gpt-4o-mini</code> · Self-hosted: tên model local
+                                Gemini: <code>gemini-3.1-flash</code> · OpenAI: <code>gpt-5.3-mini</code> · Seedance: <code>doubao-seedance-2-0</code>
                             </p>
                         </div>
 
@@ -359,7 +368,7 @@
 
 <script setup>
 import axios from 'axios';
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useDialog } from '@/Composables/useDialog';
@@ -392,6 +401,7 @@ const defaultForm = () => ({
     provider_key:        '',
     api_key:             '',
     base_url:            '',
+    api_format:          'openai',
     default_model:       '',
     label:               '',
     status:              'enabled',
@@ -411,6 +421,7 @@ function openForm(setting = null) {
             provider_key:  setting.provider_key,
             api_key:       '',
             base_url:      '',
+            api_format:    setting.api_format || 'openai',
             default_model: setting.default_model || '',
             label:         setting.label || '',
             status:        setting.status || 'enabled',
@@ -435,18 +446,35 @@ const ICONS = {
     openai:      { icon: 'O', style: 'background: #10a37f20; color: #10a37f' },
     self_hosted: { icon: '⌂',  style: 'background: #8b5cf620; color: #8b5cf6' },
     anthropic:   { icon: 'A', style: 'background: #d4763020; color: #d47630' },
+    seedance:    { icon: 'S', style: 'background: #0ea5e920; color: #0ea5e9' },
 };
 
 function providerIcon(key)      { return ICONS[key]?.icon  ?? '?'; }
 function providerIconStyle(key) { return ICONS[key]?.style ?? 'background: var(--surface-2); color: var(--text-muted)'; }
 function providerName(key)      { return props.registry[key]?.name ?? key; }
 
+const selectedProviderInfo = computed(() => props.registry[form.provider_key] ?? null);
+
 const modelPlaceholder = computed(() => ({
-    gemini:      'gemini-1.5-flash',
-    openai:      'gpt-4o-mini',
+    gemini:      'gemini-3.1-flash',
+    openai:      'gpt-5.3-mini',
     self_hosted: 'deepseek-r1:7b',
-    anthropic:   'claude-3-haiku-20240307',
+    anthropic:   'claude-4-sonnet',
+    seedance:    'doubao-seedance-2-0',
 }[form.provider_key] ?? 'model-name'));
+
+// ── Auto-fill defaults when selecting a NEW provider ──────────────────────────
+watch(() => form.provider_key, (newKey) => {
+    if (editMode.value || !newKey) return;
+
+    const info = props.registry[newKey];
+    if (!info) return;
+
+    // Auto-fill model, base_url, capabilities from registry defaults
+    if (info.default_model)    form.default_model = info.default_model;
+    if (info.default_base_url) form.base_url      = info.default_base_url;
+    if (info.capabilities)     form.capabilities  = [...info.capabilities];
+});
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 async function saveProvider() {
@@ -465,6 +493,7 @@ async function saveProvider() {
         };
         if (form.api_key)  payload.api_key  = form.api_key;
         if (form.base_url) payload.base_url = form.base_url;
+        if (form.api_format) payload.api_format = form.api_format;
 
         const res = await axios.post(route('api.ai.settings.upsert'), payload);
         if (!res.data?.ok) throw new Error(res.data?.message ?? 'Lỗi lưu provider');
@@ -523,6 +552,7 @@ async function testFormConnection() {
             api_key:       form.api_key  || undefined,
             base_url:      form.base_url || undefined,
             default_model: form.default_model || undefined,
+            api_format:    form.api_format || undefined,
         });
 
         if (res.data?.ok) {

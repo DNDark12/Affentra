@@ -40,7 +40,7 @@ class AiProviderSetting extends Model
     /**
      * Store credentials as encrypted JSON.
      *
-     * @param  array{api_key?: string, base_url?: string, project_id?: string} $credentials
+     * @param  array{api_key?: string, base_url?: string, project_id?: string, api_format?: string} $credentials
      */
     public function setCredentials(array $credentials): void
     {
@@ -53,7 +53,7 @@ class AiProviderSetting extends Model
     /**
      * Decrypt and return credential bag.
      *
-     * @return array{api_key?: string, base_url?: string, project_id?: string}
+     * @return array{api_key?: string, base_url?: string, project_id?: string, api_format?: string}
      */
     public function getCredentials(): array
     {
@@ -74,6 +74,15 @@ class AiProviderSetting extends Model
     public function apiKey(): ?string
     {
         return $this->getCredentials()['api_key'] ?? null;
+    }
+
+    /**
+     * Helper to get the API format (defaulting to openai if not set).
+     */
+    public function getApiFormat(): string
+    {
+        $creds = $this->getCredentials();
+        return $creds['api_format'] ?? 'openai';
     }
 
     /**

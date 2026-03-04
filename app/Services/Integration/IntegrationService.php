@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace App\Services\Integration;
 
-use App\Jobs\Sync\SyncPlatformConnectionJob;
 use App\Jobs\Sync\SyncPaymentDataJob;
+use App\Jobs\Sync\SyncPlatformConnectionJob;
 use App\Jobs\Sync\SyncShopeeCampaignsForConnectionJob;
 use App\Models\PlatformConnection;
 use App\Models\SyncRun;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
+use App\Services\Integration\IntegrationFactory;
+use App\Services\Integration\Parsers\CurlCookieParserService;
 use Illuminate\Database\Eloquent\Collection;
 use RuntimeException;
 
@@ -108,12 +110,27 @@ class IntegrationService
     public function listConnectionsForOfferDiscovery(User $user): array
     {
         return $this->listConnections($user)
-            ->filter(static fn (PlatformConnection $connection): bool => IntegrationFactory::supports($connection->platform))
+            ->filter(static function (PlatformConnection $connection): bool {
+                if (! IntegrationFactory::supports($connection->platform)) {
+                    return false;
+                }
+
+                if ($connection->platform !== 'shopee') {
+                    return false;
+                }
+
+                if ($connection->status !== 'active') {
+                    return false;
+                }
+
+                return in_array($connection->method, ['open_api', 'cookie'], true);
+            })
             ->map(static fn (PlatformConnection $connection): array => [
                 'id'           => $connection->id,
                 'label'        => $connection->label,
                 'platform'     => $connection->platform,
                 'method'       => $connection->method,
+                'offer_mode'   => $connection->method === 'cookie' ? 'item_lookup' : 'full',
                 'app_id'       => $connection->app_id,
                 'status'       => $connection->status,
                 'sync_mode'    => $connection->sync_mode,
@@ -158,7 +175,7 @@ class IntegrationService
         } elseif ($payload['method'] === 'cookie') {
             $payload['consent_acknowledged_at'] = now();
             if (!empty($data['curl_command'])) {
-                $parser = new \App\Services\Integration\Parsers\CurlCookieParserService();
+                $parser = new CurlCookieParserService();
                 $parsedBlocks = $parser->parseMany((string) $data['curl_command']);
                 if ($parsedBlocks === []) {
                     throw new RuntimeException('Không parse được cURL command.');
@@ -494,6 +511,7 @@ class IntegrationService
             'origin' => (string) ($parsed['origin'] ?? ''),
             'request_body' => (string) ($parsed['request_body'] ?? ''),
             'raw_headers' => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
+            'raw_header_lines' => is_array($parsed['raw_header_lines'] ?? null) ? $parsed['raw_header_lines'] : [],
             'profiles' => [],
         ];
 
@@ -531,6 +549,10 @@ class IntegrationService
                 if (($base['raw_headers'] ?? []) === [] && is_array($existing['raw_headers'] ?? null)) {
                     $base['raw_headers'] = $existing['raw_headers'];
                 }
+
+                if (($base['raw_header_lines'] ?? []) === [] && is_array($existing['raw_header_lines'] ?? null)) {
+                    $base['raw_header_lines'] = $existing['raw_header_lines'];
+                }
             }
         }
 
@@ -557,6 +579,7 @@ class IntegrationService
                 'request_url' => (string) ($parsed['request_url'] ?? ''),
                 'request_body' => (string) ($parsed['request_body'] ?? ''),
                 'raw_headers' => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
+                'raw_header_lines' => is_array($parsed['raw_header_lines'] ?? null) ? $parsed['raw_header_lines'] : [],
             ];
         }
 

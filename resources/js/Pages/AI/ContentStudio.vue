@@ -3,7 +3,7 @@
         <div class="flex h-full" style="height: calc(100vh - 57px)">
 
             <!-- ═══════════════════════════════════════════
-                 LEFT PANEL — Link selector + History
+                 LEFT PANEL — Link selector
             ═══════════════════════════════════════════ -->
             <div class="flex flex-col w-[300px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
 
@@ -70,36 +70,10 @@
                         </p>
                     </div>
                 </div>
-
-                <!-- History panel -->
-                <div v-if="selectedLink" class="border-t border-zinc-200 dark:border-zinc-800">
-                    <div class="px-4 py-2 flex items-center justify-between">
-                        <span class="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Lịch sử</span>
-                        <Loader2 v-if="historyLoading" :size="11" class="animate-spin text-zinc-400" />
-                    </div>
-                    <div class="max-h-[220px] overflow-y-auto">
-                        <p v-if="!historyLoading && history.length === 0" class="text-xs text-zinc-400 px-4 py-3 text-center">
-                            Chưa có lịch sử
-                        </p>
-                        <button
-                            v-for="item in history"
-                            :key="item.id"
-                            @click="loadFromHistory(item)"
-                            class="w-full text-left px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 transition-colors"
-                        >
-                            <div class="flex items-center gap-1.5 mb-0.5">
-                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" :class="platformBadgeClass(item.platform)">{{ item.platform }}</span>
-                                <span class="text-[9px] px-1 py-0.5 rounded" :class="item.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'">{{ item.status }}</span>
-                            </div>
-                            <p class="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-1">{{ item.preview || '—' }}</p>
-                            <p class="text-[10px] text-zinc-400 mt-0.5">{{ formatRelative(item.created_at) }}</p>
-                        </button>
-                    </div>
-                </div>
             </div>
 
             <!-- ═══════════════════════════════════════════
-                 RIGHT PANEL — Form + Output
+                 CENTER PANEL — Editor / History Viewer
             ═══════════════════════════════════════════ -->
             <div class="flex-1 flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
 
@@ -114,32 +88,190 @@
                     </div>
                 </div>
 
-                <!-- Form area -->
+                <!-- History viewer area -->
+                <div v-else-if="centerViewMode === 'history' && selectedHistoryDetail" class="flex-1 flex flex-col overflow-hidden">
+                    <div class="px-6 pt-5 pb-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-xs text-zinc-400">Đang xem lịch sử</p>
+                                <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ selectedLink.short_code }} · {{ formatRelative(selectedHistoryDetail.created_at) }}
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button class="af-btn-outline text-xs h-8 px-3" @click="openEditorView">
+                                    Quay lại tạo content
+                                </button>
+                                <button class="af-btn-primary text-xs h-8 px-3" @click="applyHistoryToEditor()">
+                                    Áp dụng vào editor
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4">
+                        <div class="af-surface p-4">
+                            <h3 class="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-3">Thông tin bản ghi</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                                <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/40">
+                                    <p class="text-xs text-zinc-500">Trạng thái</p>
+                                    <p class="mt-1 font-semibold" :class="selectedHistoryDetail.status === 'succeeded' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
+                                        {{ selectedHistoryDetail.status || '—' }}
+                                    </p>
+                                </div>
+                                <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/40">
+                                    <p class="text-xs text-zinc-500">Preset</p>
+                                    <p class="mt-1 font-semibold text-zinc-800 dark:text-zinc-200">{{ selectedHistoryDetail.preset_id || '—' }}</p>
+                                </div>
+                                <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/40">
+                                    <p class="text-xs text-zinc-500">Model</p>
+                                    <p class="mt-1 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ selectedHistoryDetail.model_used || selectedHistoryDetail.ai_model || '—' }}</p>
+                                </div>
+                                <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-900/40">
+                                    <p class="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Tokens used</p>
+                                    <p class="mt-1 font-mono text-xs text-zinc-700 dark:text-zinc-300 font-semibold" v-if="selectedHistoryDetail.usage">
+                                        {{ (selectedHistoryDetail.usage.tokens_prompt || 0) + (selectedHistoryDetail.usage.tokens_completion || 0) }}
+                                    </p>
+                                    <p class="mt-1 font-mono text-xs text-zinc-700 dark:text-zinc-300" v-else>—</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="historyOutputVariants.length > 0" class="flex flex-col gap-4">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ historyOutputVariants.length }} phiên bản
+                                </h3>
+                            </div>
+                            <div
+                                v-for="(variant, idx) in historyOutputVariants"
+                                :key="'history-variant-' + idx"
+                                class="af-surface rounded-xl overflow-hidden"
+                            >
+                                <div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60">
+                                    <span class="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                                        Phiên bản {{ idx + 1 }}
+                                        <span v-if="variant.kind" class="ml-1.5 text-zinc-400 font-normal">{{ variant.kind }}</span>
+                                    </span>
+                                    <div class="flex items-center gap-2">
+                                        <button
+                                            @click="copyHistoryVariantWithLink(variant.text)"
+                                            class="h-6 px-2.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-colors border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"
+                                        >
+                                            <Link2 :size="10" />
+                                            Copy + Link
+                                        </button>
+                                        <button
+                                            @click="copyText(variant.text, `Đã copy phiên bản ${idx + 1}`)"
+                                            class="h-6 px-2 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600"
+                                        >
+                                            <Copy :size="10" />
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="px-4 py-3">
+                                    <pre class="text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap leading-relaxed font-sans">{{ variant.text || '—' }}</pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="historyOutputMedia.length > 0" class="flex flex-col gap-3">
+                            <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Media</h3>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <template v-for="(item, idx) in historyOutputMedia" :key="'history-media-' + idx">
+                                    <div class="group relative bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300">
+                                        <div class="bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden" :class="item.type === 'video' ? 'aspect-video' : 'aspect-square'">
+                                            <video
+                                                v-if="item.type === 'video' && item.url"
+                                                :src="item.url"
+                                                controls
+                                                class="w-full h-full object-contain"
+                                                preload="metadata"
+                                            />
+                                            <img
+                                                v-else-if="item.url || item.base64"
+                                                :src="item.url || `data:image/png;base64,${item.base64}`"
+                                                class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                alt="History generated media"
+                                            />
+                                            <div v-else class="text-zinc-400">Không có media</div>
+                                        </div>
+                                        <div class="p-3 border-t border-zinc-100 dark:border-zinc-700 flex items-center justify-between">
+                                            <span class="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">
+                                                {{ item.type === 'video' ? 'AI Video' : 'AI Image' }} #{{ idx + 1 }}
+                                            </span>
+                                            <a v-if="item.url" :href="item.url" target="_blank" download class="text-indigo-600 dark:text-indigo-400 text-[10px] font-bold hover:underline">Download</a>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Editor area -->
                 <div v-else class="flex-1 flex flex-col overflow-hidden">
 
-                    <!-- Toolbar / Preset tabs -->
+                    <!-- Toolbar / Preset tabs & Stats -->
                     <div class="px-6 pt-5 pb-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0">
-                        <div class="flex items-center justify-between mb-4">
-                            <div>
-                                <p class="text-xs text-zinc-400">Generating for</p>
-                                <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-mono">{{ selectedLink.short_code }}</p>
+                        <div class="flex flex-col gap-4 mb-4">
+                            <!-- Selected Link info -->
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-xs text-zinc-400">Generating for</p>
+                                    <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-mono">{{ selectedLink.short_code }}</p>
+                                </div>
+                                <div v-if="lastGeneration" class="text-right">
+                                    <p class="text-[10px] text-zinc-400">Tokens used</p>
+                                    <p class="text-xs font-mono text-zinc-600 dark:text-zinc-300">
+                                        {{ (lastGeneration.usage?.tokens_prompt || 0) + (lastGeneration.usage?.tokens_completion || 0) }}
+                                        <span v-if="lastGeneration.from_cache" class="ml-1 text-amber-500">⚡ cache</span>
+                                    </p>
+                                </div>
                             </div>
-                            <div v-if="lastGeneration" class="text-right">
-                                <p class="text-[10px] text-zinc-400">Tokens used</p>
-                                <p class="text-xs font-mono text-zinc-600 dark:text-zinc-300">
-                                    {{ (lastGeneration.usage?.tokens_prompt || 0) + (lastGeneration.usage?.tokens_completion || 0) }}
-                                    <span v-if="lastGeneration.from_cache" class="ml-1 text-amber-500">⚡ cache</span>
-                                </p>
+                            
+                            <!-- Statistics Widget -->
+                            <div v-if="aiStatistics" class="grid grid-cols-3 gap-3">
+                                <template v-for="(statConfig, statKey) in {
+                                    account: { label: 'Toàn bộ tài khoản', icon: '👤', color: 'text-indigo-600 dark:text-indigo-400' },
+                                    shop:    { label: selectedLink.platform === 'shopee' ? 'Shopee' : (selectedLink.platform === 'lazada' ? 'Lazada' : (selectedLink.platform === 'tiktok' ? 'TikTok' : 'Shop')), icon: '🛒', color: 'text-orange-600 dark:text-orange-400' },
+                                    link:    { label: 'Tracking Link này', icon: '🔗', color: 'text-emerald-600 dark:text-emerald-400' }
+                                }" :key="statKey">
+                                    <div class="flex flex-col bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-2.5">
+                                        <div class="flex items-center gap-1.5 mb-2">
+                                            <span class="text-[10px]">{{ statConfig.icon }}</span>
+                                            <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                {{ statConfig.label }}
+                                            </span>
+                                        </div>
+                                        <div class="flex items-center justify-between mt-auto">
+                                            <div class="flex flex-col" title="Tokens">
+                                                <span class="text-[10px] text-zinc-400">Tokens</span>
+                                                <span class="text-xs font-mono font-bold" :class="statConfig.color">{{ aiStatistics[statKey]?.tokens?.toLocaleString() || 0 }}</span>
+                                            </div>
+                                            <div class="flex flex-col text-center" title="Images">
+                                                <span class="text-[10px] text-zinc-400">Ảnh</span>
+                                                <span class="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">{{ aiStatistics[statKey]?.images?.toLocaleString() || 0 }}</span>
+                                            </div>
+                                            <div class="flex flex-col text-right" title="Videos">
+                                                <span class="text-[10px] text-zinc-400">Video</span>
+                                                <span class="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">{{ aiStatistics[statKey]?.videos?.toLocaleString() || 0 }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
                         </div>
 
                         <!-- Preset tabs -->
                         <div class="flex gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
                             <button
-                                v-for="preset in presets.filter(p => p.type !== 'image')"
+                                v-for="preset in presets"
                                 :key="preset.id"
                                 @click="selectPreset(preset)"
-                                class="flex-1 h-8 rounded-md text-xs font-medium transition-all"
+                                :disabled="generating"
+                                class="flex-1 h-8 rounded-md text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="selectedPreset?.id === preset.id
                                     ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'"
@@ -159,7 +291,7 @@
                                 <!-- Provider -->
                                 <div class="flex flex-col gap-1.5">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Provider</label>
-                                    <select v-model="form.provider_key" @change="onProviderChange" class="af-input h-9 text-sm">
+                                    <select v-model="form.provider_key" @change="onProviderChange" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50">
                                         <option value="">— Auto (mặc định) —</option>
                                         <option v-for="p in configuredProviders" :key="p.key" :value="p.key">
                                             {{ p.label }}
@@ -176,7 +308,8 @@
                                     <input
                                         v-model="form.model"
                                         type="text"
-                                        class="af-input h-9 text-sm font-mono"
+                                        :disabled="generating"
+                                        class="af-input h-9 text-sm font-mono disabled:opacity-50"
                                         :placeholder="selectedProviderDefaultModel || 'gemini-1.5-flash'"
                                     />
                                 </div>
@@ -193,9 +326,9 @@
                             <!-- Basic Form Grid -->
                             <div class="grid grid-cols-2 gap-4 mt-1">
                                 <!-- Tone — hidden for hashtags -->
-                                <div v-if="selectedPreset?.id !== 'hashtags_pack_v1'" class="flex flex-col gap-1.5">
+                                <div v-if="selectedPreset?.id !== 'hashtags_pack'" class="flex flex-col gap-1.5">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Giọng văn</label>
-                                    <select v-model="form.tone" class="af-input h-9 text-sm">
+                                    <select v-model="form.tone" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50">
                                         <option value="friendly">Thân thiện</option>
                                         <option value="hype">Hype / Cảm xúc</option>
                                         <option value="professional">Chuyên nghiệp</option>
@@ -203,25 +336,29 @@
                                     </select>
                                 </div>
 
-                                <!-- AI Media Toggle -->
-                                <div v-if="selectedProviderCapabilities.image || selectedProviderCapabilities.video" class="flex flex-col gap-1.5">
-                                    <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Tạo media AI</label>
+                                <!-- Output type multi-select (based on provider capabilities) -->
+                                <div v-if="form.provider_key && hasAnyCapability" class="flex flex-col gap-1.5">
+                                    <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Output</label>
                                     <div class="flex flex-col gap-1.5 h-auto px-3 py-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                                        <label v-if="selectedProviderCapabilities.image" class="flex items-center gap-2 cursor-pointer group">
-                                            <input type="checkbox" v-model="form.generate_image" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 dark:checked:bg-indigo-500" />
-                                            <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">🖼️ Tạo ảnh minh hoạ</span>
+                                        <label v-if="providerCapsArray.includes('text')" class="flex items-center gap-2 cursor-pointer group">
+                                            <input type="checkbox" v-model="form.generate_text" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
+                                            <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">✍️ Text</span>
                                         </label>
-                                        <label v-if="selectedProviderCapabilities.video" class="flex items-center gap-2 cursor-pointer group">
-                                            <input type="checkbox" v-model="form.generate_video" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 dark:checked:bg-indigo-500" />
-                                            <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">🎬 Tạo video</span>
+                                        <label v-if="providerCapsArray.includes('image')" class="flex items-center gap-2 cursor-pointer group">
+                                            <input type="checkbox" v-model="form.generate_image" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
+                                            <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">🖼️ Image</span>
+                                        </label>
+                                        <label v-if="providerCapsArray.includes('video')" class="flex items-center gap-2 cursor-pointer group">
+                                            <input type="checkbox" v-model="form.generate_video" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
+                                            <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">🎬 Video</span>
                                         </label>
                                     </div>
                                 </div>
 
                                 <!-- Goal — only FB Post -->
-                                <div v-if="selectedPreset?.id === 'fb_post_v1'" class="flex flex-col gap-1.5">
+                                <div v-if="selectedPreset?.id === 'fb_post'" class="flex flex-col gap-1.5">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Mục tiêu</label>
-                                    <select v-model="form.goal" class="af-input h-9 text-sm">
+                                    <select v-model="form.goal" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50">
                                         <option value="traffic">Traffic (click)</option>
                                         <option value="conversion">Chuyển đổi / Bán hàng</option>
                                         <option value="remarketing">Remarketing</option>
@@ -231,23 +368,24 @@
                                 <!-- Product Title -->
                                 <div class="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Tên sản phẩm *</label>
-                                    <input v-model="form.product_title" type="text" class="af-input h-9 text-sm" placeholder="VD: Son môi Dior 999" />
+                                    <input v-model="form.product_title" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Son môi Dior 999" />
                                 </div>
                                 
                                 <!-- Product Price -->
                                 <div class="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Giá sản phẩm</label>
-                                    <input v-model="form.product_price" type="text" class="af-input h-9 text-sm" placeholder="VD: 450.000đ" />
+                                    <input v-model="form.product_price" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: 450.000đ" />
                                 </div>
                             </div>
 
                             <!-- Audience — only FB Post -->
-                            <div v-if="selectedPreset?.id === 'fb_post_v1'" class="flex flex-col gap-1.5">
+                            <div v-if="selectedPreset?.id === 'fb_post'" class="flex flex-col gap-1.5">
                                 <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Đối tượng mục tiêu</label>
                                 <input
                                     v-model="form.audience"
                                     type="text"
-                                    class="af-input h-9 text-sm"
+                                    :disabled="generating"
+                                    class="af-input h-9 text-sm disabled:opacity-50"
                                     placeholder="VD: phụ nữ 25-35 tuổi quan tâm làm đẹp"
                                 />
                             </div>
@@ -268,19 +406,19 @@
                                 <div class="grid grid-cols-2 gap-4">
                                     <div class="flex flex-col gap-1.5 col-span-2">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">USP / Điểm nổi bật</label>
-                                        <input v-model="form.usp" type="text" class="af-input h-9 text-sm" placeholder="VD: Chất son lỳ, lâu trôi 24h, không bám cốc" />
+                                        <input v-model="form.usp" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Chất son lỳ, lâu trôi 24h, không bám cốc" />
                                     </div>
                                     <div class="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Ưu đãi / Flash Sale</label>
-                                        <input v-model="form.offers" type="text" class="af-input h-9 text-sm" placeholder="VD: Mua 1 tặng 1, Free ship đơn từ 50k" />
+                                        <input v-model="form.offers" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Mua 1 tặng 1, Free ship đơn từ 50k" />
                                     </div>
                                     <div class="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Hạn dùng ưu đãi</label>
-                                        <input v-model="form.expiration" type="text" class="af-input h-9 text-sm" placeholder="VD: Chỉ còn 2 ngày, Duy nhất dịp 11/11" />
+                                        <input v-model="form.expiration" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Chỉ còn 2 ngày, Duy nhất dịp 11/11" />
                                     </div>
                                     <div class="flex flex-col gap-1.5 col-span-2">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Lưu ý / Chính sách</label>
-                                        <input v-model="form.policy" type="text" class="af-input h-9 text-sm" placeholder="VD: Bảo hành 12 tháng, Đổi trả 7 ngày" />
+                                        <input v-model="form.policy" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Bảo hành 12 tháng, Đổi trả 7 ngày" />
                                     </div>
                                 </div>
 
@@ -291,7 +429,8 @@
                                     </div>
                                     <textarea
                                         v-model="form.custom_prompt"
-                                        class="af-input text-sm resize-y leading-relaxed min-h-[80px]"
+                                        :disabled="generating"
+                                        class="af-input text-sm resize-y leading-relaxed min-h-[80px] disabled:opacity-50"
                                         rows="3"
                                         placeholder="Nhập prompt tuỳ chỉnh... Nếu để trống, hệ thống dùng template mặc định."
                                     ></textarea>
@@ -301,11 +440,11 @@
                                 <div class="flex flex-col gap-2 p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg border border-zinc-100 dark:border-zinc-800">
                                     <h4 class="text-[11px] font-semibold text-zinc-500 uppercase">Ràng buộc an toàn</h4>
                                     <label class="flex items-center gap-2 cursor-pointer group w-fit">
-                                        <input type="checkbox" v-model="form.safety_no_absolute" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 dark:checked:bg-indigo-500" />
+                                        <input type="checkbox" v-model="form.safety_no_absolute" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
                                         <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">Không dùng cam kết tuyệt đối (nhất, 100%, trị dứt điểm)</span>
                                     </label>
                                     <label class="flex items-center gap-2 cursor-pointer group w-fit">
-                                        <input type="checkbox" v-model="form.safety_no_medical" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 dark:checked:bg-indigo-500" />
+                                        <input type="checkbox" v-model="form.safety_no_medical" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
                                         <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">Không vi phạm từ khoá Y Tế / Dược (Facebook strict)</span>
                                     </label>
                                 </div>
@@ -320,8 +459,9 @@
                                 <div class="flex items-center gap-3">
                                     <input
                                         v-model.number="form.variant_count"
+                                        :disabled="generating"
                                         type="range" min="1" max="5" step="1"
-                                        class="flex-1 h-1.5 rounded accent-indigo-500 cursor-pointer"
+                                        class="flex-1 h-1.5 rounded accent-indigo-500 cursor-pointer disabled:opacity-50"
                                     />
                                     <span class="text-xs font-mono w-3 text-zinc-600 dark:text-zinc-300">{{ form.variant_count }}</span>
                                 </div>
@@ -357,22 +497,23 @@
                             <!-- URL input & File upload -->
                             <div class="flex gap-2 items-center">
                                 <label class="cursor-pointer shrink-0">
-                                    <div class="af-btn-outline h-9 px-3 flex items-center gap-1.5" :class="{'opacity-50 pointer-events-none': isUploadingImage}">
+                                    <div class="af-btn-outline h-9 px-3 flex items-center gap-1.5" :class="{'opacity-50 pointer-events-none': isUploadingImage || generating}">
                                         <Loader2 v-if="isUploadingImage" :size="13" class="animate-spin" />
                                         <Upload v-else :size="13" />
                                         <span class="text-xs font-medium">{{ isUploadingImage ? 'Đang tải...' : 'Upload ảnh' }}</span>
                                     </div>
-                                    <input type="file" accept="image/*" class="hidden" @change="handleImageUpload" :disabled="isUploadingImage" />
+                                    <input type="file" accept="image/*" class="hidden" @change="handleImageUpload" :disabled="isUploadingImage || generating" />
                                 </label>
                                 <span class="text-[10px] text-zinc-400 font-medium tracking-wide uppercase">hoặc</span>
                                 <input
                                     v-model="imageUrlInput"
                                     type="url"
-                                    class="af-input h-9 text-sm flex-1 min-w-0"
+                                    :disabled="generating"
+                                    class="af-input h-9 text-sm flex-1 min-w-0 disabled:opacity-50"
                                     placeholder="Paste URL ảnh sản phẩm..."
                                     @keydown.enter="addImageUrl"
                                 />
-                                <button @click="addImageUrl" class="af-btn-outline h-9 px-3 text-xs font-medium flex items-center gap-1 shrink-0">
+                                <button @click="addImageUrl" :disabled="generating" class="af-btn-outline h-9 px-3 text-xs font-medium flex items-center gap-1 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
                                     <Plus :size="13" />
                                     Thêm URL
                                 </button>
@@ -393,7 +534,8 @@
                                     />
                                     <button
                                         @click="removeImage(idx)"
-                                        class="absolute top-1 right-1 w-5 h-5 rounded-full bg-zinc-900/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        :disabled="generating"
+                                        class="absolute top-1 right-1 w-5 h-5 rounded-full bg-zinc-900/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-0"
                                     >
                                         <X :size="10" />
                                     </button>
@@ -418,98 +560,109 @@
                             </div>
                         </div>
 
-                        <!-- ── Output section ── -->
-                        <div v-if="outputVariants.length > 0 || outputMedia.length > 0" class="flex flex-col gap-4">
-                            <div class="flex items-center justify-between">
-                                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                                    <CheckCircle2 :size="15" class="text-emerald-500" />
-                                    {{ outputVariants.length }} phiên bản được tạo
-                                </h3>
-                                <button
-                                    @click="generate(true)"
-                                    :disabled="generating"
-                                    class="text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium transition-colors disabled:opacity-50"
-                                >
-                                    <RefreshCw :size="12" />
-                                    Tạo lại (mới)
-                                </button>
-                            </div>
-
-                            <div
-                                v-for="(variant, index) in outputVariants"
-                                :key="index"
-                                class="af-surface rounded-xl overflow-hidden"
-                            >
-                                <div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60">
-                                    <span class="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                                        Phiên bản {{ index + 1 }}
-                                        <span v-if="variant.kind" class="ml-1.5 text-zinc-400 font-normal">{{ variant.kind }}</span>
-                                    </span>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[10px] text-zinc-400">{{ variant.text?.length || 0 }} ký tự</span>
-                                        <button
-                                            @click="copyVariantWithLink(variant.text, index)"
-                                            class="h-6 px-2.5 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-colors border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"
-                                            title="Copy nội dung & nối tracking link vào cuối"
-                                        >
-                                            <Link2 :size="10" />
-                                            Copy + Link
-                                        </button>
-                                        <button
-                                            @click="copyVariant(variant.text, index)"
-                                            class="h-6 px-2 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors"
-                                            :class="copiedIndex === index
-                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400'
-                                                : 'bg-zinc-100 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-600'"
-                                            title="Chỉ copy nội dung"
-                                        >
-                                            <Check v-if="copiedIndex === index" :size="10" />
-                                            <Copy v-else :size="10" />
-                                            {{ copiedIndex === index ? 'Copied!' : 'Copy' }}
-                                        </button>
-                                    </div>
+                        <!-- ── Async Video Progress Banner ── -->
+                        <div
+                            v-if="asyncStatus && (asyncStatus === 'queued' || asyncStatus === 'processing')"
+                            class="relative overflow-hidden rounded-lg border border-indigo-200 dark:border-indigo-500/30 bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-50 dark:from-indigo-500/10 dark:via-purple-500/10 dark:to-indigo-500/10 px-4 py-3"
+                        >
+                            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent dark:via-white/5 animate-[shimmer_2s_infinite]" style="animation: shimmer 2s infinite; background-size: 200% 100%;"></div>
+                            <div class="relative flex items-center gap-3">
+                                <div class="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20">
+                                    <svg class="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
                                 </div>
-                                <div v-if="variant.text" class="px-4 py-3">
-                                    <pre class="text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap leading-relaxed font-sans">{{ variant.text }}</pre>
+                                <div class="flex-1">
+                                    <p class="text-sm font-medium text-indigo-800 dark:text-indigo-300">
+                                        {{ asyncStatus === 'queued' ? 'Đang chờ xử lý video...' : 'Đang tạo video...' }}
+                                    </p>
+                                    <p class="text-xs text-indigo-600/70 dark:text-indigo-400/70 mt-0.5">
+                                        Poll #{{ asyncPollCount }} • Tối đa {{ asyncPollMax }} lần (~5 phút)
+                                    </p>
                                 </div>
-                            </div>
-
-                            <!-- Media Display (Images/Videos) -->
-                            <div v-if="outputMedia.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <template v-for="(item, idx) in outputMedia" :key="idx">
-                                    <div class="group relative bg-white dark:bg-zinc-800 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden shadow-sm hover:shadow-md transition-all duration-300">
-                                        <div class="aspect-square bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden">
-                                            <img v-if="item.url || item.base64" 
-                                                 :src="item.url || `data:image/png;base64,${item.base64}`" 
-                                                 class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
-                                                 alt="Generated AI" />
-                                            <div v-else class="text-zinc-400">Không có ảnh</div>
-                                        </div>
-                                        <div class="p-3 border-t border-zinc-100 dark:border-zinc-700 flex items-center justify-between">
-                                            <span class="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">Generated AI Image #{{ idx + 1 }}</span>
-                                            <a v-if="item.url" :href="item.url" target="_blank" class="text-indigo-600 dark:text-indigo-400 text-[10px] font-bold hover:underline">Download</a>
-                                        </div>
-                                    </div>
-                                </template>
-                            </div>
-
-                            <!-- Usage footer -->
-                            <div v-if="lastGeneration" class="flex items-center gap-4 text-[11px] text-zinc-400 py-1">
-                                <span v-if="lastGeneration.usage?.model">Model: <span class="font-mono">{{ lastGeneration.usage.model }}</span></span>
-                                <span>Prompt: <span class="font-mono">{{ lastGeneration.usage?.tokens_prompt || 0 }}</span> tokens</span>
-                                <span>Output: <span class="font-mono">{{ lastGeneration.usage?.tokens_completion || 0 }}</span> tokens</span>
-                                <span v-if="lastGeneration.from_cache" class="text-amber-500 font-medium">⚡ từ cache</span>
+                                <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                                      :class="asyncStatus === 'processing'
+                                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                                          : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'">
+                                    {{ asyncStatus }}
+                                </span>
                             </div>
                         </div>
+
+                        <!-- Retry CTA after timeout -->
+                        <div v-if="errorMsg && errorMsg.includes('Quá thời gian')" class="flex items-center gap-2">
+                            <button @click="retryAsyncPolling" class="text-xs text-indigo-600 dark:text-indigo-400 font-medium hover:underline">
+                                🔄 Thử lại
+                            </button>
+                        </div>
+
+                        <!-- Generation output is now handled by auto-switching to the History Detail view. -->
                     </div>
                 </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════
+                 RIGHT PANEL — History list
+            ═══════════════════════════════════════════ -->
+            <div class="w-[360px] shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden">
+                <div class="px-4 py-4 border-b border-zinc-200 dark:border-zinc-800">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Lịch sử AI</h2>
+                        <Loader2 v-if="historyLoading" :size="12" class="animate-spin text-zinc-400" />
+                    </div>
+                    <p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        Chọn bản ghi để hiển thị nội dung.
+                    </p>
+                </div>
+
+                <div v-if="!selectedLink" class="flex-1 flex items-center justify-center px-4 text-center text-xs text-zinc-400">
+                    Chọn một tracking link để xem lịch sử tạo nội dung.
+                </div>
+
+                <template v-else>
+                    <div class="flex-1 overflow-y-auto">
+                        <p v-if="!historyLoading && history.length === 0" class="text-xs text-zinc-400 px-4 py-4 text-center">
+                            Chưa có lịch sử cho link này
+                        </p>
+                        <button
+                            v-for="item in history"
+                            :key="item.id"
+                            @click="selectHistoryItem(item)"
+                            class="w-full text-left px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 transition-colors"
+                            :class="selectedHistoryItem?.id === item.id
+                                ? 'bg-indigo-50 dark:bg-indigo-500/10'
+                                : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'"
+                        >
+                            <div class="flex items-center gap-1.5 mb-0.5">
+                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" :class="platformBadgeClass(item.platform)">{{ item.platform }}</span>
+                                <span class="text-[9px] px-1 py-0.5 rounded" :class="item.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'">{{ item.status }}</span>
+                            </div>
+                            <p class="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-1">{{ item.preview || '—' }}</p>
+                            <p class="text-[10px] text-zinc-400 mt-0.5">{{ formatRelative(item.created_at) }}</p>
+                        </button>
+                    </div>
+
+                    <div class="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
+                        <div v-if="historyDetailLoading" class="text-xs text-zinc-400">Đang tải nội dung lịch sử...</div>
+                        <div v-else-if="selectedHistoryDetail" class="flex items-center justify-between gap-2">
+                            <p class="text-xs text-zinc-500 truncate">Đang xem: {{ formatRelative(selectedHistoryDetail.created_at) }}</p>
+                            <button
+                                @click="applyHistoryToEditor()"
+                                class="af-btn-outline h-7 px-2.5 text-[11px] font-semibold shrink-0"
+                            >
+                                Áp dụng vào editor
+                            </button>
+                        </div>
+                    </div>
+                </template>
             </div>
         </div>
     </AppShell>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import axios from 'axios';
 import {
     Sparkles, Search, Link2, Loader2,
@@ -535,11 +688,25 @@ const selectedPreset = ref(props.presets[0] ?? null);
 
 const history        = ref([]);
 const historyLoading = ref(false);
+const historyDetailLoading = ref(false);
+const selectedHistoryItem = ref(null);
+const selectedHistoryDetail = ref(null);
+const centerViewMode = ref('editor');
 const isAdvancedOpen = ref(false);
+
+const aiStatistics    = ref(null);
+const statisticsLoading = ref(false);
 
 const generating     = ref(false);
 const outputVariants = ref([]);
 const outputMedia    = ref([]);
+
+// ─── Async Polling State (Seedance video generation) ──────────────────────────
+const asyncPollingInterval = ref(null);
+const asyncGenId           = ref(null);
+const asyncStatus          = ref(null);   // 'queued' | 'processing' | 'succeeded' | 'failed'
+const asyncPollCount       = ref(0);
+const asyncPollMax         = 60; // 5 min at 5s intervals
 const lastGeneration = ref(null);
 const errorMsg       = ref('');
 const errorHint      = ref('');
@@ -570,6 +737,7 @@ const form = ref({
     safety_no_absolute: false,
     safety_no_medical: false,
     safety_no_sensitive: false,
+    generate_text: true,
     generate_image: false,
     generate_video: false,
 });
@@ -593,6 +761,24 @@ const selectedProviderDefaultModel = computed(() => {
 const selectedProviderCapabilities = computed(() => {
     const p = props.configuredProviders.find(p => p.key === form.value.provider_key);
     return p?.capabilities ?? {};
+});
+
+/** Normalized array of caps: ['text', 'image', 'video'] */
+const providerCapsArray = computed(() => {
+    const caps = selectedProviderCapabilities.value;
+    if (!caps || Object.keys(caps).length === 0) return [];
+    return Array.isArray(caps) ? caps : Object.keys(caps).filter(k => caps[k]);
+});
+
+/** True if provider has at least one capability */
+const hasAnyCapability = computed(() => providerCapsArray.value.length > 0);
+const historyOutputVariants = computed(() => {
+    const output = selectedHistoryDetail.value?.output ?? selectedHistoryDetail.value?.output_payload ?? {};
+    return Array.isArray(output?.variants) ? output.variants : [];
+});
+const historyOutputMedia = computed(() => {
+    const output = selectedHistoryDetail.value?.output ?? selectedHistoryDetail.value?.output_payload ?? {};
+    return Array.isArray(output?.media) ? output.media : [];
 });
 
 // ── Watchers ─────────────────────────────────────────────────────────────────
@@ -638,9 +824,16 @@ onMounted(() => {
     }
 });
 
+onUnmounted(() => {
+    stopAsyncPolling();
+});
+
 // ── Methods ───────────────────────────────────────────────────────────────────
 function selectLink(link) {
     selectedLink.value = link;
+    selectedHistoryItem.value = null;
+    selectedHistoryDetail.value = null;
+    centerViewMode.value = 'editor';
     fetchHistory();
 }
 
@@ -649,9 +842,21 @@ function selectPreset(preset) {
 }
 
 function onProviderChange() {
-    // Auto-fill model from provider default
     const p = props.configuredProviders.find(p => p.key === form.value.provider_key);
     if (p) form.value.model = p.model ?? '';
+
+    // Auto-check available outputs, uncheck unavailable
+    const caps = providerCapsArray.value;
+    if (caps.length > 0) {
+        form.value.generate_text  = caps.includes('text');
+        form.value.generate_image = false; // optional, user opts in
+        form.value.generate_video = false; // optional, user opts in
+    } else {
+        // Auto mode — reset to text only
+        form.value.generate_text  = true;
+        form.value.generate_image = false;
+        form.value.generate_video = false;
+    }
 }
 
 function addImageUrl() {
@@ -711,7 +916,10 @@ async function fetchHistory() {
     if (!selectedLink.value) return;
     historyLoading.value = true;
     try {
-        const res = await axios.get(route('api.content.history', { trackingLink: selectedLink.value.id }));
+        const res = await axios.get(
+            route('api.content.history', { trackingLink: selectedLink.value.id }),
+            { params: { _ts: Date.now() } }
+        );
         if (res.data?.ok) {
             const items = res.data.data?.data ?? res.data.data ?? [];
             history.value = items.map(item => ({
@@ -719,19 +927,112 @@ async function fetchHistory() {
                 platform: item.preset_id?.includes('fb') ? 'facebook' : (item.preset_id?.includes('tiktok') ? 'tiktok' : 'generic'),
                 preview: item.preview_text || '',
             }));
+            // Keep current detail view stable, only clear stale selection.
+            if (selectedHistoryItem.value) {
+                const stillExists = history.value.some((item) => String(item.id) === String(selectedHistoryItem.value.id));
+                if (!stillExists) {
+                    selectedHistoryItem.value = null;
+                    selectedHistoryDetail.value = null;
+                }
+            }
         }
     } catch {
-        // silent fail — history is non-critical
+        toast.warning('Không thể làm mới lịch sử AI ngay lúc này.');
     } finally {
         historyLoading.value = false;
+        fetchStatistics();
+    }
+}
+
+async function fetchStatistics() {
+    if (!selectedLink.value) return;
+    statisticsLoading.value = true;
+    try {
+        const res = await axios.get(route('api.content.statistics', { trackingLink: selectedLink.value.id }));
+        if (res.data?.ok) {
+            aiStatistics.value = res.data.data;
+        }
+    } catch {
+        aiStatistics.value = null;
+    } finally {
+        statisticsLoading.value = false;
+    }
+}
+
+function buildHistoryPreview(output) {
+    const raw = output?.variants?.[0]?.text ?? '';
+    if (!raw) return '—';
+    const compact = String(raw).replace(/\s+/g, ' ').trim();
+    return compact.length > 100 ? `${compact.slice(0, 100)}...` : compact;
+}
+
+function inferHistoryPlatform(presetId) {
+    const value = String(presetId ?? '');
+    if (value.includes('fb')) return 'facebook';
+    if (value.includes('tiktok')) return 'tiktok';
+    return 'generic';
+}
+
+function upsertHistoryFromGeneration(data, statusOverride = null) {
+    const generationId = data?.generation_id || data?.id;
+    if (!generationId) return;
+
+    const incomingStatus = statusOverride || data?.status || 'processing';
+    const incomingPreset = data?.preset_id || selectedPreset.value?.id || null;
+    const incomingPreview = buildHistoryPreview(data?.output);
+    const index = history.value.findIndex((item) => String(item.id) === String(generationId));
+
+    if (index >= 0) {
+        const current = history.value[index];
+        history.value[index] = {
+            ...current,
+            status: incomingStatus,
+            preset_id: incomingPreset ?? current.preset_id,
+            platform: inferHistoryPlatform(incomingPreset ?? current.preset_id),
+            preview: incomingPreview !== '—' ? incomingPreview : current.preview,
+            preview_text: incomingPreview !== '—' ? incomingPreview : current.preview_text,
+        };
+        return;
+    }
+
+    history.value.unshift({
+        id: generationId,
+        status: incomingStatus,
+        from_cache: Boolean(data?.from_cache),
+        preset_id: incomingPreset,
+        preview: incomingPreview,
+        preview_text: incomingPreview,
+        error_code: null,
+        error_message_short: null,
+        created_at: new Date().toISOString(),
+        platform: inferHistoryPlatform(incomingPreset),
+    });
+}
+
+async function selectHistoryItem(item) {
+    if (!item?.id) return;
+    selectedHistoryItem.value = item;
+    historyDetailLoading.value = true;
+    try {
+        const res = await axios.get(route('api.content-generations.show', { id: item.id }));
+        if (res.data?.ok) {
+            selectedHistoryDetail.value = res.data.data;
+            centerViewMode.value = 'history';
+        }
+    } catch {
+        selectedHistoryDetail.value = null;
+        toast.error('Không thể tải chi tiết lịch sử này.');
+    } finally {
+        historyDetailLoading.value = false;
     }
 }
 
 async function generate(forceNewSeed = false) {
     if (!selectedLink.value || !selectedPreset.value || generating.value) return;
-    if (forceNewSeed) idempotencyKey = crypto.randomUUID();
+    idempotencyKey = crypto.randomUUID();
 
     generating.value = true;
+    centerViewMode.value = 'editor';
     errorMsg.value = '';
     errorHint.value = '';
     outputVariants.value = [];
@@ -740,8 +1041,8 @@ async function generate(forceNewSeed = false) {
     // Build options object
     const options = { variant_count: form.value.variant_count };
     
-    if (selectedPreset.value.id !== 'hashtags_pack_v1') options.tone = form.value.tone;
-    if (selectedPreset.value.id === 'fb_post_v1') {
+    if (selectedPreset.value.id !== 'hashtags_pack') options.tone = form.value.tone;
+    if (selectedPreset.value.id === 'fb_post') {
         options.goal     = form.value.goal;
         options.audience = form.value.audience;
     }
@@ -762,13 +1063,14 @@ async function generate(forceNewSeed = false) {
         preset_id:      selectedPreset.value.id,
         variant_count:  form.value.variant_count,
         options,
-        force_new_seed: forceNewSeed,
+        force_new_seed: true, // Always generate fresh content
     };
 
     // Optional overrides
     if (form.value.provider_key) payload.provider_key  = form.value.provider_key;
     if (form.value.model)        payload.model          = form.value.model;
     if (form.value.image_urls.length) payload.image_urls = form.value.image_urls;
+    if (form.value.generate_text)  payload.generate_text  = true;
     if (form.value.generate_image) payload.generate_image = true;
     if (form.value.generate_video) payload.generate_video = true;
 
@@ -780,9 +1082,16 @@ async function generate(forceNewSeed = false) {
         );
 
         const data = res.data?.data ?? res.data;
-        outputVariants.value = data?.output?.variants ?? [];
-        outputMedia.value    = data?.output?.media ?? [];
-        
+        if (data?.generation_id) {
+            upsertHistoryFromGeneration(data, data.status);
+        }
+
+        // ── Async path: video generation returns 'queued' ─────────────────
+        if (data?.status === 'queued' && data?.generation_id) {
+            startAsyncPolling(data.generation_id);
+            return;
+        }
+
         lastGeneration.value = {
             from_cache: data?.from_cache ?? false,
             usage:      data?.usage ?? {},
@@ -790,8 +1099,12 @@ async function generate(forceNewSeed = false) {
 
         await fetchHistory();
 
-        if (outputVariants.value.length === 0) {
-            errorMsg.value = 'Không nhận được dữ liệu từ AI provider.';
+        // ── Auto-open in history tab ──
+        if (data?.generation_id) {
+            const newItem = history.value.find(h => String(h.id) === String(data.generation_id));
+            if (newItem) {
+                await selectHistoryItem(newItem);
+            }
         }
     } catch (e) {
         const status = e.response?.status;
@@ -812,70 +1125,149 @@ async function generate(forceNewSeed = false) {
         } else {
             errorMsg.value = msg || 'Có lỗi xảy ra khi kết nối.';
         }
+        await fetchHistory();
     } finally {
         generating.value = false;
     }
 }
 
-function loadFromHistory(item) {
-    if (!item?.id) return;
+// ─── Async Polling Functions ──────────────────────────────────────────────────
+
+function startAsyncPolling(generationId) {
+    stopAsyncPolling();
+    asyncGenId.value    = generationId;
+    asyncStatus.value   = 'queued';
+    asyncPollCount.value = 0;
+    generating.value     = true;
+    upsertHistoryFromGeneration({ generation_id: generationId, status: 'queued', preset_id: selectedPreset.value?.id }, 'queued');
+
+    asyncPollingInterval.value = setInterval(async () => {
+        asyncPollCount.value++;
+
+        // Timeout: 60 polls × 5s = 5 minutes
+        if (asyncPollCount.value >= asyncPollMax) {
+            stopAsyncPolling();
+            errorMsg.value = 'Quá thời gian chờ. Video có thể vẫn đang xử lý.';
+            errorHint.value = 'Kiểm tra lại ở Lịch sử hoặc bấm "Thử lại" để tiếp tục theo dõi.';
+            return;
+        }
+
+        try {
+            const res = await axios.get(
+                route('api.content-generations.status', { id: generationId })
+            );
+            const data = res.data?.data;
+            if (!data) return;
+
+            asyncStatus.value = data.status;
+            upsertHistoryFromGeneration(
+                { ...data, generation_id: generationId, preset_id: selectedPreset.value?.id },
+                data.status
+            );
+
+            if (data.status === 'succeeded') {
+                stopAsyncPolling();
+                outputMedia.value = data.output?.media ?? [];
+                lastGeneration.value = { from_cache: false, usage: {} };
+                await fetchHistory();
+                toast.success('Video đã tạo xong!');
+            } else if (data.status === 'failed') {
+                stopAsyncPolling();
+                errorMsg.value = data.error_message || 'Tạo video thất bại.';
+            }
+        } catch (err) {
+            // Network error — don't stop polling, just skip this tick
+            console.warn('Async poll error:', err.message);
+        }
+    }, 5000);
+}
+
+function stopAsyncPolling() {
+    if (asyncPollingInterval.value) {
+        clearInterval(asyncPollingInterval.value);
+        asyncPollingInterval.value = null;
+    }
+    asyncGenId.value  = null;
+    asyncStatus.value = null;
+    generating.value  = false;
+}
+
+function retryAsyncPolling() {
+    if (asyncGenId.value) {
+        errorMsg.value  = '';
+        errorHint.value = '';
+        startAsyncPolling(asyncGenId.value);
+    }
+}
+
+function applyHistoryToEditor() {
+    const data = selectedHistoryDetail.value;
+    if (!data?.id && !data?.generation_id) return;
     isRestoring.value = true;
     toast.success('Đang khôi phục...');
-    axios.get(route('api.content-generations.show', { id: item.id }))
-        .then(res => {
-            if (res.data?.ok) {
-                const data = res.data.data;
-                // Restore Output — backend returns "output" not "output_payload"
-                const output = data.output ?? data.output_payload ?? {};
-                outputVariants.value = output.variants || [];
-                outputMedia.value    = output.media || [];
+    // Restore Output — backend returns "output" not "output_payload"
+    const output = data.output ?? data.output_payload ?? {};
+    outputVariants.value = output.variants || [];
+    outputMedia.value    = output.media || [];
 
-                lastGeneration.value = {
-                    from_cache: true,
-                    usage: data.usage ?? {
-                        tokens_prompt:     data.tokens_prompt ?? 0,
-                        tokens_completion: data.tokens_completion ?? 0,
-                        model:             data.model_used ?? data.ai_model ?? '',
-                    },
-                };
-                
-                // Restore Form configuration — backend returns "prompt_attributes" not "input_payload"
-                const attrs = data.prompt_attributes ?? data.input_payload ?? {};
-                if (data.preset_id) {
-                    const preset = props.presets.find(p => p.id === data.preset_id);
-                    if (preset) selectedPreset.value = preset;
-                }
-                if (attrs.provider_key) form.value.provider_key = attrs.provider_key;
-                if (attrs.model) form.value.model = attrs.model;
-                if (attrs.image_urls) form.value.image_urls = [...attrs.image_urls];
-                
-                form.value.variant_count = attrs.variant_count || 3;
-                if (attrs.tone) form.value.tone = attrs.tone;
-                if (attrs.goal) form.value.goal = attrs.goal;
-                if (attrs.audience) form.value.audience = attrs.audience;
-                if (attrs.product_title) form.value.product_title = attrs.product_title;
-                if (attrs.product_price) form.value.product_price = attrs.product_price;
-                if (attrs.usp) form.value.usp = attrs.usp;
-                if (attrs.offers) form.value.offers = attrs.offers;
-                if (attrs.expiration) form.value.expiration = attrs.expiration;
-                if (attrs.policy) form.value.policy = attrs.policy;
-                if (attrs.custom_prompt) form.value.custom_prompt = attrs.custom_prompt;
-                
-                form.value.safety_no_absolute = !!attrs.safety_no_absolute;
-                form.value.safety_no_medical = !!attrs.safety_no_medical;
-                form.value.safety_no_sensitive = !!attrs.safety_no_sensitive;
+    lastGeneration.value = {
+        from_cache: true,
+        usage: data.usage ?? {
+            tokens_prompt:     data.tokens_prompt ?? 0,
+            tokens_completion: data.tokens_completion ?? 0,
+            model:             data.model_used ?? data.ai_model ?? '',
+        },
+    };
+    
+    // Restore Form configuration — backend returns "prompt_attributes" not "input_payload"
+    const attrs = data.prompt_attributes ?? data.input_payload ?? {};
+    if (data.preset_id) {
+        const preset = props.presets.find(p => p.id === data.preset_id);
+        if (preset) selectedPreset.value = preset;
+    }
+    if (attrs.provider_key) form.value.provider_key = attrs.provider_key;
+    if (attrs.model) form.value.model = attrs.model;
+    if (attrs.image_urls) form.value.image_urls = [...attrs.image_urls];
+    
+    form.value.variant_count = attrs.variant_count || 3;
+    if (attrs.tone) form.value.tone = attrs.tone;
+    if (attrs.goal) form.value.goal = attrs.goal;
+    if (attrs.audience) form.value.audience = attrs.audience;
+    if (attrs.product_title) form.value.product_title = attrs.product_title;
+    if (attrs.product_price) form.value.product_price = attrs.product_price;
+    if (attrs.usp) form.value.usp = attrs.usp;
+    if (attrs.offers) form.value.offers = attrs.offers;
+    if (attrs.expiration) form.value.expiration = attrs.expiration;
+    if (attrs.policy) form.value.policy = attrs.policy;
+    if (attrs.custom_prompt) form.value.custom_prompt = attrs.custom_prompt;
+    
+    form.value.safety_no_absolute = !!attrs.safety_no_absolute;
+    form.value.safety_no_medical = !!attrs.safety_no_medical;
+    form.value.safety_no_sensitive = !!attrs.safety_no_sensitive;
 
-                errorMsg.value = '';
-                toast.success('Đã tải lại preset và nội dung từ lịch sử.');
-                
-                // End restoration after all state updates are done (tick later)
-                setTimeout(() => { isRestoring.value = false; }, 50);
-            }
-        })
-        .catch(e => {
-            isRestoring.value = false;
-            toast.error('Không thể tải chi tiết lịch sử này.');
-        });
+    errorMsg.value = '';
+    centerViewMode.value = 'editor';
+    toast.success('Đã tải lại preset và nội dung.');
+    
+    // End restoration after all state updates are done (tick later)
+    setTimeout(() => { isRestoring.value = false; }, 50);
+}
+
+function openEditorView() {
+    centerViewMode.value = 'editor';
+}
+
+function copyHistoryVariantWithLink(text) {
+    if (!text) return;
+    if (!selectedLink.value) return;
+    const trackingUrl = selectedLink.value.track_url || selectedLink.value.tracking_url || '';
+    if (!trackingUrl) {
+        toast.error('Tracking link không tồn tại hoặc bị lỗi.');
+        return;
+    }
+
+    const combinedText = `${text}\n👉 Đặt mua ngay tại đây: ${trackingUrl}`;
+    copyText(combinedText, 'Đã copy nội dung lịch sử + link tracking.');
 }
 
 function copyText(text, successMsg = 'Đã copy') {
@@ -894,7 +1286,7 @@ function copyVariantWithLink(text, index) {
     }
     
     // Nối link vào text: "\n👉 Mua ngay tại: [link]"
-    const separator = selectedPreset.value?.id === 'tiktok_caption_v1' ? '\n🛒 Xem giỏ hàng/thêm vào giỏ:' : '\n👉 Đặt mua ngay tại đây:';
+    const separator = selectedPreset.value?.id === 'tiktok_caption' ? '\n🛒 Xem giỏ hàng/thêm vào giỏ:' : '\n👉 Đặt mua ngay tại đây:';
     const combinedText = `${text}\n${separator} ${trackingUrl}`;
     
     navigator.clipboard.writeText(combinedText).then(() => {

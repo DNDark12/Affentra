@@ -51,7 +51,10 @@ class ContentGenerationController
         );
 
         // --- Build response ---
-        $usage = $generation->status === 'succeeded' && ! $generation->from_cache
+        $isQueued = $generation->status === 'queued';
+        $isSuccess = $generation->status === 'succeeded';
+
+        $usage = $isSuccess && ! $generation->from_cache
             ? [
                 'tokens_prompt'     => $generation->tokens_prompt,
                 'tokens_completion' => $generation->tokens_completion,
@@ -61,7 +64,7 @@ class ContentGenerationController
             : null;
 
         $responseBody = [
-            'ok'            => $generation->status === 'succeeded',
+            'ok'            => $isSuccess || $isQueued,
             'data'          => [
                 'status'        => $generation->status,
                 'provider_used' => $generation->ai_provider,
@@ -75,7 +78,11 @@ class ContentGenerationController
             'errors'        => null,
         ];
 
-        $statusCode = $generation->status === 'succeeded' ? 200 : 422; // 422 for generation failure matches standard
+        $statusCode = match ($generation->status) {
+            'succeeded' => 200,
+            'queued', 'processing' => 202,
+            default => 422,
+        };
 
         // --- Store idempotency response ---
         // Only cache successful requests. If it failed, allow retry with same ID to attempt again, or FE can generate new
@@ -85,6 +92,34 @@ class ContentGenerationController
         }
 
         return response()->json($responseBody, $statusCode);
+    }
+
+    /**
+     * GET /api/content-generations/{id}/status
+     *
+     * Lightweight polling endpoint for async generation status.
+     * DB-read only — NEVER calls external provider APIs.
+     */
+    public function status(Request $request, string $id): JsonResponse
+    {
+        $generation = \App\Models\ContentGeneration::findOrFail($id);
+
+        if ((int) $generation->user_id !== (int) $request->user()->id) {
+            abort(404);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'data' => [
+                'id'                    => $generation->id,
+                'status'                => $generation->status,
+                'provider_status'       => $generation->provider_status,
+                'poll_attempts'         => $generation->poll_attempts,
+                'provider_completed_at' => $generation->provider_completed_at,
+                'output'                => $generation->output_payload,
+                'error_message'         => $generation->error_message,
+            ],
+        ]);
     }
 
     /**
@@ -162,6 +197,43 @@ class ContentGenerationController
                 // Passing prompt_attributes helps FE restore the form preset correctly
                 'preset_id'         => $generation->prompt_template_id,
                 'prompt_attributes' => $generation->prompt_attributes,
+            ]
+        ]);
+    }
+
+    /**
+     * GET /api/links/{trackingLink}/content/statistics
+     * Calculates usage stats for the link, shop, and account.
+     */
+    public function statistics(TrackingLink $trackingLink, \Illuminate\Http\Request $request): JsonResponse
+    {
+        $userId = $request->user()->id;
+
+        // Scope check: link must belong to the user
+        if ((int) $trackingLink->user_id !== (int) $userId) {
+            abort(404);
+        }
+
+        $calcStats = function ($query) {
+            $stats = $query->selectRaw("
+                SUM(CASE WHEN status = 'succeeded' THEN (tokens_prompt + tokens_completion) ELSE 0 END) as total_tokens,
+                SUM(CASE WHEN type = 'image' AND status = 'succeeded' THEN JSON_LENGTH(output_payload, '$.media') ELSE 0 END) as total_images,
+                SUM(CASE WHEN type = 'video' AND status = 'succeeded' THEN JSON_LENGTH(output_payload, '$.media') ELSE 0 END) as total_videos
+            ")->first();
+
+            return [
+                'tokens' => (int) ($stats->total_tokens ?? 0),
+                'images' => (int) ($stats->total_images ?? 0),
+                'videos' => (int) ($stats->total_videos ?? 0),
+            ];
+        };
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'account' => $calcStats(\App\Models\ContentGeneration::where('user_id', $userId)),
+                'shop'    => $calcStats(\App\Models\ContentGeneration::where('user_id', $userId)->where('platform', $trackingLink->platform)),
+                'link'    => $calcStats(\App\Models\ContentGeneration::where('tracking_link_id', $trackingLink->id)),
             ]
         ]);
     }

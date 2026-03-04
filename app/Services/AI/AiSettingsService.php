@@ -9,7 +9,9 @@ use App\Models\User;
 use App\Services\AI\Contracts\AIProviderClient;
 use App\Services\AI\Providers\GeminiClient;
 use App\Services\AI\Providers\OpenAICompatibleClient;
+use App\Services\AI\Providers\SeedanceClient;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
@@ -36,24 +38,35 @@ class AiSettingsService
      */
     public const PROVIDER_REGISTRY = [
         'gemini' => [
-            'name'         => 'Google Gemini',
-            'capabilities' => ['text', 'image', 'video'],
-            'has_base_url' => false,
+            'name'              => 'Google Gemini',
+            'capabilities'      => ['text', 'image', 'video'],
+            'has_base_url'      => false,
+            'default_model'     => 'gemini-3.1-flash',
         ],
         'openai' => [
-            'name'         => 'OpenAI',
-            'capabilities' => ['text', 'image', 'video'],
-            'has_base_url' => false,
+            'name'              => 'OpenAI',
+            'capabilities'      => ['text', 'image', 'video'],
+            'has_base_url'      => false,
+            'default_model'     => 'gpt-5.3-mini',
         ],
         'self_hosted' => [
-            'name'         => 'Self-Hosted (OpenAI-Compatible)',
-            'capabilities' => ['text'],
-            'has_base_url' => true,
+            'name'              => 'Self-Hosted',
+            'capabilities'      => ['text'],
+            'has_base_url'      => true,
+            'default_model'     => '',
         ],
         'anthropic' => [
-            'name'         => 'Anthropic Claude',
-            'capabilities' => ['text'],
-            'has_base_url' => false,
+            'name'              => 'Anthropic Claude',
+            'capabilities'      => ['text'],
+            'has_base_url'      => false,
+            'default_model'     => 'claude-4-sonnet',
+        ],
+        'seedance' => [
+            'name'              => 'Seedance (Video AI)',
+            'capabilities'      => ['video'],
+            'has_base_url'      => true,
+            'default_base_url'  => 'https://seedance2.app/api/v1',
+            'default_model'     => 'doubao-seedance-2-0',
         ],
     ];
 
@@ -110,11 +123,16 @@ class AiSettingsService
         ]);
         $setting->save();
 
-        // Store encrypted credentials if provided
-        $credentials = array_filter([
-            'api_key'  => $data['api_key'] ?? null,
-            'base_url' => $data['base_url'] ?? null,
-        ]);
+        // Store encrypted credentials, merging with existing ones
+        $existingCreds = $setting->getCredentials();
+
+        $credentials = [
+            'api_key'    => $data['api_key'] ?? $existingCreds['api_key'] ?? null,
+            'base_url'   => $data['base_url'] ?? $existingCreds['base_url'] ?? null,
+            'api_format' => $data['api_format'] ?? $existingCreds['api_format'] ?? null,
+        ];
+
+        $credentials = array_filter($credentials, fn($v) => $v !== null && $v !== '');
 
         if (! empty($credentials)) {
             $setting->setCredentials($credentials);
@@ -151,6 +169,7 @@ class AiSettingsService
         $providerKey = $data['provider_key'];
         $apiKey      = $data['api_key']      ?? null;
         $baseUrl     = $data['base_url']     ?? null;
+        $apiFormat   = $data['api_format']   ?? null;
         $model       = $data['default_model'] ?? null;
 
         // If credentials are not provided, look them up from the saved DB setting.
@@ -160,10 +179,11 @@ class AiSettingsService
                 ->first();
 
             if ($saved) {
-                $creds  = $saved->getCredentials();
-                $apiKey = $creds['api_key']  ?? null;
-                $baseUrl = $creds['base_url'] ?? null;
-                $model  = $model ?? $saved->default_model;
+                $creds    = $saved->getCredentials();
+                $apiKey   = $creds['api_key']  ?? null;
+                $baseUrl  = $creds['base_url'] ?? null;
+                $apiFormat = $creds['api_format'] ?? null;
+                $model    = $model ?? $saved->default_model;
             }
         }
 
@@ -174,17 +194,34 @@ class AiSettingsService
         try {
             $client = match ($providerKey) {
                 'gemini'      => new GeminiClient($apiKey, $model),
-                'openai',
-                'self_hosted' => new OpenAICompatibleClient(
+                'self_hosted' => ($apiFormat === 'gemini')
+                    ? new GeminiClient($apiKey, $model, $baseUrl)
+                    : new OpenAICompatibleClient(
+                        apiKey:      $apiKey,
+                        baseUrl:     $baseUrl,
+                        model:       $model,
+                        providerKey: $providerKey,
+                    ),
+                'openai'      => new OpenAICompatibleClient(
                     apiKey:      $apiKey,
                     baseUrl:     $baseUrl,
                     model:       $model,
                     providerKey: $providerKey,
                 ),
+                'seedance'    => new SeedanceClient(
+                    apiKey:  $apiKey,
+                    baseUrl: $baseUrl,
+                    model:   $model,
+                ),
                 default => throw new \RuntimeException("Unknown provider: {$providerKey}"),
             };
 
-            $client->generateText('Reply with only the word: OK', ['max_tokens' => 10]);
+            // Video-only providers need a different test — check credits/health
+            if ($client->supportsAsyncMedia()) {
+                $client->checkCredits();
+            } else {
+                $client->generateText('Reply with only the word: OK', ['max_tokens' => 10]);
+            }
             $testResult = 'ok';
         } catch (\Exception $e) {
             $testResult = 'error';
@@ -241,12 +278,24 @@ class AiSettingsService
 
         return match ($setting->provider_key) {
             'gemini'      => new GeminiClient($creds['api_key'] ?? null, $model),
-            'openai',
-            'self_hosted' => new OpenAICompatibleClient(
+            'self_hosted' => (($creds['api_format'] ?? 'openai') === 'gemini')
+                ? new GeminiClient($creds['api_key'] ?? null, $model, $creds['base_url'] ?? null)
+                : new OpenAICompatibleClient(
+                    apiKey:  $creds['api_key'] ?? null,
+                    baseUrl: $creds['base_url'] ?? null,
+                    model:   $model,
+                    providerKey: $setting->provider_key,
+                ),
+            'openai'      => new OpenAICompatibleClient(
                 apiKey:  $creds['api_key'] ?? null,
                 baseUrl: $creds['base_url'] ?? null,
                 model:   $model,
                 providerKey: $setting->provider_key,
+            ),
+            'seedance'    => new SeedanceClient(
+                apiKey:  $creds['api_key'] ?? null,
+                baseUrl: $creds['base_url'] ?? null,
+                model:   $model,
             ),
             default => throw new RuntimeException("Unknown provider: {$setting->provider_key}"),
         };

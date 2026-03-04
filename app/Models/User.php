@@ -126,6 +126,11 @@ class User extends Authenticatable
         return $this->hasOne(UserTelegramConfig::class);
     }
 
+    public function aiProviderSettings(): HasMany
+    {
+        return $this->hasMany(AiProviderSetting::class);
+    }
+
 
     // ─── Scopes ───────────────────────────────────────────────────────────────
 

@@ -70,8 +70,14 @@ class MediaGenerationRunner
         $attributes = $generation->prompt_attributes ?: [];
 
         try {
-            // Render the prompt (might need a specific media-focused prompt if the template supports it)
-            $prompt = $this->registry->render($templateId, $attributes);
+            $mediaTemplateId = "{$templateId}_{$type}";
+            if ($this->registry->supports($mediaTemplateId, $type)) {
+                $prompt = $this->registry->render($mediaTemplateId, $attributes);
+            } else {
+                // Fallback to a generic basic prompt if a specialized media prompt was not registered
+                $productTitle = $attributes['product_title'] ?? 'sản phẩm';
+                $prompt = "Tạo một hình ảnh/media đẹp mắt minh hoạ cho sản phẩm: {$productTitle}";
+            }
 
             // Execute via provider client
             // We pass the type ('image' or 'video') explicitly here

@@ -19,6 +19,7 @@ readonly class GeneratedMediaResult
         public int    $tokensCompletion = 0,
         public string $provider = '',
         public string $model = '',
+        public array  $meta = [],
     ) {}
 
     /**

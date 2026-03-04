@@ -17,6 +17,7 @@ class CurlCookieParserService
      *   user_agent: string|null,
      *   accept_language: string|null,
      *   raw_headers: array<string, string>,
+     *   raw_header_lines: list<array{name: string, value: string}>,
      *   af_ac_enc_dat: string|null,
      *   af_ac_enc_sz_token: string|null,
      *   affiliate_program_type: string|null,
@@ -88,6 +89,7 @@ class CurlCookieParserService
      *   user_agent: string|null,
      *   accept_language: string|null,
      *   raw_headers: array<string, string>,
+     *   raw_header_lines: list<array{name: string, value: string}>,
      *   af_ac_enc_dat: string|null,
      *   af_ac_enc_sz_token: string|null,
      *   affiliate_program_type: string|null,
@@ -127,7 +129,8 @@ class CurlCookieParserService
         
         $userAgent = $this->extractHeader('User-Agent', $curlCommand) ?? $this->extractHeader('user-agent', $curlCommand);
         $acceptLanguage = $this->extractHeader('accept-language', $curlCommand) ?? $this->extractHeader('Accept-Language', $curlCommand);
-        $rawHeaders = $this->extractAllHeaders($curlCommand);
+        $rawHeaderLines = $this->extractAllHeaderLines($curlCommand);
+        $rawHeaders = $this->extractAllHeaders($rawHeaderLines);
 
         $afAcEncDat = $this->extractHeader('af-ac-enc-dat', $curlCommand);
         $afAcEncSzToken = $this->extractHeader('af-ac-enc-sz-token', $curlCommand);
@@ -163,6 +166,7 @@ class CurlCookieParserService
             'user_agent' => $userAgent,
             'accept_language' => $acceptLanguage,
             'raw_headers' => $rawHeaders,
+            'raw_header_lines' => $rawHeaderLines,
             'af_ac_enc_dat' => $afAcEncDat,
             'af_ac_enc_sz_token' => $afAcEncSzToken,
             'affiliate_program_type' => $affiliateProgramType,
@@ -188,7 +192,26 @@ class CurlCookieParserService
     /**
      * @return array<string, string>
      */
-    private function extractAllHeaders(string $command): array
+    private function extractAllHeaders(array $lines): array
+    {
+        $headers = [];
+
+        foreach ($lines as $line) {
+            $name = mb_strtolower(trim((string) ($line['name'] ?? '')));
+            $value = trim((string) ($line['value'] ?? ''));
+            if ($name === '' || $value === '') {
+                continue;
+            }
+            $headers[$name] = $value;
+        }
+
+        return $headers;
+    }
+
+    /**
+     * @return list<array{name: string, value: string}>
+     */
+    private function extractAllHeaderLines(string $command): array
     {
         $headers = [];
         $pattern = "/(?:-H|--header)\\s*[\\^]*(['\"])(.*?)[\\^]*\\1/is";
@@ -201,13 +224,16 @@ class CurlCookieParserService
                     continue;
                 }
 
-                $name = mb_strtolower(trim($parts[0]));
+                $name = trim($parts[0]);
                 $value = trim($parts[1]);
                 if ($name === '' || $value === '') {
                     continue;
                 }
 
-                $headers[$name] = $value;
+                $headers[] = [
+                    'name' => $name,
+                    'value' => $value,
+                ];
             }
         }
 

@@ -610,6 +610,30 @@ class ShopeeIntegration extends BaseIntegration
                 is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
                 is_array($profile['raw_headers'] ?? null) ? $profile['raw_headers'] : [],
             );
+            $rawHeaderLines = array_merge(
+                is_array($parsed['raw_header_lines'] ?? null) ? $parsed['raw_header_lines'] : [],
+                is_array($profile['raw_header_lines'] ?? null) ? $profile['raw_header_lines'] : [],
+            );
+
+            if (
+                $selectedProfileKey === $profileKey
+                && $profileKey !== null
+                && ($rawHeaders !== [] || $rawHeaderLines !== [])
+            ) {
+                $strictReplayHeaders = $this->buildStrictReplayHeaders(
+                    cookie: (string) $parsed['cookie'],
+                    rawHeaders: $rawHeaders,
+                    rawHeaderLines: $rawHeaderLines,
+                    resolved: $resolved,
+                    fallbackReferer: $referer,
+                    fallbackUserAgent: (string) ($connection->cookie_user_agent
+                        ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'),
+                );
+
+                if ($strictReplayHeaders !== []) {
+                    return $strictReplayHeaders;
+                }
+            }
 
             $headers['Cookie'] = (string) $parsed['cookie'];
 
@@ -696,6 +720,128 @@ class ShopeeIntegration extends BaseIntegration
         $headers['Cookie'] = $rawCookie;
 
         return $headers;
+    }
+
+    /**
+     * Replay headers captured from the original browser cURL as close as possible.
+     *
+     * @param  array<string, string>  $rawHeaders
+     * @param  list<array{name: string, value: string}>  $rawHeaderLines
+     * @param  array<string, string>  $resolved
+     * @return array<string, string>
+     */
+    private function buildStrictReplayHeaders(
+        string $cookie,
+        array $rawHeaders,
+        array $rawHeaderLines,
+        array $resolved,
+        string $fallbackReferer,
+        string $fallbackUserAgent,
+    ): array {
+        $headers = [
+            'Cookie' => $cookie,
+        ];
+
+        if ($rawHeaderLines !== []) {
+            foreach ($rawHeaderLines as $line) {
+                $headerName = trim((string) ($line['name'] ?? ''));
+                $headerValue = trim((string) ($line['value'] ?? ''));
+
+                if ($headerName === '' || $headerValue === '') {
+                    continue;
+                }
+
+                $lower = mb_strtolower($headerName);
+                if (in_array($lower, ['cookie', 'content-length', 'host'], true)) {
+                    continue;
+                }
+
+                if (! $this->hasHeaderKey($headers, $headerName)) {
+                    $headers[$headerName] = $headerValue;
+                }
+            }
+        } else {
+            foreach ($rawHeaders as $name => $value) {
+                $headerName = trim((string) $name);
+                $headerValue = trim((string) $value);
+
+                if ($headerName === '' || $headerValue === '') {
+                    continue;
+                }
+
+                $lower = mb_strtolower($headerName);
+                if (in_array($lower, ['cookie', 'content-length', 'host'], true)) {
+                    continue;
+                }
+
+                if (! $this->hasHeaderKey($headers, $headerName)) {
+                    $headers[$headerName] = $headerValue;
+                }
+            }
+        }
+
+        $this->putHeaderIfMissing($headers, 'accept', 'application/json, text/plain, */*');
+        $this->putHeaderIfMissing($headers, 'accept-language', $resolved['accept_language'] !== '' ? $resolved['accept_language'] : 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7');
+        $this->putHeaderIfMissing($headers, 'affiliate-program-type', $resolved['affiliate_program_type'] !== '' ? $resolved['affiliate_program_type'] : '1');
+        $this->putHeaderIfMissing($headers, 'referer', $resolved['referer'] !== '' ? $resolved['referer'] : $fallbackReferer);
+        $this->putHeaderIfMissing($headers, 'user-agent', $fallbackUserAgent);
+
+        $optional = [
+            'af-ac-enc-dat' => $resolved['af_ac_enc_dat'],
+            'af-ac-enc-sz-token' => $resolved['af_ac_enc_sz_token'],
+            'csrf-token' => $resolved['csrf_token'],
+            'x-sap-ri' => $resolved['x_sap_ri'],
+            'x-sap-sec' => $resolved['x_sap_sec'],
+            'x-sz-sdk-version' => $resolved['x_sz_sdk_version'],
+            'priority' => $resolved['priority'],
+            'sec-ch-ua' => $resolved['sec_ch_ua'],
+            'sec-ch-ua-mobile' => $resolved['sec_ch_ua_mobile'],
+            'sec-ch-ua-platform' => $resolved['sec_ch_ua_platform'],
+            'sec-fetch-dest' => $resolved['sec_fetch_dest'],
+            'sec-fetch-mode' => $resolved['sec_fetch_mode'],
+            'sec-fetch-site' => $resolved['sec_fetch_site'],
+        ];
+
+        foreach ($optional as $name => $value) {
+            if ($value === '') {
+                continue;
+            }
+            $this->putHeaderIfMissing($headers, $name, $value);
+        }
+
+        if ($resolved['origin'] !== '') {
+            $this->putHeaderIfMissing($headers, 'origin', $resolved['origin']);
+        }
+
+        return $headers;
+    }
+
+    /**
+     * @param  array<string, string>  $headers
+     */
+    private function putHeaderIfMissing(array &$headers, string $name, string $value): void
+    {
+        if ($value === '' || $this->hasHeaderKey($headers, $name)) {
+            return;
+        }
+
+        $headers[$name] = $value;
+    }
+
+    /**
+     * @param  array<string, string>  $headers
+     */
+    private function hasHeaderKey(array $headers, string $needle): bool
+    {
+        $target = mb_strtolower($needle);
+
+        foreach (array_keys($headers) as $name) {
+            if (mb_strtolower((string) $name) === $target) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function inferCookieProfileKeyByReferer(string $referer): ?string
@@ -2207,7 +2353,7 @@ JSON;
 
     public function getOfferDetail(PlatformConnection $connection, string $offerId, array $filters = []): array
     {
-        if (in_array($connection->method, ['cookie', 'portal_export'], true)) {
+        if ($connection->method === 'portal_export') {
             return [];
         }
 
@@ -2256,9 +2402,26 @@ JSON;
 
     public function getOffers(PlatformConnection $connection, array $filters): array
     {
-        if (in_array($connection->method, ['cookie', 'portal_export'], true)) {
-            // These methods don't currently support offer discovery.
+        if ($connection->method === 'portal_export') {
             return ['nodes' => [], 'pageInfo' => []];
+        }
+
+        if ($connection->method === 'cookie') {
+            $itemId = isset($filters['itemId']) ? (int) $filters['itemId'] : 0;
+            if ($itemId <= 0) {
+                return ['nodes' => [], 'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false]];
+            }
+
+            $shopId = isset($filters['shopId']) ? (int) $filters['shopId'] : null;
+            $node = $this->fetchOfferProductViaCookie($connection, $itemId, $shopId);
+            if ($node === null) {
+                return ['nodes' => [], 'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false]];
+            }
+
+            return [
+                'nodes' => [$node],
+                'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false],
+            ];
         }
 
         $query = <<<'GRAPHQL'
@@ -2316,6 +2479,188 @@ JSON;
         $result = $this->graphql($connection, $query, $variables);
 
         return $result['productOfferV2'] ?? ['nodes' => [], 'pageInfo' => []];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchOfferProductViaCookie(PlatformConnection $connection, int $itemId, ?int $shopId): ?array
+    {
+        $headers = $this->buildCookieHeaders($connection, "https://affiliate.shopee.vn/offer/product_offer/{$itemId}");
+        $response = Http::withHeaders($headers)
+            ->timeout(30)
+            ->get('https://affiliate.shopee.vn/api/v3/offer/product', ['item_id' => $itemId]);
+
+        if (in_array($response->status(), [401, 403], true)) {
+            $this->markCookieAuthFailure(
+                $connection,
+                "Cookie authentication failed (HTTP {$response->status()})."
+            );
+            throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+        }
+
+        if ($response->status() === 429) {
+            throw new RuntimeException('Shopee offer product API rate limit exceeded (429).');
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Shopee offer product API error: HTTP {$response->status()}");
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload)) {
+            throw new RuntimeException('Shopee offer product API returned invalid payload.');
+        }
+
+        $code = $payload['code'] ?? $payload['error'] ?? 0;
+        if (is_numeric($code) && (int) $code !== 0) {
+            $statusCode = (int) $code;
+            $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
+
+            if (in_array($statusCode, [401, 403], true)) {
+                $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$statusCode}). {$message}");
+                throw new RuntimeException("Cookie authentication failed ({$statusCode}).");
+            }
+
+            if (in_array($statusCode, self::COOKIE_SOFT_BLOCK_CODES, true)) {
+                throw new RuntimeException("Shopee anti-bot challenge (code {$statusCode}): {$message}");
+            }
+
+            throw new RuntimeException("Shopee offer product API returned code {$statusCode}: {$message}");
+        }
+
+        $product = $this->firstValueByPaths($payload, [
+            'data.product',
+            'data.item',
+            'data',
+            'product',
+            'item',
+        ]);
+
+        if (! is_array($product) || $product === []) {
+            return null;
+        }
+
+        return $this->normalizeCookieOfferNode($itemId, $shopId, $product);
+    }
+
+    /**
+     * @param  array<string, mixed>  $product
+     * @return array<string, mixed>
+     */
+    private function normalizeCookieOfferNode(int $itemId, ?int $requestedShopId, array $product): array
+    {
+        $resolvedItemId = (string) ($this->firstValueByPaths($product, ['item_id', 'itemId', 'itemid', 'id']) ?? $itemId);
+        $resolvedShopId = $this->firstValueByPaths($product, ['shop_id', 'shopId', 'shopid']);
+        $resolvedShopId = is_numeric($resolvedShopId)
+            ? (int) $resolvedShopId
+            : ($requestedShopId !== null ? (int) $requestedShopId : null);
+
+        $priceMin = $this->normalizeMoneyValue($this->firstValueByPaths($product, [
+            'price_min',
+            'priceMin',
+            'price',
+            'price_value',
+        ]));
+        $priceMax = $this->normalizeMoneyValue($this->firstValueByPaths($product, [
+            'price_max',
+            'priceMax',
+            'price',
+            'price_value',
+        ]));
+        if ($priceMax <= 0) {
+            $priceMax = $priceMin;
+        }
+        if ($priceMin <= 0) {
+            $priceMin = $priceMax;
+        }
+
+        $commissionRate = $this->normalizeCookieCommissionRate($this->firstValueByPaths($product, [
+            'commission_rate',
+            'commissionRate',
+            'platform_commission_rate',
+        ]));
+        $sellerRate = $this->normalizeCookieCommissionRate($this->firstValueByPaths($product, [
+            'seller_commission_rate',
+            'sellerCommissionRate',
+        ]));
+        $shopeeRate = $this->normalizeCookieCommissionRate($this->firstValueByPaths($product, [
+            'shopee_commission_rate',
+            'shopeeCommissionRate',
+        ]));
+
+        $offerLink = trim((string) ($this->firstValueByPaths($product, ['offer_link', 'offerLink']) ?? ''));
+        if ($offerLink === '') {
+            $offerLink = "https://affiliate.shopee.vn/offer/product_offer/{$resolvedItemId}";
+        }
+
+        $productLink = trim((string) ($this->firstValueByPaths($product, ['product_link', 'productLink', 'item_url', 'itemUrl']) ?? ''));
+        if ($productLink === '' && $resolvedShopId !== null) {
+            $productLink = "https://shopee.vn/product/{$resolvedShopId}/{$resolvedItemId}";
+        }
+
+        return [
+            'itemId' => $resolvedItemId,
+            'productName' => (string) ($this->firstValueByPaths($product, ['product_name', 'productName', 'name', 'item_name']) ?? ''),
+            'productLink' => $productLink,
+            'offerLink' => $offerLink,
+            'imageUrl' => $this->extractCookieOfferImageUrl($product),
+            'priceMin' => $priceMin,
+            'priceMax' => $priceMax,
+            'priceDiscountRate' => $this->asFloat($this->firstValueByPaths($product, ['price_discount_rate', 'priceDiscountRate'])),
+            'sales' => (int) ($this->firstValueByPaths($product, ['sales', 'sold_count']) ?? 0),
+            'ratingStar' => $this->asFloat($this->firstValueByPaths($product, ['rating_star', 'ratingStar'])),
+            'commissionRate' => $commissionRate,
+            'sellerCommissionRate' => $sellerRate,
+            'shopeeCommissionRate' => $shopeeRate,
+            'shopId' => $resolvedShopId !== null ? (string) $resolvedShopId : null,
+            'shopName' => $this->firstValueByPaths($product, ['shop_name', 'shopName']),
+            'shopType' => $this->firstValueByPaths($product, ['shop_type', 'shopType']),
+            'periodStartTime' => $this->firstValueByPaths($product, ['period_start_time', 'periodStartTime']),
+            'periodEndTime' => $this->firstValueByPaths($product, ['period_end_time', 'periodEndTime']),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $product
+     */
+    private function extractCookieOfferImageUrl(array $product): ?string
+    {
+        $direct = $this->firstValueByPaths($product, ['image_url', 'imageUrl', 'img_url', 'imgUrl', 'image']);
+        if (is_string($direct) && trim($direct) !== '') {
+            $value = trim($direct);
+            if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+                return $value;
+            }
+
+            return 'https://down-vn.img.susercontent.com/file/' . ltrim($value, '/');
+        }
+
+        $images = $this->firstValueByPaths($product, ['images', 'image_urls', 'imageUrls']);
+        if (is_array($images) && isset($images[0]) && is_string($images[0]) && trim($images[0]) !== '') {
+            $value = trim($images[0]);
+            if (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) {
+                return $value;
+            }
+
+            return 'https://down-vn.img.susercontent.com/file/' . ltrim($value, '/');
+        }
+
+        return null;
+    }
+
+    private function normalizeCookieCommissionRate(mixed $value): float
+    {
+        $rate = $this->asFloat($value);
+        if ($rate <= 0) {
+            return 0.0;
+        }
+
+        if ($rate > 100) {
+            $rate = $rate / 1000;
+        }
+
+        return round($rate, 4);
     }
 
     /**

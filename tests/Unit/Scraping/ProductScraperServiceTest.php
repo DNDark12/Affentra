@@ -149,4 +149,47 @@ class ProductScraperServiceTest extends TestCase
         $this->assertSame(209000.0, (float) $result['data']['price_value']);
         $this->assertSame(['https://cf.shopee.vn/file/graphql.jpg'], $result['data']['images']);
     }
+
+    public function test_scrape_falls_back_to_shop_item_api_when_affiliate_endpoint_is_soft_blocked(): void
+    {
+        $user = User::factory()->create();
+        PlatformConnection::factory()->create([
+            'user_id' => $user->id,
+            'platform' => 'shopee',
+            'method' => 'cookie',
+            'status' => 'active',
+            'cookie_header' => json_encode([
+                'cookie' => 'SPC_EC=dummy;',
+                'profiles' => [
+                    'offer_product' => [
+                        'af_ac_enc_dat' => 'enc-dat',
+                        'af_ac_enc_sz_token' => 'enc-token',
+                    ],
+                ],
+            ], JSON_UNESCAPED_SLASHES),
+        ]);
+
+        Http::fake([
+            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
+                'code' => 90309999,
+                'msg' => 'Unknown error',
+                'data' => null,
+            ], 200),
+            'https://shopee.vn/api/v4/item/get*' => Http::response([
+                'data' => [
+                    'name' => 'Fallback shop item',
+                    'price_min' => 20900000000,
+                    'image' => 'vn-11134207-test-image',
+                ],
+            ], 200),
+        ]);
+
+        $service = app(ProductScraperService::class);
+        $result = $service->scrape('https://shopee.vn/product/1663031317/46553051070', $user);
+
+        $this->assertSame('shopee_api', $result['source']);
+        $this->assertSame('Fallback shop item', $result['data']['title']);
+        $this->assertSame(209000.0, (float) $result['data']['price_value']);
+        $this->assertNotEmpty($result['data']['images']);
+    }
 }

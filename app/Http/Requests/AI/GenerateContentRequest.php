@@ -17,7 +17,7 @@ class GenerateContentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'preset_id'       => ['required', 'string', 'max:50'], // E.g., fb_post_v1
+            'preset_id'       => ['required', 'string', 'max:50'], // E.g., fb_post
             'provider_key'    => ['nullable', 'string', 'max:50'], // E.g., gemini, openai. Null means auto-fallback
             'model'           => ['nullable', 'string', 'max:50'], // E.g., gemini-1.5-pro, gpt-4o
             'variant_count'   => ['nullable', 'integer', 'min:1', 'max:5'],
@@ -45,6 +45,11 @@ class GenerateContentRequest extends FormRequest
             'options.safety_no_absolute' => ['boolean'],
             'options.safety_no_medical'  => ['boolean'],
             'options.safety_no_sensitive'=> ['boolean'],
+
+            // Output type toggles (multi-select based on provider capabilities)
+            'generate_text'   => ['boolean'],
+            'generate_image'  => ['boolean'],
+            'generate_video'  => ['boolean'],
         ];
     }
 }

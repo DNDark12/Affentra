@@ -191,7 +191,17 @@
                                         <Copy :size="13" style="color: var(--text-secondary)" />
                                     </button>
                                     <button @click="refreshProduct(link)" :disabled="actionLoadingId === link.id" class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" title="Refresh Product Info">
-                                        <RotateCcw :size="13" :class="{ 'animate-spin': actionLoadingId === link.id && currentAction === 'refresh' }" style="color: var(--text-secondary)" />
+                                        <Loader2
+                                            v-if="actionLoadingId === link.id && currentAction === 'refresh'"
+                                            :size="13"
+                                            class="animate-spin"
+                                            style="color: var(--text-secondary)"
+                                        />
+                                        <RefreshCw
+                                            v-else
+                                            :size="13"
+                                            style="color: var(--text-secondary)"
+                                        />
                                     </button>
                                     <button @click="createAIContent(link)" class="w-7 h-7 rounded flex items-center justify-center hover:bg-[var(--surface-2)]" title="Create AI Content">
                                         <Sparkles :size="13" style="color: var(--color-primary-500)" />
@@ -409,7 +419,8 @@ import {
     Pencil,
     Play,
     Plus,
-    RotateCcw,
+    Loader2,
+    RefreshCw,
     Search,
     Sparkles,
     X,
@@ -621,14 +632,22 @@ function convRate(link) {
 }
 
 function formatOrderRate(orders, clicks) {
-    if (!clicks) {
-        return orders > 0 ? '—' : '0.0';
+    const normalizedOrders = Number(orders || 0);
+    const normalizedClicks = Number(clicks || 0);
+
+    if (!Number.isFinite(normalizedOrders) || !Number.isFinite(normalizedClicks)) {
+        return '0.0';
     }
 
-    // One click can fan out to multiple item rows; cap at 100% for user-facing order rate.
-    const normalizedOrders = Math.min(orders, clicks);
+    if (normalizedClicks <= 0) {
+        return normalizedOrders > 0 ? '—' : '0.0';
+    }
 
-    return ((normalizedOrders / clicks) * 100).toFixed(1);
+    // One click can fan out to multiple item rows; keep Order Rate bounded for UX readability.
+    const rawRate = (normalizedOrders / normalizedClicks) * 100;
+    const boundedRate = Math.min(Math.max(rawRate, 0), 100);
+
+    return boundedRate.toFixed(1);
 }
 
 function formatDate(value) {

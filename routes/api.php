@@ -250,6 +250,8 @@ Route::middleware(['auth'])->group(function () {
             ->middleware('throttle:10,1');
         Route::get('/history', [ContentGenerationController::class, 'history'])
             ->name('history');
+        Route::get('/statistics', [ContentGenerationController::class, 'statistics'])
+            ->name('statistics');
     });
 
     Route::post('images/upload', [ImageUploadController::class, 'upload'])
@@ -258,6 +260,10 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('content-generations/{id}', [ContentGenerationController::class, 'show'])
         ->name('api.content-generations.show');
+
+    Route::get('content-generations/{id}/status', [ContentGenerationController::class, 'status'])
+        ->name('api.content-generations.status')
+        ->middleware('throttle:120,1');
 
     /*
     |----------------------------------------------------------------------

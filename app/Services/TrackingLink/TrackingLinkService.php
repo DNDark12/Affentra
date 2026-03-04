@@ -9,6 +9,7 @@ use App\Contracts\Repositories\TrackingLinkRepositoryInterface;
 use App\Enums\LinkStatus;
 use App\Enums\Platform;
 use App\Models\DailyStat;
+use App\Models\Order;
 use App\Models\TrackingLink;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
@@ -538,8 +539,27 @@ class TrackingLinkService
         $previousState = $this->snapshotTrackingLink($link);
 
         try {
-            $scraped = $this->scraperService->scrape($link->destination_url, $user);
-            if (! $this->hasMeaningfulScrapedData($scraped)) {
+            $scraped = null;
+            $primaryError = null;
+
+            try {
+                $scraped = $this->scraperService->scrape($link->destination_url, $user);
+            } catch (\Throwable $e) {
+                $primaryError = $e;
+            }
+
+            if (! is_array($scraped) || ! $this->hasMeaningfulScrapedData($scraped)) {
+                $orderFallback = $this->buildOrderBasedProductFallback($link);
+                if ($orderFallback !== null) {
+                    $scraped = $orderFallback;
+                }
+            }
+
+            if (! is_array($scraped) || ! $this->hasMeaningfulScrapedData($scraped)) {
+                if ($primaryError instanceof \Throwable) {
+                    throw $primaryError;
+                }
+
                 throw new \RuntimeException('Không lấy được dữ liệu sản phẩm từ Shopee. Vui lòng thử lại sau.');
             }
             
@@ -592,5 +612,147 @@ class TrackingLinkService
         return $title !== ''
             || (is_numeric($price) && (float) $price > 0)
             || ! empty($images);
+    }
+
+    /**
+     * Build a safe fallback payload from the latest mapped order of this tracking link.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function buildOrderBasedProductFallback(TrackingLink $link): ?array
+    {
+        $latestOrder = Order::query()
+            ->where('tracking_link_id', $link->id)
+            ->whereNotNull('product_name')
+            ->orderByDesc('ordered_at')
+            ->orderByDesc('id')
+            ->first([
+                'user_id',
+                'product_name',
+                'product_id',
+                'order_amount',
+                'listed_amount',
+                'product_link',
+                'source_meta',
+            ]);
+
+        if ($latestOrder === null || blank($latestOrder->product_name)) {
+            // Secondary fallback: match by product_id across this user's order history.
+            $itemId = $this->extractShopeeItemIdFromUrl((string) $link->destination_url);
+            if ($itemId !== null) {
+                $latestOrder = Order::query()
+                    ->where('user_id', $link->user_id)
+                    ->where('product_id', (string) $itemId)
+                    ->whereNotNull('product_name')
+                    ->orderByDesc('ordered_at')
+                    ->orderByDesc('id')
+                    ->first([
+                        'user_id',
+                        'product_name',
+                        'product_id',
+                        'order_amount',
+                        'listed_amount',
+                        'product_link',
+                        'source_meta',
+                    ]);
+            }
+
+            if ($latestOrder === null || blank($latestOrder->product_name)) {
+                return null;
+            }
+        }
+
+        $priceValue = null;
+        if (is_numeric($latestOrder->order_amount) && (float) $latestOrder->order_amount > 0) {
+            $priceValue = (float) $latestOrder->order_amount;
+        } elseif (is_numeric($latestOrder->listed_amount) && (float) $latestOrder->listed_amount > 0) {
+            $priceValue = (float) $latestOrder->listed_amount;
+        }
+
+        $images = is_array($link->product_image_urls) ? $link->product_image_urls : [];
+        $sourceMetaImage = $this->extractImageFromOrderSourceMeta(is_array($latestOrder->source_meta) ? $latestOrder->source_meta : null);
+        if ($sourceMetaImage !== null && $sourceMetaImage !== '') {
+            $images = [$sourceMetaImage];
+        }
+
+        return [
+            'data' => [
+                'title' => (string) $latestOrder->product_name,
+                'price_value' => $priceValue,
+                'price_display' => $priceValue !== null
+                    ? number_format($priceValue, 0, ',', '.') . '₫'
+                    : null,
+                'images' => $images,
+                'description' => null,
+                'product_link' => $latestOrder->product_link,
+            ],
+            'missing_fields' => [],
+            'confidence' => 0.56,
+            'source' => 'order_fallback',
+            'source_details' => [
+                'tracking_link_id' => $link->id,
+                'order_source' => ($latestOrder->tracking_link_id ?? null) === $link->id
+                    ? 'latest_mapped_order'
+                    : 'latest_user_order_by_product_id',
+            ],
+        ];
+    }
+
+    private function extractShopeeItemIdFromUrl(string $url): ?int
+    {
+        if ($url === '') {
+            return null;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if (! is_string($path) || $path === '') {
+            return null;
+        }
+
+        if (preg_match('#/product/\d+/(\d+)#', $path, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        if (preg_match('#/offer/product_offer/(\d+)#', $path, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        if (preg_match('#/(\d+)$#', $path, $matches) === 1) {
+            return (int) $matches[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $sourceMeta
+     */
+    private function extractImageFromOrderSourceMeta(?array $sourceMeta): ?string
+    {
+        if ($sourceMeta === null) {
+            return null;
+        }
+
+        $imageCandidates = [
+            $sourceMeta['image_url'] ?? null,
+            $sourceMeta['imageUrl'] ?? null,
+            $sourceMeta['img_url'] ?? null,
+            $sourceMeta['imgUrl'] ?? null,
+            $sourceMeta['thumbnail'] ?? null,
+            $sourceMeta['thumb'] ?? null,
+        ];
+
+        foreach ($imageCandidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        $imgCode = $sourceMeta['img_code'] ?? $sourceMeta['imgCode'] ?? null;
+        if (is_string($imgCode) && trim($imgCode) !== '') {
+            return 'https://down-vn.img.susercontent.com/file/' . trim($imgCode);
+        }
+
+        return null;
     }
 }

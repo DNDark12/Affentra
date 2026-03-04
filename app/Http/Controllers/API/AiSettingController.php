@@ -39,6 +39,7 @@ class AiSettingController
                     'default_model'       => $s->default_model,
                     'status'              => $s->status,
                     'capabilities'        => $s->capabilities,
+                    'api_format'          => $s->getApiFormat(),
                     'token_quota_per_day' => $s->token_quota_per_day,
                     'is_configured'       => $s->isConfigured(),
                     'updated_at'          => $s->updated_at?->toDateTimeString(),

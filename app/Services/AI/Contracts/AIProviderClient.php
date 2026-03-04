@@ -37,4 +37,12 @@ interface AIProviderClient
      * Model being used for generation, e.g. "gemini-1.5-flash".
      */
     public function modelKey(): string;
+
+    /**
+     * Whether this provider handles media generation asynchronously.
+     *
+     * Async providers return a task_id instead of immediate results,
+     * and require polling to retrieve the finished output.
+     */
+    public function supportsAsyncMedia(): bool;
 }

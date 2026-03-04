@@ -28,6 +28,7 @@ class StoreAiProviderSettingRequest extends FormRequest
             'status'              => ['sometimes', Rule::in(['enabled', 'disabled'])],
             'capabilities'        => ['sometimes', 'array'],
             'capabilities.*'      => [Rule::in(['text', 'image', 'video'])],
+            'api_format'          => ['nullable', 'string', Rule::in(['openai', 'gemini'])],
             'token_quota_per_day' => ['nullable', 'integer', 'min:100', 'max:1000000'],
         ];
     }

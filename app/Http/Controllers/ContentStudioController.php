@@ -18,19 +18,22 @@ class ContentStudioController extends Controller
      */
     private const PRESETS = [
         [
-            'id'       => 'fb_post_v1',
+            'id'       => 'fb_post',
             'label'    => 'Facebook Post',
             'platform' => 'facebook',
+            'type'     => 'text',
         ],
         [
-            'id'       => 'tiktok_caption_v1',
+            'id'       => 'tiktok_caption',
             'label'    => 'TikTok Caption',
             'platform' => 'tiktok',
+            'type'     => 'text',
         ],
         [
-            'id'       => 'hashtags_pack_v1',
+            'id'       => 'hashtags_pack',
             'label'    => 'Hashtag Pack',
             'platform' => 'generic',
+            'type'     => 'text',
         ],
     ];
 

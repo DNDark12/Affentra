@@ -102,7 +102,10 @@
                             class="hover:bg-[var(--surface-2)] transition-colors">
                             
                             <td class="px-4 py-3">
-                                <span class="capitalize text-xs font-semibold px-1.5 py-0.5 rounded mr-2" 
+                                <p class="text-sm font-medium mb-1" style="color: var(--text-primary)">
+                                    {{ integrationLabel(o) }}
+                                </p>
+                                <span class="capitalize text-xs font-semibold px-1.5 py-0.5 rounded mr-2"
                                       :style="platformStyle(o.platform)">{{ o.platform }}</span>
                                 <span class="font-mono text-xs font-medium" style="color: var(--text-primary)">{{ o.order_code }}</span>
                                 <p v-if="o.external_order_id" class="text-xs font-mono mt-1" style="color: var(--text-muted)">
@@ -159,7 +162,7 @@
                             </td>
                             
                             <td class="px-4 py-3">
-                                <p class="text-sm" style="color: var(--text-primary)">User ID: {{ o.user_id }}</p>
+                                <p class="text-sm" style="color: var(--text-primary)">{{ o.user?.name || '—' }}</p>
                             </td>
                             
                             <td class="px-4 py-3 text-right font-medium" style="color: var(--text-primary)">
@@ -517,6 +520,16 @@ function sourceLinkLabel(order) {
     }
 
     return 'Trực tiếp';
+}
+
+function integrationLabel(order) {
+    if (order?.platform_connection?.label) {
+        return order.platform_connection.label;
+    }
+    if (order?.platform) {
+        return `Kết nối ${String(order.platform).toUpperCase()}`;
+    }
+    return 'Không rõ kết nối';
 }
 
 function statusLabel(s) {
