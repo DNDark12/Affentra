@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Helpers\ApiResponse;
+use App\Http\Requests\Finance\StorePayoutBatchRequest;
 use App\Models\PayoutBatch;
 use App\Services\Finance\PayoutBatchService;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -79,6 +80,8 @@ class PayoutBatchController extends Controller
 
     public function show(Request $request, PayoutBatch $payoutBatch): Response
     {
+        $this->authorize('view', $payoutBatch);
+
         $payload = $this->payoutBatchService->detail($request->user(), $payoutBatch);
         /** @var PayoutBatch $batch */
         $batch = $payload['batch'];
@@ -124,19 +127,13 @@ class PayoutBatchController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StorePayoutBatchRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'payout_ids' => ['required', 'array', 'min:1'],
-            'payout_ids.*' => ['integer', 'min:1'],
-            'note' => ['nullable', 'string', 'max:2000'],
-        ]);
-
         try {
             $batch = $this->payoutBatchService->create(
                 actor: $request->user(),
-                payoutIds: $validated['payout_ids'],
-                note: $validated['note'] ?? null,
+                payoutIds: (array) $request->validated('payout_ids'),
+                note: $request->validated('note'),
             );
 
             return ApiResponse::created([
@@ -159,6 +156,8 @@ class PayoutBatchController extends Controller
 
     public function finalize(Request $request, PayoutBatch $payoutBatch): JsonResponse
     {
+        $this->authorize('finalize', $payoutBatch);
+
         try {
             $batch = $this->payoutBatchService->finalize($request->user(), $payoutBatch);
 

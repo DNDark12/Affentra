@@ -306,4 +306,61 @@ class PayoutBatchTest extends TestCase
         $finalizeResponse = $this->actingAs($ctv)->postJson('/api/payout-batches/' . $batch->id . '/finalize');
         $finalizeResponse->assertStatus(403);
     }
+    public function test_owner_cannot_finalize_batch_belonging_to_different_isolated_scope(): void
+    {
+        // Two owners in separate isolated trees — Owner B tries to finalize Owner A's batch
+        $ownerA = User::factory()->create([
+            'role' => UserRole::Owner->value,
+            'path' => '1',
+        ]);
+
+        $ownerB = User::factory()->create([
+            'role' => UserRole::Owner->value,
+            'path' => '2',
+        ]);
+
+        $batchOfA = PayoutBatch::query()->create([
+            'batch_no'     => 'BATCH-202603-9001',
+            'status'       => 'draft',
+            'total_amount' => 50000,
+            'payout_count' => 1,
+            'created_by'   => $ownerA->id,
+        ]);
+
+        // Owner B attempts to finalize Owner A's batch
+        $response = $this->actingAs($ownerB)->postJson('/api/payout-batches/' . $batchOfA->id . '/finalize');
+
+        // Policy check fires before service — batch belongs to different owner scope → 403
+        $response->assertForbidden();
+
+        $this->assertDatabaseHas('payout_batches', [
+            'id'     => $batchOfA->id,
+            'status' => 'draft', // unchanged
+        ]);
+    }
+
+    public function test_show_batch_of_another_scope_is_forbidden(): void
+    {
+        $ownerA = User::factory()->create([
+            'role' => UserRole::Owner->value,
+            'path' => '1',
+        ]);
+
+        $ownerB = User::factory()->create([
+            'role' => UserRole::Owner->value,
+            'path' => '2',
+        ]);
+
+        $batchOfA = PayoutBatch::query()->create([
+            'batch_no'     => 'BATCH-202603-9002',
+            'status'       => 'draft',
+            'total_amount' => 10000,
+            'payout_count' => 0,
+            'created_by'   => $ownerA->id,
+        ]);
+
+        $response = $this->actingAs($ownerB)->getJson('/api/payout-batches/' . $batchOfA->id);
+
+        $response->assertForbidden();
+    }
 }

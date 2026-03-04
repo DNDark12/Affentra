@@ -256,7 +256,11 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('images/upload', [ImageUploadController::class, 'upload'])
         ->name('api.images.upload')
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:20,1');
+
+    Route::get('ai/images/{filename}', [ImageUploadController::class, 'serve'])
+        ->name('api.ai.image.serve')
+        ->where('filename', '[a-zA-Z0-9_.-]+');
 
     Route::get('content-generations/{id}', [ContentGenerationController::class, 'show'])
         ->name('api.content-generations.show');
@@ -286,6 +290,7 @@ Route::middleware(['auth'])->group(function () {
     Route::prefix('tools')->name('api.tools.')->group(function () {
         Route::post('/scrape-product', [ScraperController::class, 'scrapeProduct'])
             ->name('scrape-product')
-            ->middleware('throttle:20,10');
+            ->middleware('throttle:10,1');
+
     });
 });

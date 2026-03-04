@@ -106,6 +106,8 @@ class AlertController extends Controller
 
     public function updateRule(UpdateAlertRuleRequest $request, AlertRule $alertRule): JsonResponse
     {
+        $this->authorize('update', $alertRule);
+
         try {
             $rule = $this->alertService->updateRule($request->user(), $alertRule, $request->validated());
 
@@ -123,6 +125,8 @@ class AlertController extends Controller
 
     public function destroyRule(Request $request, AlertRule $alertRule): JsonResponse
     {
+        $this->authorize('delete', $alertRule);
+
         try {
             $this->alertService->deleteRule($request->user(), $alertRule);
 
@@ -136,6 +140,8 @@ class AlertController extends Controller
 
     public function toggleRule(ToggleAlertRuleRequest $request, AlertRule $alertRule): JsonResponse
     {
+        $this->authorize('update', $alertRule);
+
         try {
             $rule = $this->alertService->toggleRule(
                 $request->user(),

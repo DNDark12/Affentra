@@ -92,6 +92,7 @@ class PayoutBatchService
 
             $totals = AffiliatePayout::query()
                 ->where('payout_batch_id', $lockedBatch->id)
+                ->lockForUpdate()
                 ->selectRaw('COALESCE(SUM(amount), 0) as total_amount')
                 ->selectRaw('COUNT(*) as payout_count')
                 ->first();

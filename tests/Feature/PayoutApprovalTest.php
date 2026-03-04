@@ -121,4 +121,28 @@ class PayoutApprovalTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors(['reason']);
     }
+    public function test_approve_non_pending_profile_returns_422(): void
+    {
+        $owner = User::factory()->create([
+            'role'   => UserRole::Owner,
+            'status' => UserStatus::Active,
+        ]);
+        $ctv = User::factory()->create([
+            'role'      => UserRole::CTV,
+            'status'    => UserStatus::Active,
+            'parent_id' => $owner->id,
+        ]);
+
+        UserProfile::factory()->create([
+            'user_id'              => $ctv->id,
+            'is_payout_ready'      => true,
+            'payout_review_status' => PayoutReviewStatus::Approved, // already approved
+        ]);
+
+        $response = $this->actingAs($owner)
+            ->postJson(route('api.payout-approvals.approve', ['userId' => $ctv->id]));
+
+        // State machine guard: cannot approve a non-pending profile
+        $response->assertStatus(422);
+    }
 }
