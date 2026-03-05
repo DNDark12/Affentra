@@ -41,4 +41,11 @@ return [
         'redirect'      => env('GOOGLE_REDIRECT_URI'),
     ],
 
+    'scraper' => [
+        'url'     => env('SCRAPER_SERVICE_URL', 'http://scraper:8000'),
+        'api_key' => env('SCRAPER_API_KEY', 'dev-secret-key'),
+        'timeout' => (int) env('SCRAPER_TIMEOUT', 20),
+        'enabled' => (bool) env('SCRAPER_ENABLED', true),
+    ],
+
 ];

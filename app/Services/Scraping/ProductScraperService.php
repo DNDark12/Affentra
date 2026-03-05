@@ -93,38 +93,49 @@ class ProductScraperService
             return null;
         }
 
-        $affiliateError = null;
+        $cookieConnection = null;
+        $openApiConnection = null;
 
-        // Try Affiliate API if user has a connection
         if ($user) {
-            $connection = $user->platformConnections()
+            $cookieConnection = $user->platformConnections()
                 ->where('platform', 'shopee')
-                ->whereIn('method', ['cookie', 'open_api', 'portal_export'])
+                ->where('method', 'cookie')
                 ->where('status', 'active')
-                ->orderByRaw("CASE WHEN method = 'cookie' THEN 0 WHEN method = 'open_api' THEN 1 ELSE 2 END")
                 ->first();
 
-            if ($connection) {
-                try {
-                    $affiliateResult = $this->scrapeShopeeAffiliateApi($itemId, $connection, $shopId);
-                    if ($affiliateResult) {
-                        return $affiliateResult;
-                    }
-                } catch (\RuntimeException $e) {
-                    // Keep anti-bot/auth errors for final messaging, but still try fallback
-                    // with direct shop/item API when shopId is available.
-                    $affiliateError = $e;
-                    Log::warning('shopee_scraper.affiliate_lookup_failed', [
-                        'item_id' => $itemId,
-                        'shop_id' => $shopId,
-                        'connection_id' => $connection->id,
-                        'method' => $connection->method,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            $openApiConnection = $user->platformConnections()
+                ->where('platform', 'shopee')
+                ->whereIn('method', ['open_api', 'portal_export'])
+                ->where('status', 'active')
+                ->first();
+        }
+
+        // 1. Try Scraper with user cookies (Primary Strategy)
+        if ($cookieConnection) {
+            $scraperResult = $this->scrapeViaInternalService($itemId, $shopId, $cookieConnection);
+            if ($scraperResult) {
+                return $scraperResult;
             }
         }
 
+        // 2. Try Affiliate API (OpenAPI) if available
+        $affiliateError = null;
+        if ($openApiConnection) {
+            try {
+                $affiliateResult = $this->scrapeShopeeAffiliateApi($itemId, $openApiConnection, $shopId);
+                if ($affiliateResult) {
+                    return $affiliateResult;
+                }
+            } catch (\RuntimeException $e) {
+                $affiliateError = $e;
+                Log::warning('shopee_scraper.openapi_failed', [
+                    'item_id' => $itemId,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        // 3. Fallback to public Shopee API (v4/item/get) if shopId is available
         if (!$shopId) {
             if ($affiliateError instanceof \RuntimeException) {
                 throw $affiliateError;
@@ -215,9 +226,147 @@ class ProductScraperService
             ];
         } catch (Exception $e) {
             Log::warning('shopee_scraper.exception', ['error' => $e->getMessage(), 'url' => $url]);
+
             if ($affiliateError instanceof \RuntimeException) {
                 throw $affiliateError;
             }
+            return null;
+        }
+    }
+
+    /**
+     * Fallback: call internal Python scraper microservice (Camoufox + Playwright)
+     * to scrape Shopee product data when all direct API methods fail.
+     *
+     * The microservice runs as a Docker container alongside the Laravel app.
+     * Config: config('services.scraper')
+     *
+     * @return array<string, mixed>|null  Standard scrape result or null on failure
+     */
+    private function scrapeViaInternalService(
+        ?string $itemId,
+        ?string $shopId,
+        ?\App\Models\PlatformConnection $connection = null
+    ): ?array {
+        if (! config('services.scraper.enabled', true)) {
+            return null;
+        }
+
+        if (! $itemId) {
+            return null;
+        }
+
+        // Get cookies from PlatformConnection
+        $cookies = null;
+        if ($connection && $connection->method === 'cookie' && $connection->cookie_header) {
+            $cookies = $connection->cookie_header;
+        }
+
+        if (! $cookies) {
+            Log::debug('shopee_scraper.no_cookies_for_internal_service', [
+                'item_id' => $itemId,
+                'connection_id' => $connection?->id,
+            ]);
+            return null;
+        }
+
+        $baseUrl = config('services.scraper.url', 'http://scraper:8000');
+        $apiKey  = config('services.scraper.api_key', 'dev-secret-key');
+        $timeout = (int) config('services.scraper.timeout', 30);
+
+        try {
+            $payload = [
+                'item_id' => $itemId,
+                'cookies' => $cookies,
+            ];
+            if ($shopId) {
+                $payload['shop_id'] = $shopId;
+            }
+
+            $response = Http::withHeaders([
+                'Accept'           => 'application/json',
+                'Content-Type'     => 'application/json',
+                'X-Internal-Token' => $apiKey,
+            ])
+                ->timeout($timeout)
+                ->post("{$baseUrl}/api/v1/shopee/product", $payload);
+
+            if (! $response->successful()) {
+                Log::warning('shopee_scraper.internal_service_http_failed', [
+                    'item_id'     => $itemId,
+                    'shop_id'     => $shopId,
+                    'http_status' => $response->status(),
+                ]);
+                return null;
+            }
+
+            $json = $response->json();
+
+            if (! is_array($json) || ! ($json['ok'] ?? false)) {
+                $errorCode = $json['error_code'] ?? null;
+                Log::warning('shopee_scraper.internal_service_error', [
+                    'item_id'    => $itemId,
+                    'error_code' => $errorCode,
+                    'message'    => $json['message'] ?? null,
+                ]);
+                // If cookies expired, mark connection for re-validation
+                if ($errorCode === 'MISSING_COOKIES' || $errorCode === 'SCRAPE_FAILED') {
+                    if ($connection && str_contains($json['message'] ?? '', 'expired')) {
+                        $connection->update(['status' => 'needs_revalidation']);
+                    }
+                }
+                return null;
+            }
+
+            $scraped = $json['data'] ?? null;
+            if (! is_array($scraped) || empty($scraped['item_name'])) {
+                return null;
+            }
+
+            // Normalize to standard scrape result format
+            $priceValue = isset($scraped['price_min']) ? (float) $scraped['price_min'] : null;
+            $images = [];
+            if (! empty($scraped['image_url'])) {
+                $images[] = $scraped['image_url'];
+            }
+
+            $data = [
+                'title'         => $scraped['item_name'],
+                'price_value'   => $priceValue,
+                'price_display' => $priceValue ? number_format($priceValue, 0, ',', '.') . '₫' : null,
+                'images'        => $images,
+                'description'   => null,
+            ];
+
+            $confidence = 0.0;
+            if ($data['title'])       $confidence += 0.4;
+            if ($data['price_value']) $confidence += 0.4;
+            if (! empty($images))     $confidence += 0.2;
+
+            Log::info('shopee_scraper.internal_service_success', [
+                'item_id'    => $itemId,
+                'title'      => Str::limit($data['title'], 50),
+                'source'     => $scraped['source'] ?? 'unknown',
+                'confidence' => $confidence,
+            ]);
+
+            return [
+                'data'           => $data,
+                'missing_fields' => [],
+                'confidence'     => $confidence,
+                'source'         => 'internal_scraper',
+                'source_details' => [
+                    'item_id'      => $itemId,
+                    'shop_id'      => $shopId ?? ($scraped['shop_id'] ?? null),
+                    'fetched_at'   => $json['fetched_at'] ?? null,
+                    'parse_source' => $scraped['source'] ?? null,
+                ],
+            ];
+        } catch (Exception $e) {
+            Log::warning('shopee_scraper.internal_service_exception', [
+                'item_id' => $itemId,
+                'error'   => $e->getMessage(),
+            ]);
             return null;
         }
     }

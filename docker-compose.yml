@@ -98,6 +98,28 @@ services:
     networks:
       - affentra-network
 
+  scraper:
+    build:
+      context: ./services/scraper
+      dockerfile: Dockerfile
+    container_name: affentra-scraper
+    restart: unless-stopped
+    environment:
+      - API_SECRET_KEY=${SCRAPER_API_KEY:-dev-secret-key}
+      - PAGE_LOAD_TIMEOUT=15
+      - REQUEST_TIMEOUT=30
+      - MAX_BROWSER_CONTEXTS=3
+    ports:
+      - "8001:8000"
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    networks:
+      - affentra-network
+
 networks:
   affentra-network:
     driver: bridge

@@ -284,6 +284,7 @@ class OfferService
                     'rate' => isset($raw['shopeeCommissionRate']) ? $this->normalizeCommissionRate($raw['shopeeCommissionRate']) : $this->normalizeCommissionRate($raw['shopee_commission_rate']),
                 ] : null,
             ])),
+            'commission_unavailable' => (bool) ($raw['_fallback'] ?? false),
             'raw' => $raw,
         ];
     }

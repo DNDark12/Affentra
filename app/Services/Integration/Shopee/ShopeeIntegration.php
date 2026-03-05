@@ -24,6 +24,8 @@ class ShopeeIntegration extends BaseIntegration
     private const COOKIE_CLICK_REPORT_ENDPOINT = 'https://affiliate.shopee.vn/api/v1/click_report/list';
     private const COOKIE_BILLING_LIST_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/payment/billing_list';
     private const GQL_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/gql';
+    private const COOKIE_OFFER_PRODUCT_ENDPOINT = 'https://affiliate.shopee.vn/api/v3/offer/product';
+    private const PUBLIC_ITEM_API_ENDPOINT = 'https://shopee.vn/api/v4/item/get';
 
     // Referers
     private const COOKIE_DASHBOARD_REFERER = 'https://affiliate.shopee.vn/dashboard';
@@ -2408,20 +2410,25 @@ JSON;
 
         if ($connection->method === 'cookie') {
             $itemId = isset($filters['itemId']) ? (int) $filters['itemId'] : 0;
-            if ($itemId <= 0) {
-                return ['nodes' => [], 'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false]];
+            $keyword = $filters['keyword'] ?? null;
+
+            if ($itemId > 0) {
+                $shopId = isset($filters['shopId']) ? (int) $filters['shopId'] : null;
+                $node = $this->fetchOfferProductViaScraper($connection, $itemId, $shopId);
+                return [
+                    'nodes' => $node !== null ? [$node] : [],
+                    'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false],
+                ];
+            } elseif ($keyword !== null && $keyword !== '') {
+                $limit = isset($filters['limit']) ? (int) $filters['limit'] : 20;
+                $nodes = $this->searchOfferProductsViaScraper($connection, $keyword, $limit);
+                return [
+                    'nodes' => $nodes,
+                    'pageInfo' => ['page' => 1, 'limit' => max(1, count($nodes)), 'hasNextPage' => false],
+                ];
             }
 
-            $shopId = isset($filters['shopId']) ? (int) $filters['shopId'] : null;
-            $node = $this->fetchOfferProductViaCookie($connection, $itemId, $shopId);
-            if ($node === null) {
-                return ['nodes' => [], 'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false]];
-            }
-
-            return [
-                'nodes' => [$node],
-                'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false],
-            ];
+            return ['nodes' => [], 'pageInfo' => ['page' => 1, 'limit' => 1, 'hasNextPage' => false]];
         }
 
         $query = <<<'GRAPHQL'
@@ -2484,64 +2491,314 @@ JSON;
     /**
      * @return array<string, mixed>|null
      */
-    private function fetchOfferProductViaCookie(PlatformConnection $connection, int $itemId, ?int $shopId): ?array
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchOfferProductViaScraper(PlatformConnection $connection, int $itemId, ?int $shopId): ?array
     {
-        $headers = $this->buildCookieHeaders($connection, "https://affiliate.shopee.vn/offer/product_offer/{$itemId}");
-        $response = Http::withHeaders($headers)
-            ->timeout(30)
-            ->get('https://affiliate.shopee.vn/api/v3/offer/product', ['item_id' => $itemId]);
-
-        if (in_array($response->status(), [401, 403], true)) {
-            $this->markCookieAuthFailure(
-                $connection,
-                "Cookie authentication failed (HTTP {$response->status()})."
-            );
-            throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
+        $payload = ['item_id' => $itemId];
+        if ($shopId !== null && $shopId > 0) {
+            $payload['shop_id'] = $shopId;
         }
 
-        if ($response->status() === 429) {
-            throw new RuntimeException('Shopee offer product API rate limit exceeded (429).');
+        $result = $this->callPythonScraper($connection, '/api/v1/shopee/product', $payload);
+        if ($result === null) {
+            // Scraper failed or anti-bot block - fallback to public API
+            return $this->fetchOfferProductViaPublicApi($itemId, $shopId);
         }
 
-        if (! $response->successful()) {
-            throw new RuntimeException("Shopee offer product API error: HTTP {$response->status()}");
+        return $this->normalizeScraperNode($result, $itemId, $shopId);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function searchOfferProductsViaScraper(PlatformConnection $connection, string $keyword, int $limit): array
+    {
+        $payload = [
+            'keyword' => $keyword,
+            'page_limit' => $limit,
+        ];
+
+        $results = $this->callPythonScraper($connection, '/api/v1/shopee/search', $payload);
+        if (!is_array($results)) {
+            return [];
         }
 
-        $payload = $response->json();
-        if (! is_array($payload)) {
-            throw new RuntimeException('Shopee offer product API returned invalid payload.');
-        }
-
-        $code = $payload['code'] ?? $payload['error'] ?? 0;
-        if (is_numeric($code) && (int) $code !== 0) {
-            $statusCode = (int) $code;
-            $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
-
-            if (in_array($statusCode, [401, 403], true)) {
-                $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$statusCode}). {$message}");
-                throw new RuntimeException("Cookie authentication failed ({$statusCode}).");
+        $nodes = [];
+        foreach ($results as $item) {
+            if (is_array($item)) {
+                $node = $this->normalizeScraperNode(
+                    $item,
+                    (int) ($item['item_id'] ?? 0),
+                    isset($item['shop_id']) ? (int) $item['shop_id'] : null
+                );
+                if ($node !== null) {
+                    $nodes[] = $node;
+                }
             }
-
-            if (in_array($statusCode, self::COOKIE_SOFT_BLOCK_CODES, true)) {
-                throw new RuntimeException("Shopee anti-bot challenge (code {$statusCode}): {$message}");
-            }
-
-            throw new RuntimeException("Shopee offer product API returned code {$statusCode}: {$message}");
         }
 
-        $product = $this->firstValueByPaths($payload, [
-            'data.product',
-            'data.item',
-            'data',
-            'product',
-            'item',
-        ]);
+        return $nodes;
+    }
 
-        if (! is_array($product) || $product === []) {
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null|list<array<string, mixed>>
+     */
+    private function callPythonScraper(PlatformConnection $connection, string $endpoint, array $payload)
+    {
+        if (!config('services.scraper.enabled', true)) {
             return null;
         }
 
-        return $this->normalizeCookieOfferNode($itemId, $shopId, $product);
+        $cookies = $connection->cookie_header;
+        if (!$cookies) {
+            return null;
+        }
+
+        $payload['cookies'] = $cookies;
+
+        $baseUrl = config('services.scraper.url', 'http://scraper:8000');
+        $apiKey  = config('services.scraper.api_key', 'dev-secret-key');
+        $timeout = (int) config('services.scraper.timeout', 30);
+
+        try {
+            $response = Http::withHeaders([
+                'Accept'           => 'application/json',
+                'Content-Type'     => 'application/json',
+                'X-Internal-Token' => $apiKey,
+            ])
+                ->timeout($timeout)
+                ->post("{$baseUrl}{$endpoint}", $payload);
+
+            if (!$response->successful()) {
+                Log::warning("shopee_scraper.internal_service_http_failed", [
+                    'endpoint'    => $endpoint,
+                    'http_status' => $response->status(),
+                ]);
+                return null;
+            }
+
+            $json = $response->json();
+
+            if (!is_array($json) || !($json['ok'] ?? false)) {
+                $errorCode = $json['error_code'] ?? null;
+                if ($errorCode === 'MISSING_COOKIES' || $errorCode === 'SCRAPE_FAILED') {
+                    if (str_contains($json['message'] ?? '', 'expired') || str_contains($json['message'] ?? '', 'login')) {
+                        $this->markCookieAuthFailure($connection, "Cookie authentication failed (Scraper reported expired).");
+                        throw new RuntimeException("Cookie authentication failed.");
+                    }
+                }
+                Log::warning('shopee_scraper.internal_service_error', [
+                    'endpoint'   => $endpoint,
+                    'error_code' => $errorCode,
+                    'message'    => $json['message'] ?? null,
+                ]);
+                return null;
+            }
+
+            return $json['data'] ?? null;
+        } catch (RuntimeException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::warning('shopee_scraper.internal_service_exception', [
+                'error'    => $e->getMessage(),
+                'endpoint' => $endpoint,
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $product
+     * @return array<string, mixed>|null
+     */
+    private function normalizeScraperNode(array $product, int $itemId, ?int $shopId): ?array
+    {
+        if (empty($product['item_name']) && empty($product['title'])) {
+            return null;
+        }
+
+        $priceMin = $this->normalizeMoneyValue($product['price_min'] ?? $product['price'] ?? 0);
+        $priceMax = $this->normalizeMoneyValue($product['price_max'] ?? $product['price'] ?? 0);
+
+        return [
+            'itemId'               => $itemId,
+            'shopId'               => $shopId ?? (isset($product['shop_id']) ? (int) $product['shop_id'] : null),
+            'productName'          => $product['item_name'] ?? $product['title'] ?? null,
+            'offerLink'            => null,
+            'imageUrl'             => $product['image_url'] ?? $product['image'] ?? null,
+            'priceMin'             => $priceMin,
+            'priceMax'             => $priceMax,
+            'priceDiscountRate'    => null,
+            'sales'                => (int) ($product['sales'] ?? 0),
+            'ratingStar'           => (float) ($product['rating_star'] ?? 0),
+            'commissionRate'       => null,
+            'sellerCommissionRate' => null,
+            'shopeeCommissionRate' => null,
+        ];
+    }
+
+    /**
+     * Fallback: fetch product info from Shopee's public (unauthenticated) item API.
+     * Used when the affiliate cookie API returns an anti-bot challenge (90309999).
+     * Commission rate will not be available — caller should handle gracefully.
+     *
+     * SSRF safety: $itemId and $shopId are already validated as integers by the caller.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function fetchOfferProductViaPublicApi(int $itemId, ?int $shopId): ?array
+    {
+        $query = ['itemid' => $itemId];
+        if ($shopId !== null && $shopId > 0) {
+            $query['shopid'] = $shopId;
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'Accept'          => 'application/json',
+                'Accept-Language' => 'vi-VN,vi;q=0.9',
+                'Referer'         => 'https://shopee.vn/',
+                'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            ])
+                ->timeout(15)
+                ->get(self::PUBLIC_ITEM_API_ENDPOINT, $query);
+
+            if (! $response->successful()) {
+                Log::warning('Shopee public item API fallback failed, using mock product', [
+                    'item_id'     => $itemId,
+                    'shop_id'     => $shopId,
+                    'http_status' => $response->status(),
+                ]);
+                return $this->buildMockProductFallback($itemId, $shopId);
+            }
+
+            $payload = $response->json();
+            if (! is_array($payload)) {
+                return $this->buildMockProductFallback($itemId, $shopId);
+            }
+
+            // Shopee public API response structure: { error: 0, item: {...} }
+            $error = (int) ($payload['error'] ?? 0);
+            if ($error !== 0) {
+                Log::warning('Shopee public item API returned error, using mock product', [
+                    'item_id'      => $itemId,
+                    'error_code'   => $error,
+                    'error_msg'    => $payload['error_msg'] ?? '',
+                ]);
+                return $this->buildMockProductFallback($itemId, $shopId);
+            }
+
+            $item = $this->firstValueByPaths($payload, [
+                'item',
+                'data.item',
+                'data',
+            ]);
+
+            if (! is_array($item) || $item === []) {
+                return $this->buildMockProductFallback($itemId, $shopId);
+            }
+
+            // Extract base fields from public API payload.
+            $resolvedItemId  = (int) ($item['itemid'] ?? $item['item_id'] ?? $itemId);
+            $resolvedShopId  = isset($item['shopid']) ? (int) $item['shopid'] : $shopId;
+
+            $priceMin = $this->normalizeMoneyValue($this->firstValueByPaths($item, [
+                'price_min', 'price', 'price_before_discount',
+            ]));
+            $priceMax = $this->normalizeMoneyValue($this->firstValueByPaths($item, [
+                'price_max', 'price', 'price_before_discount',
+            ]));
+            if ($priceMax <= 0) $priceMax = $priceMin;
+            if ($priceMin <= 0) $priceMin = $priceMax;
+
+            // Image: public API stores hash in images[0] without URL prefix.
+            $imageUrl = null;
+            $images = $item['images'] ?? [];
+            if (is_array($images) && isset($images[0]) && is_string($images[0])) {
+                $raw = trim($images[0]);
+                $imageUrl = str_starts_with($raw, 'http')
+                    ? $raw
+                    : 'https://down-vn.img.susercontent.com/file/' . $raw;
+            }
+            if ($imageUrl === null && isset($item['image']) && is_string($item['image'])) {
+                $raw = trim($item['image']);
+                $imageUrl = str_starts_with($raw, 'http')
+                    ? $raw
+                    : 'https://down-vn.img.susercontent.com/file/' . $raw;
+            }
+
+            $offerLink   = "https://affiliate.shopee.vn/offer/product_offer/{$resolvedItemId}";
+            $productLink = $resolvedShopId !== null
+                ? "https://shopee.vn/product/{$resolvedShopId}/{$resolvedItemId}"
+                : '';
+
+            return [
+                'itemId'              => (string) $resolvedItemId,
+                'productName'         => (string) ($item['name'] ?? $item['item_name'] ?? ''),
+                'productLink'         => $productLink,
+                'offerLink'           => $offerLink,
+                'imageUrl'            => $imageUrl,
+                'priceMin'            => $priceMin,
+                'priceMax'            => $priceMax,
+                'priceDiscountRate'   => $this->asFloat($item['raw_discount'] ?? $item['discount'] ?? null),
+                'sales'               => (int) ($item['sold'] ?? $item['historical_sold'] ?? 0),
+                'ratingStar'          => $this->asFloat($item['item_rating']['rating_star'] ?? $item['rating_star'] ?? null),
+                'commissionRate'      => 0.0,   // not available via public API
+                'sellerCommissionRate' => 0.0,
+                'shopeeCommissionRate' => 0.0,
+                'shopId'              => $resolvedShopId !== null ? (string) $resolvedShopId : null,
+                'shopName'            => $item['shop_name'] ?? $item['shopName'] ?? null,
+                'shopType'            => null,
+                'periodStartTime'     => null,
+                'periodEndTime'       => null,
+                '_fallback'           => true,  // signal to UI that commission info is unavailable
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Shopee public item API fallback exception, using mock product', [
+                'item_id' => $itemId,
+                'error'   => $e->getMessage(),
+            ]);
+            return $this->buildMockProductFallback($itemId, $shopId);
+        }
+    }
+
+    /**
+     * Build a mock product payload when all Shopee APIs fail (Anti-bot / 403 blocks),
+     * ensuring users can still generate affiliate tracking links for valid IDs.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildMockProductFallback(int $itemId, ?int $shopId): array
+    {
+        $offerLink   = "https://affiliate.shopee.vn/offer/product_offer/{$itemId}";
+        $productLink = $shopId !== null && $shopId > 0
+            ? "https://shopee.vn/product/{$shopId}/{$itemId}"
+            : "https://shopee.vn/product/-/{$itemId}";
+
+        return [
+            'itemId'              => (string) $itemId,
+            'productName'         => "Sản phẩm mã {$itemId} (ẩn thông tin)",
+            'productLink'         => $productLink,
+            'offerLink'           => $offerLink,
+            'imageUrl'            => null,
+            'priceMin'            => 0.0,
+            'priceMax'            => 0.0,
+            'priceDiscountRate'   => 0.0,
+            'sales'               => 0,
+            'ratingStar'          => 0.0,
+            'commissionRate'      => 0.0,
+            'sellerCommissionRate' => 0.0,
+            'shopeeCommissionRate' => 0.0,
+            'shopId'              => $shopId !== null && $shopId > 0 ? (string) $shopId : null,
+            'shopName'            => null,
+            'shopType'            => null,
+            'periodStartTime'     => null,
+            'periodEndTime'       => null,
+            '_fallback'           => true, // Signal to UI
+        ];
     }
 
     /**
