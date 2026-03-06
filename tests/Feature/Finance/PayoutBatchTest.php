@@ -24,7 +24,7 @@ class PayoutBatchTest extends TestCase
         ]);
 
         $partner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $owner->id,
             'path' => $owner->id . '/2',
         ]);
@@ -89,7 +89,7 @@ class PayoutBatchTest extends TestCase
             'path' => '1',
         ]);
         $partner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $owner->id,
             'path' => $owner->id . '/2',
         ]);
@@ -160,7 +160,7 @@ class PayoutBatchTest extends TestCase
         ]);
 
         $outsidePartner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $otherLeader->id,
             'path' => $owner->id . '/3/4',
         ]);
@@ -194,7 +194,7 @@ class PayoutBatchTest extends TestCase
             'path' => '1',
         ]);
         $partner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $owner->id,
             'path' => $owner->id . '/2',
         ]);
@@ -260,27 +260,27 @@ class PayoutBatchTest extends TestCase
             ->assertJsonPath('ok', false);
     }
 
-    public function test_ctv_cannot_create_or_finalize_batch(): void
+    public function test_partner_cannot_create_or_finalize_batch(): void
     {
         $owner = User::factory()->create([
             'role' => UserRole::Owner->value,
             'path' => '1',
         ]);
 
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV->value,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner->value,
             'parent_id' => $owner->id,
             'path' => $owner->id . '/2',
         ]);
 
         $connection = PlatformConnection::factory()->create([
-            'user_id' => $ctv->id,
+            'user_id' => $partner->id,
             'platform' => 'shopee',
         ]);
 
         $payout = AffiliatePayout::query()->create([
             'platform_connection_id' => $connection->id,
-            'user_id' => $ctv->id,
+            'user_id' => $partner->id,
             'platform' => 'shopee',
             'payout_id' => 'PO-5001',
             'amount' => 123000,
@@ -288,7 +288,7 @@ class PayoutBatchTest extends TestCase
             'payout_at' => now()->subDay(),
         ]);
 
-        $createResponse = $this->actingAs($ctv)->postJson('/api/payout-batches', [
+        $createResponse = $this->actingAs($partner)->postJson('/api/payout-batches', [
             'payout_ids' => [$payout->id],
         ]);
         $createResponse->assertStatus(403);
@@ -303,7 +303,7 @@ class PayoutBatchTest extends TestCase
 
         $payout->update(['payout_batch_id' => $batch->id]);
 
-        $finalizeResponse = $this->actingAs($ctv)->postJson('/api/payout-batches/' . $batch->id . '/finalize');
+        $finalizeResponse = $this->actingAs($partner)->postJson('/api/payout-batches/' . $batch->id . '/finalize');
         $finalizeResponse->assertStatus(403);
     }
     public function test_owner_cannot_finalize_batch_belonging_to_different_isolated_scope(): void

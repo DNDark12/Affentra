@@ -11,7 +11,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Header, Query, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Any
 
 from .config import settings
 from . import scraper as scraper_module
@@ -115,6 +116,39 @@ class SearchRequest(BaseModel):
     keyword: str
     cookies: str
     page_limit: int = 20
+
+
+class ProxyRequest(BaseModel):
+    """
+    Generic proxy request — passes HTTP call through Camoufox (Firefox TLS fingerprint).
+    `cookies` is the raw Cookie: header string from PlatformConnection.cookie_raw.
+    Only *.shopee.vn targets are allowed (SSRF guard enforced in scraper).
+    """
+    url: str
+    method: str = "GET"         # GET | POST
+    headers: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
+    body: dict[str, Any] | None = None
+    cookies: str = ""           # Raw cookie header string
+    timeout_ms: int | None = None
+
+
+class ProxyResponse(BaseModel):
+    status: int
+    headers: dict[str, str] = Field(default_factory=dict)
+    json: dict | list | None = None
+    text: str | None = None
+    content_type: str = ""
+    ok: bool
+    error: str | None = None
+    error_type: str | None = None
+    url_final: str | None = None
+    text_truncated: bool = False
+    blocked_hint: bool = False
+    # Cookie rotation fields
+    refreshed_cookie: str | None = None
+    cookie_rotatable: bool = False
+    cookie_hash: str | None = None
 
 
 # ======================================================
@@ -260,3 +294,50 @@ async def search_products(
         message=f"Found {len(results)} products",
         fetched_at=now,
     )
+
+
+@app.post("/api/v1/shopee/proxy", response_model=ProxyResponse)
+async def proxy_request(
+    body: ProxyRequest,
+    x_internal_token: str | None = Header(None),
+):
+    """
+    Generic HTTP proxy through Camoufox (Firefox TLS fingerprint).
+
+    Called by: Affentra Laravel (ShopeeIntegration.php::proxyToPythonScraper)
+    Only *.shopee.vn targets are allowed — SSRF guard enforced in scraper.
+    Cookies passed as raw header string (never logged).
+
+    Returns structured response with status, json/text, error_type, and blocked_hint.
+    """
+    verify_token(x_internal_token)
+
+    if not body.url:
+        return ProxyResponse(
+            status=400,
+            ok=False,
+            error="url is required",
+            error_type="unknown",
+        )
+
+    if not await rate_limiter.is_allowed():
+        return ProxyResponse(
+            status=429,
+            ok=False,
+            error=f"Rate limit exceeded. Try again in {rate_limiter.retry_after}s.",
+            error_type="rate_limited",
+        )
+
+    logger.info(f"Proxy request: method={body.method} url={body.url}")
+
+    result = await scraper.proxy_request(
+        url=body.url,
+        method=body.method,
+        headers=body.headers,
+        params=body.params,
+        body=body.body,
+        cookie_raw=body.cookies,
+        timeout_ms=body.timeout_ms,
+    )
+
+    return ProxyResponse(**result.to_dict())

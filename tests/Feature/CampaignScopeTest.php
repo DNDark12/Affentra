@@ -17,17 +17,17 @@ class CampaignScopeTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * CTV should only see their own campaigns in the index.
+     * Partner should only see their own campaigns in the index.
      */
-    public function test_ctv_only_sees_own_campaigns(): void
+    public function test_partner_only_sees_own_campaigns(): void
     {
-        $ctvA = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
-        $ctvB = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $partnerA = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
+        $partnerB = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
-        Campaign::create(['user_id' => $ctvA->id, 'name' => 'Campaign A', 'status' => CampaignStatus::Active]);
-        Campaign::create(['user_id' => $ctvB->id, 'name' => 'Campaign B', 'status' => CampaignStatus::Active]);
+        Campaign::create(['user_id' => $partnerA->id, 'name' => 'Campaign A', 'status' => CampaignStatus::Active]);
+        Campaign::create(['user_id' => $partnerB->id, 'name' => 'Campaign B', 'status' => CampaignStatus::Active]);
 
-        $response = $this->actingAs($ctvA)->get('/campaigns');
+        $response = $this->actingAs($partnerA)->get('/campaigns');
         $response->assertStatus(200);
 
         $page = $response->original->getData()['page'];
@@ -38,16 +38,16 @@ class CampaignScopeTest extends TestCase
     }
 
     /**
-     * CTV cannot update a campaign they don't own.
+     * Partner cannot update a campaign they don't own.
      */
-    public function test_ctv_cannot_update_other_users_campaign(): void
+    public function test_partner_cannot_update_other_users_campaign(): void
     {
-        $ctvA = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
-        $ctvB = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $partnerA = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
+        $partnerB = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
-        $campaign = Campaign::create(['user_id' => $ctvB->id, 'name' => 'Secret Campaign', 'status' => CampaignStatus::Active]);
+        $campaign = Campaign::create(['user_id' => $partnerB->id, 'name' => 'Secret Campaign', 'status' => CampaignStatus::Active]);
 
-        $response = $this->actingAs($ctvA)
+        $response = $this->actingAs($partnerA)
             ->withSession(['_token' => 'test-token'])
             ->patchJson("/api/campaigns/{$campaign->id}", [
                 '_token' => 'test-token',
@@ -66,10 +66,10 @@ class CampaignScopeTest extends TestCase
     public function test_owner_sees_all_campaigns(): void
     {
         $owner = User::factory()->create(['role' => UserRole::Owner, 'status' => UserStatus::Active]);
-        $ctv   = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $partner   = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         Campaign::create(['user_id' => $owner->id, 'name' => 'Owner Campaign', 'status' => CampaignStatus::Active]);
-        Campaign::create(['user_id' => $ctv->id, 'name' => 'CTV Campaign', 'status' => CampaignStatus::Active]);
+        Campaign::create(['user_id' => $partner->id, 'name' => 'Partner Campaign', 'status' => CampaignStatus::Active]);
 
         $response = $this->actingAs($owner)->get('/campaigns');
         $response->assertStatus(200);

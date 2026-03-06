@@ -25,7 +25,7 @@ class PartnerInvitationMail extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: '[' . config('app.name') . '] Lời mời tham gia làm Đối tác / CTV',
+            subject: '[' . config('app.name') . '] Lời mời tham gia làm Đối tác / Partner',
         );
     }
 

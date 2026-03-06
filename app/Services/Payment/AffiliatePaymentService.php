@@ -176,7 +176,7 @@ class AffiliatePaymentService
                         'currency' => (string) ($row['currency'] ?? 'VND'),
                         'bank_name' => $row['bank_name'] ?? null,
                         'account_number_masked' => $row['bank_account_number'] ?? null,
-                        'status' => (string) ($this->firstValueByKeys($row, [
+                        'status' => $this->normalizePayoutStatus($this->firstValueByKeys($row, [
                             'status',
                             'payoutPaymentStatus',
                             'payout_payment_status',
@@ -410,6 +410,30 @@ class AffiliatePaymentService
         }
 
         return null;
+    }
+
+    private function normalizePayoutStatus(mixed $status): string
+    {
+        $raw = mb_strtolower(trim((string) $status));
+        if (
+            in_array($raw, ['2', '3', '6', 'paid', 'settled', 'completed', 'success', 'done', 'đã thanh toán'], true)
+        ) {
+            return 'paid';
+        }
+
+        if (
+            in_array($raw, ['0', '1', 'pending', 'processing', 'review', 'created', 'init', 'đang xử lý'], true)
+        ) {
+            return 'pending';
+        }
+
+        if (
+            in_array($raw, ['-1', '4', '5', 'failed', 'rejected', 'cancelled', 'canceled', 'closed', 'không thanh toán'], true)
+        ) {
+            return 'failed';
+        }
+
+        return 'pending';
     }
 
     /**

@@ -228,22 +228,22 @@
 
                             <button
                                 @click="secondaryAction(connection)"
-                                class="h-8 px-3 rounded-md border border-zinc-200 bg-white text-zinc-700 text-[12px] font-medium hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                class="inline-flex items-center justify-center h-8 px-3 rounded-md border border-zinc-200 bg-white text-zinc-700 text-[12px] font-medium hover:bg-zinc-50 transition-colors dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                                 :disabled="testingConnection === connection.id"
                             >
                                 <Loader2 v-if="testingConnection === connection.id" :size="12" class="animate-spin mr-1" />
-                                {{ secondaryActionLabel(connection) }}
+                                <span>{{ secondaryActionLabel(connection) }}</span>
                             </button>
                             <button
                                 @click="triggerSync(connection)"
                                 :disabled="syncingConnection === connection.id"
-                                class="h-8 px-3 rounded-md text-white text-[12px] font-medium transition-colors"
+                                class="inline-flex items-center justify-center h-8 px-3 rounded-md text-white text-[12px] font-medium transition-colors"
                                 :class="connection.status === 'error'
                                     ? 'bg-zinc-900 hover:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600'
                                     : 'bg-indigo-600 hover:bg-indigo-700'"
                             >
                                 <Loader2 v-if="syncingConnection === connection.id" :size="12" class="animate-spin mr-1" />
-                                {{ syncingConnection === connection.id ? 'Đang sync...' : primaryActionLabel(connection) }}
+                                <span>{{ syncingConnection === connection.id ? 'Đang sync...' : primaryActionLabel(connection) }}</span>
                             </button>
                             <button
                                 @click="openConfigModal(getPlatform(connection.platform), connection)"
@@ -281,15 +281,25 @@
                             <h4 class="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">
                                 {{ connection.method === 'portal_export' ? 'Lịch sử upload gần đây' : 'Lịch sử đồng bộ gần đây' }}
                             </h4>
-                            <button
-                                v-if="connection.sync_runs_count > getRecentRuns(connection).length"
-                                type="button"
-                                class="text-[12px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline flex items-center gap-1"
-                                @click="openHistoryModal(connection)"
-                            >
-                                {{ connection.status === 'error' ? 'Xem log lỗi' : 'Xem tất cả' }}
-                                <ArrowRight :size="12" />
-                            </button>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[12px] text-zinc-500 dark:text-zinc-400">Filter:</span>
+                                <select 
+                                    :value="syncFilters[connection.id] || 'all'"
+                                    @change="syncFilters[connection.id] = $event.target.value"
+                                    class="h-7 px-2 text-[11px] font-medium rounded border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                >
+                                    <option value="all">Tất cả Sync</option>
+                                    <option value="manual">Đơn & Click</option>
+                                    <option value="payment_sync">Finance</option>
+                                    <option value="campaign_sync">Campaigns</option>
+                                </select>
+                                <button
+                                    type="button"
+                                    class="text-[12px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline flex items-center gap-1 shrink-0"
+                                    @click="openHistoryModal(connection)"
+                                >
+                                </button>
+                            </div>
                         </div>
 
                         <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-zinc-50/60 dark:bg-zinc-800/30">
@@ -305,10 +315,17 @@
                                         :class="{ 'border-b': index < getRecentRuns(connection).length - 1 }"
                                     >
                                         <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 w-[120px]">{{ formatTimeOnly(run.started_at) }}</td>
-                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 w-[80px]">{{ run.type === 'manual' ? 'Manual' : 'Auto' }}</td>
+                                        <td class="py-2.5 px-4 text-zinc-600 dark:text-zinc-400 w-[80px]">
+                                            {{ 
+                                                run.type === 'manual' ? 'Orders & Clicks' : 
+                                                run.type === 'payment_sync' ? 'Finance' : 
+                                                run.type === 'campaign_sync' ? 'Campaigns' : 
+                                                run.type === 'auto_sync' ? 'Auto' : run.type 
+                                            }}
+                                        </td>
                                         <td class="py-2.5 px-4 w-[130px]">
                                             <div class="flex items-center gap-1.5 font-medium" :class="runStatusClass(run.status)">
-                                                <component :is="runStatusIcon(run.status)" :size="12" :class="runStatusClass(run.status)" />
+                                                <component :is="runStatusIcon(run.status)" :size="12" :class="[runStatusClass(run.status), ['pending', 'processing'].includes(run.status) ? 'animate-spin' : '']" />
                                                 <span>{{ runStatusLabel(run.status) }}</span>
                                             </div>
                                         </td>
@@ -379,28 +396,34 @@
         </div>
 
 
-        <DrawerHistory
-            :isOpen="isRunDetailsOpen"
-            :selectedRun="selectedDetailedRun"
-            :runs="selectedDetailedRuns"
-            :connectionInfo="selectedDetailedPlatform"
-            @close="closeRunDetailsDrawer"
-        />
+        <Teleport to="body">
+            <DrawerHistory
+                :isOpen="isRunDetailsOpen"
+                :selectedRun="selectedDetailedRun"
+                :runs="selectedDetailedRuns"
+                :connectionInfo="selectedDetailedPlatform"
+                @close="closeRunDetailsDrawer"
+            />
+        </Teleport>
 
-        <DrawerConfig
-            :isOpen="isConfigOpen"
-            :platforms="platformConfigs"
-            :allowedMethods="allowedMethods"
-            :editConnection="editConnection"
-            @close="closeConfigModal"
-            @delete="deleteConnection"
-        />
+        <Teleport to="body">
+            <DrawerConfig
+                :isOpen="isConfigOpen"
+                :platforms="platformConfigs"
+                :allowedMethods="allowedMethods"
+                :editConnection="editConnection"
+                @close="closeConfigModal"
+                @delete="deleteConnection"
+            />
+        </Teleport>
 
-        <ModalUpload
-            :isOpen="isUploadOpen"
-            :connection="uploadConnection"
-            @close="closeUploadModal"
-        />
+        <Teleport to="body">
+            <ModalUpload
+                :isOpen="isUploadOpen"
+                :connection="uploadConnection"
+                @close="closeUploadModal"
+            />
+        </Teleport>
     </AppShell>
 </template>
 
@@ -418,6 +441,8 @@ import DrawerHistory from './Partials/DrawerHistory.vue';
 import DrawerConfig from './Partials/DrawerConfig.vue';
 import ModalUpload from './Partials/ModalUpload.vue';
 import { useDialog } from '@/Composables/useDialog';
+
+const syncFilters = ref({});
 
 const props = defineProps({
     connections: {
@@ -754,8 +779,10 @@ function updateConnectionRuns(connectionId, runs) {
     );
 
     if (normalizedRuns.length > 0) {
-        current.last_sync_status = normalizedRuns[0].status;
-        current.last_sync_at = normalizedRuns[0].started_at;
+        // Prefer the first non-subsidiary run (non-payment_sync) for status derivation
+        const primaryRun = normalizedRuns.find((r) => r.type !== 'payment_sync') || normalizedRuns[0];
+        current.last_sync_status = primaryRun.status;
+        current.last_sync_at = primaryRun.started_at;
     }
 
     next[index] = current;
@@ -787,16 +814,19 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function pollSyncRun(connectionId, runId, timeoutMs = 120000) {
+async function pollAllConnectionRuns(connectionId, timeoutMs = 180000) {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
         const runs = await fetchSyncHistory(connectionId, 20);
         updateConnectionRuns(connectionId, runs);
 
-        const run = runs.find((item) => Number(item.id) === Number(runId));
-        if (run && isRunFinal(run.status)) {
-            return run;
+        // Check if there are any runs still processing
+        const isStillRunning = runs.some(run => !isRunFinal(run.status));
+        
+        if (!isStillRunning) {
+            // Return top 3 most recent runs that were likely triggered by this sync
+            return runs.slice(0, 3);
         }
 
         await sleep(2000);
@@ -842,7 +872,14 @@ async function pollManySyncRuns(runTargets, timeoutMs = 180000) {
 
 function getRecentRuns(connection) {
     const runs = Array.isArray(connection.recent_sync_runs) ? connection.recent_sync_runs : [];
-    return runs.slice(0, 5).map(normalizeRunPayload);
+    const filter = syncFilters.value[connection.id] || 'all';
+    
+    let filtered = runs;
+    if (filter !== 'all') {
+        filtered = runs.filter((r) => r.type === filter);
+    }
+    
+    return filtered.slice(0, 5).map(normalizeRunPayload);
 }
 
 function showGuide() {
@@ -950,12 +987,16 @@ async function openHistoryModal(connection) {
             showFeedback('info', 'Chưa có lịch sử đồng bộ cho kết nối này.');
             return;
         }
-        openRunDetailsDrawer(connection, runs[0], runs);
+        
+        // Find the first failed run in history to show first
+        const failedRun = runs.find(r => String(r.status).startsWith('failed'));
+        openRunDetailsDrawer(connection, failedRun || runs[0], runs);
     } catch (error) {
         console.error('Load history failed', error);
         const fallbackRuns = getRecentRuns(connection);
         if (fallbackRuns.length) {
-            openRunDetailsDrawer(connection, fallbackRuns[0], fallbackRuns);
+            const failedFallback = fallbackRuns.find(r => String(r.status).startsWith('failed'));
+            openRunDetailsDrawer(connection, failedFallback || fallbackRuns[0], fallbackRuns);
             return;
         }
 
@@ -1104,25 +1145,41 @@ async function triggerSync(connection) {
         });
         updateConnectionRuns(connection.id, [pendingRun, ...getRecentRuns(connection)]);
 
-        const finalRun = await pollSyncRun(connection.id, runId, 180000);
-        if (!finalRun) {
+        const finalRuns = await pollAllConnectionRuns(connection.id, 180000);
+        if (!finalRuns || finalRuns.length === 0) {
             showFeedback(
                 'warning',
                 'Đồng bộ đã được kích hoạt nhưng chưa có kết quả cuối cùng.',
-                'Job có thể vẫn đang chạy trong queue. Bạn có thể bấm "Xem tất cả" để theo dõi thêm.',
+                'Tiến trình đang chạy ngầm. Bạn có thể bấm "Xem tất cả" để theo dõi thêm.',
             );
             return;
         }
 
+        // Aggregate stats across all recent runs
+        let totalFetched = 0;
+        let totalUpserted = 0;
+        let totalFailed = 0;
+        let hasError = false;
+        let hasWarning = false;
+
+        for (const run of finalRuns) {
+            totalFetched += Number(run.records_fetched || 0);
+            totalUpserted += Number(run.records_upserted || 0);
+            totalFailed += Number(run.records_failed || 0);
+            
+            if (String(run.status).startsWith('failed')) hasError = true;
+            if (run.status === 'completed_with_warnings' || run.status === 'rate_limited') hasWarning = true;
+        }
+
         const detailLines = [
-            `API lấy về: ${finalRun.records_fetched ?? 0}`,
-            `Thêm/Cập nhật: ${finalRun.records_upserted ?? 0}`,
-            `Bỏ qua/Lỗi: ${finalRun.records_failed ?? 0}`,
+            `API lấy về: ${totalFetched}`,
+            `Thêm/Cập nhật: ${totalUpserted}`,
+            `Bỏ qua/Lỗi: ${totalFailed}`,
         ];
 
-        if (String(finalRun.status).startsWith('failed')) {
-            showFeedback('error', `Đồng bộ thất bại (${runStatusLabel(finalRun.status)}).`, detailLines.join('\n'));
-        } else if (finalRun.status === 'completed_with_warnings') {
+        if (hasError) {
+            showFeedback('error', 'Đồng bộ hoàn tất nhưng có job thất bại.', detailLines.join('\n'));
+        } else if (hasWarning) {
             showFeedback('warning', 'Đồng bộ hoàn tất có cảnh báo.', detailLines.join('\n'));
         } else {
             showFeedback('success', 'Đồng bộ hoàn tất.', detailLines.join('\n'));

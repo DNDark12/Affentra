@@ -9,16 +9,24 @@ Approach:
   1. Load affiliate.shopee.vn with user cookies in Camoufox
   2. Navigate to product offer page → parse rendered SPA
   3. OR call affiliate API directly with cookies + intercepted anti-bot headers
+  4. OR proxy individual HTTP requests via context.request (no page rendering)
 """
 import asyncio
+import hashlib
+import ipaddress
 import json
 import logging
 import re
+import socket
+import uuid
+from dataclasses import dataclass, field, asdict
+from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from camoufox.async_api import AsyncCamoufox
-from playwright.async_api import Page
+from playwright.async_api import Page, BrowserContext
 
 from .config import settings
 
@@ -26,6 +34,313 @@ logger = logging.getLogger("scraper")
 
 # Module-level browser reference (kept alive during app lifespan)
 _browser = None
+
+
+# ==============================================================
+# SSRF Protection: URL Validation
+# ==============================================================
+
+ALLOWED_HOSTS = frozenset({"shopee.vn", "affiliate.shopee.vn"})
+ALLOWED_HOST_SUFFIX = ".shopee.vn"
+
+
+def validate_proxy_url(url: str) -> str:
+    """
+    Validate a URL for proxy forwarding.
+    - HTTPS only
+    - Domain allowlist: shopee.vn, *.shopee.vn
+    - DNS pre-resolve: reject private/loopback/reserved IPs
+    Raises ValueError on validation failure.
+    """
+    parsed = urlparse(url)
+
+    # 1. Scheme allowlist
+    if parsed.scheme != "https":
+        raise ValueError(f"Only HTTPS allowed, got: {parsed.scheme}")
+
+    # 2. Host must be present
+    host = parsed.hostname
+    if not host:
+        raise ValueError("Missing hostname")
+
+    # 3. Domain allowlist (exact or suffix match)
+    host_lower = host.lower()
+    if host_lower not in ALLOWED_HOSTS:
+        # Must end with ".shopee.vn" with a dot boundary
+        # This prevents "evilshopee.vn" from passing
+        if not host_lower.endswith(ALLOWED_HOST_SUFFIX):
+            raise ValueError(f"Host not in allowlist: {host}")
+        # Verify there's a dot boundary (not just suffix match like "evilshopee.vn")
+        prefix_len = len(host_lower) - len(ALLOWED_HOST_SUFFIX)
+        if prefix_len <= 0:
+            raise ValueError(f"Host not in allowlist: {host}")
+        # The suffix check with endswith already ensures the dot is included
+        # since ALLOWED_HOST_SUFFIX starts with "."
+
+    # 4. DNS resolve → reject private IPs
+    try:
+        resolved = socket.getaddrinfo(host, None, socket.AF_UNSPEC)
+        for family, _, _, _, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                raise ValueError(f"Resolved to private/reserved IP: {ip}")
+    except socket.gaierror as e:
+        raise ValueError(f"DNS resolution failed for {host}: {e}")
+
+    return url
+
+
+# ==============================================================
+# Header Normalizer
+# ==============================================================
+
+# Hop-by-hop headers that must be stripped for proxy forwarding
+HOP_BY_HOP_HEADERS = frozenset({
+    "host", "connection", "keep-alive", "proxy-authenticate",
+    "proxy-authorization", "te", "trailers", "transfer-encoding",
+    "upgrade", "content-length",
+})
+
+# Playwright manages compression — strip to avoid double-decompression
+STRIP_ENCODING = frozenset({"accept-encoding"})
+
+
+def normalize_headers(raw: dict[str, object] | None) -> dict[str, str]:
+    """
+    Normalize request headers for proxy forwarding.
+    - Strip hop-by-hop headers
+    - Strip accept-encoding (Playwright handles)
+    - Coerce non-string values to string
+    - Drop empty/null keys
+    - Pass-through everything else as provided by Laravel
+    """
+    result: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return result
+
+    for key, value in raw.items():
+        if key is None:
+            continue
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+
+        key_lower = key_str.lower()
+        if key_lower in HOP_BY_HOP_HEADERS:
+            continue
+        if key_lower in STRIP_ENCODING:
+            continue
+
+        if value is None:
+            continue
+        result[key_str] = str(value)
+    return result
+
+
+def normalize_params(raw: dict[str, object] | None) -> dict[str, str]:
+    """
+    Normalize query params to strings for Playwright APIRequestContext.
+    Drops null/empty keys and null values.
+    """
+    result: dict[str, str] = {}
+    if not isinstance(raw, dict):
+        return result
+
+    for key, value in raw.items():
+        if key is None or value is None:
+            continue
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        result[key_str] = str(value)
+    return result
+
+
+# ==============================================================
+# Response Classifier (Multi-Signal)
+# ==============================================================
+
+class ErrorType(str, Enum):
+    AUTH_FAILURE = "auth_failure"
+    BLOCKED_BOT = "blocked_bot"
+    RATE_LIMITED = "rate_limited"
+    NETWORK = "network"
+    UNKNOWN = "unknown"
+
+
+# ======================================================
+# Cookie Merge Utilities
+# ======================================================
+
+
+def parse_cookie_pairs(raw: str) -> dict[str, str]:
+    """
+    Parse a raw cookie header string into {name: value} dict.
+    Deduplicates by name (last value wins). Handles values containing '='.
+    """
+    pairs: dict[str, str] = {}
+    if not raw:
+        return pairs
+    for segment in raw.split(";"):
+        segment = segment.strip()
+        if "=" not in segment:
+            continue
+        name, value = segment.split("=", 1)  # split only on first '='
+        name = name.strip()
+        value = value.strip()
+        if name:
+            pairs[name] = value
+    return pairs
+
+
+def merge_set_cookies(
+    original_cookie: str, response_headers: dict[str, str]
+) -> tuple[str, str, bool]:
+    """
+    Merge Set-Cookie headers from a response into the original cookie string.
+
+    Returns:
+        (merged_cookie_string, cookie_hash, has_changed)
+
+    Handles:
+    - Multiple Set-Cookie values (some HTTP layers join them with newlines)
+    - Values containing '=' (e.g. base64 tokens)
+    - Expires/Path/Domain attributes after first ';' are ignored
+    """
+    original_pairs = parse_cookie_pairs(original_cookie)
+    original_hash = canonical_cookie_hash(original_pairs)
+
+    # Collect all set-cookie headers (case-insensitive)
+    set_cookie_values: list[str] = []
+    for key, value in response_headers.items():
+        if key.lower() == "set-cookie":
+            # Some layers join multiple Set-Cookie into one string with newlines
+            for line in value.split("\n"):
+                line = line.strip()
+                if line:
+                    set_cookie_values.append(line)
+
+    if not set_cookie_values:
+        return original_cookie, original_hash, False
+
+    merged = dict(original_pairs)  # copy
+
+    for sc in set_cookie_values:
+        # Extract name=value before any ';' (attributes like Expires, Path)
+        name_value_part = sc.split(";", 1)[0].strip()
+        if "=" not in name_value_part:
+            continue
+        name, value = name_value_part.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if name:
+            merged[name] = value
+
+    merged_hash = canonical_cookie_hash(merged)
+    has_changed = merged_hash != original_hash
+
+    # Rebuild as sorted cookie string for stable output
+    merged_str = "; ".join(f"{k}={v}" for k, v in sorted(merged.items()))
+
+    return merged_str, merged_hash, has_changed
+
+
+def canonical_cookie_hash(pairs: dict[str, str]) -> str:
+    """
+    Compute a canonical hash of cookie pairs (order-insensitive).
+    Returns first 12 chars of sha256 hex digest.
+    """
+    canonical = ";".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+
+
+@dataclass
+class ProxyResult:
+    status: int
+    headers: dict[str, str] = field(default_factory=dict)
+    json: dict | list | None = None
+    text: str | None = None
+    content_type: str = ""
+    ok: bool = True
+    error: str | None = None
+    error_type: str | None = None
+    url_final: str | None = None
+    text_truncated: bool = False
+    blocked_hint: bool = False
+    # Cookie rotation fields
+    refreshed_cookie: str | None = None
+    cookie_rotatable: bool = False
+    cookie_hash: str | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+# HTTP status codes indicating auth issues
+HTTP_AUTH_STATUSES = {401, 403}
+
+# Shopee API-level codes (JSON body "code" field)
+API_BOT_CODES = {90309999, 90309998}
+API_AUTH_CODES = {100003, 100004}
+
+
+def classify_response(result: ProxyResult) -> ProxyResult:
+    """
+    Apply multi-signal classification to a proxy response.
+    Separates HTTP status from API-level codes (CTO must-fix).
+    """
+    # Signal 1: HTTP 429 → rate limited
+    if result.status == 429:
+        result.error_type = ErrorType.RATE_LIMITED
+        result.ok = False
+        return result
+
+    # Signal 2: Shopee API code in JSON body (bot detection)
+    if result.json and isinstance(result.json, dict):
+        api_code = result.json.get("code")
+        if api_code is not None:
+            try:
+                api_code_int = int(api_code)
+            except (ValueError, TypeError):
+                api_code_int = None
+
+            if api_code_int is not None:
+                if api_code_int in API_BOT_CODES:
+                    result.error_type = ErrorType.BLOCKED_BOT
+                    result.blocked_hint = True
+                    result.ok = False
+                    return result
+                if api_code_int in API_AUTH_CODES:
+                    result.error_type = ErrorType.AUTH_FAILURE
+                    result.ok = False
+                    return result
+
+    # Signal 3: HTML response with no JSON → challenge page
+    if result.json is None and result.content_type and "text/html" in result.content_type:
+        result.error_type = ErrorType.BLOCKED_BOT
+        result.blocked_hint = True
+        result.ok = False
+        return result
+
+    # Signal 4: HTTP 401/403 (separate from API codes)
+    if result.status in HTTP_AUTH_STATUSES:
+        if result.json and isinstance(result.json, dict) and result.json.get("msg"):
+            # JSON with a message → likely auth failure
+            result.error_type = ErrorType.AUTH_FAILURE
+        else:
+            # No JSON or empty msg → likely Cloudflare/bot block
+            result.error_type = ErrorType.BLOCKED_BOT
+            result.blocked_hint = True
+        result.ok = False
+        return result
+
+    # Signal 5: 5xx → server/network error
+    if result.status >= 500:
+        result.error_type = ErrorType.NETWORK
+        result.ok = False
+        return result
+
+    return result
 
 
 class ShopeeAffiliateScraper:
@@ -90,12 +405,15 @@ class ShopeeAffiliateScraper:
             return None
 
         url = f"https://affiliate.shopee.vn/offer/product_offer/{item_id}"
-        logger.info(f"Scraping affiliate product: {url}")
+        ctx_id = uuid.uuid4().hex[:8]
+        logger.info(f"[{ctx_id}] Scraping affiliate product: {url}")
 
         async with self._semaphore:
+            context = None
             page = None
             try:
-                page = await _browser.new_page()
+                context = await _browser.new_context()
+                page = await context.new_page()
 
                 # Inject user cookies before navigating
                 await self._set_cookies(page, cookies)
@@ -112,14 +430,14 @@ class ShopeeAffiliateScraper:
                             if response.status == 200:
                                 body = await response.json()
                                 api_data["product"] = body
-                                logger.info(f"Intercepted product API: {resp_url}")
+                                logger.info(f"[{ctx_id}] Intercepted product API: {resp_url}")
                         elif "/api/v3/gql" in resp_url and "product" not in api_data:
                             if response.status == 200:
                                 body = await response.json()
                                 api_data["gql"] = body
-                                logger.info(f"Intercepted GQL API: {resp_url}")
+                                logger.info(f"[{ctx_id}] Intercepted GQL API: {resp_url}")
                     except Exception as e:
-                        logger.debug(f"Failed to intercept response: {e}")
+                        logger.debug(f"[{ctx_id}] Failed to intercept response: {e}")
 
                 page.on("response", handle_response)
 
@@ -133,46 +451,46 @@ class ShopeeAffiliateScraper:
                 # === Strategy 1: Use intercepted product API data ===
                 product_payload = api_data.get("product") or api_data.get("gql")
                 if product_payload:
-                    logger.info(f"API response keys: {list(product_payload.keys()) if isinstance(product_payload, dict) else type(product_payload).__name__}")
+                    logger.info(f"[{ctx_id}] API response keys: {list(product_payload.keys()) if isinstance(product_payload, dict) else type(product_payload).__name__}")
                     # Log deeper structure for debugging
                     if isinstance(product_payload, dict) and "data" in product_payload:
                         inner = product_payload["data"]
                         if isinstance(inner, dict):
-                            logger.info(f"API data keys: {list(inner.keys())}")
+                            logger.info(f"[{ctx_id}] API data keys: {list(inner.keys())}")
 
                     data = self._parse_intercepted_api(
                         product_payload, item_id, shop_id
                     )
                     if data:
                         data["source"] = "api_intercept"
-                        logger.info(f"Got product via API intercept: {data.get('item_name', 'N/A')[:50]}")
+                        logger.info(f"[{ctx_id}] Got product via API intercept: {data.get('item_name', 'N/A')[:50]}")
                         return data
                     else:
-                        logger.warning("API data intercepted but parser returned None")
+                        logger.warning(f"[{ctx_id}] API data intercepted but parser returned None")
 
                 # === Strategy 2: Parse rendered DOM ===
                 html = await page.content()
 
                 # Check for login redirect
                 if self._is_login_page(html):
-                    logger.warning(f"Cookies expired — affiliate portal redirected to login for {item_id}")
+                    logger.warning(f"[{ctx_id}] Cookies expired — affiliate portal redirected to login for {item_id}")
                     return None
 
                 data = self._parse_affiliate_page(html, item_id, shop_id)
                 if data:
                     data["source"] = "dom_parse"
-                    logger.info(f"Got product via DOM parse: {data.get('item_name', 'N/A')[:50]}")
+                    logger.info(f"[{ctx_id}] Got product via DOM parse: {data.get('item_name', 'N/A')[:50]}")
                     return data
 
-                logger.warning(f"Could not extract product data for {item_id}")
+                logger.warning(f"[{ctx_id}] Could not extract product data for {item_id}")
                 return None
 
             except Exception as e:
-                logger.error(f"Scraping failed for {item_id}: {type(e).__name__}: {e}")
+                logger.error(f"[{ctx_id}] Scraping failed for {item_id}: {type(e).__name__}: {e}")
                 return None
             finally:
-                if page:
-                    await page.close()
+                if context:
+                    await context.close()
 
     # ==============================================================
     # Product Search: /api/v3/offer/product/list
@@ -200,12 +518,15 @@ class ShopeeAffiliateScraper:
             logger.error("Browser not initialized")
             return []
 
-        logger.info(f"Searching products: keyword='{keyword}'")
+        ctx_id = uuid.uuid4().hex[:8]
+        logger.info(f"[{ctx_id}] Searching products: keyword='{keyword}'")
 
         async with self._semaphore:
+            context = None
             page = None
             try:
-                page = await _browser.new_page()
+                context = await _browser.new_context()
+                page = await context.new_page()
                 await self._set_cookies(page, cookies)
 
                 # Intercept search API response
@@ -215,15 +536,15 @@ class ShopeeAffiliateScraper:
                     try:
                         resp_url = response.url
                         if "api/v3" in resp_url:
-                            logger.info(f"Search API intercepted: {resp_url}")
+                            logger.info(f"[{ctx_id}] Search API intercepted: {resp_url}")
                         
                         if "/api/v3/offer/product/list" in resp_url:
                             if response.status == 200:
                                 body = await response.json()
                                 search_results["data"] = body
-                                logger.info("Captured search API response successfully")
+                                logger.info(f"[{ctx_id}] Captured search API response successfully")
                     except Exception as e:
-                        logger.error(f"Error handling search response: {e}")
+                        logger.error(f"[{ctx_id}] Error handling search response: {e}")
 
                 page.on("response", handle_response)
 
@@ -235,7 +556,7 @@ class ShopeeAffiliateScraper:
                     f"https://affiliate.shopee.vn/offer/product_offer"
                     f"?keyword={encoded_keyword}&listType=0"
                 )
-                logger.info(f"Navigating to search URL: {search_url}")
+                logger.info(f"[{ctx_id}] Navigating to search URL: {search_url}")
                 await page.goto(search_url, wait_until="networkidle",
                                 timeout=settings.page_load_timeout * 1000)
 
@@ -248,33 +569,231 @@ class ShopeeAffiliateScraper:
                 # Fallback: parse DOM for search results
                 html = await page.content()
                 if self._is_login_page(html):
-                    logger.warning("Cookies expired — search redirected to login")
+                    logger.warning(f"[{ctx_id}] Cookies expired — search redirected to login")
                     return []
 
                 # Debug: check if products are embedded in the HTML
                 if "productName" in html or "priceMin" in html:
-                    logger.info("Found product data embedded in HTML! Need to extract from DOM.")
-                    # Try to find the __INITIAL_STATE__ or similar script
+                    logger.info(f"[{ctx_id}] Found product data embedded in HTML! Need to extract from DOM.")
                     match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});', html)
                     if match:
-                        logger.info("Found window.__INITIAL_STATE__")
+                        logger.info(f"[{ctx_id}] Found window.__INITIAL_STATE__")
                     match2 = re.search(r'window\.__NUXT__\s*=\s*(\{.*?\});', html)
                     if match2:
-                        logger.info("Found window.__NUXT__")
+                        logger.info(f"[{ctx_id}] Found window.__NUXT__")
 
-                logger.warning("No search results captured via API or DOM matched")
+                logger.warning(f"[{ctx_id}] No search results captured via API or DOM matched")
                 return []
 
             except Exception as e:
-                logger.error(f"Search failed: {type(e).__name__}: {e}")
+                logger.error(f"[{ctx_id}] Search failed: {type(e).__name__}: {e}")
                 return []
             finally:
-                if page:
-                    await page.close()
+                if context:
+                    await context.close()
+
+    # ==============================================================
+    # Generic HTTP Proxy: /api/v1/shopee/proxy
+    # ==============================================================
+
+    async def proxy_request(
+        self,
+        url: str,
+        method: str,
+        headers: dict[str, object] | None,
+        params: dict[str, object] | None,
+        body: dict | None,
+        cookie_raw: str,
+        timeout_ms: int | None = None,
+    ) -> ProxyResult:
+        """
+        Proxy an HTTP request through Camoufox, inheriting Firefox TLS fingerprint.
+
+        Cookies are passed as a raw Cookie: header string (Option A — header-only).
+        No jar injection — single HTTP call per proxy request.
+
+        Redirect handling: manually follows up to 3 hops, validating each URL
+        against validate_proxy_url() to prevent SSRF via redirect.
+
+        Logs cookie_hash (sha256[:12]) for correlation — never raw cookie values.
+        """
+        global _browser
+        if _browser is None:
+            return ProxyResult(
+                status=503,
+                error="Browser not initialized",
+                error_type=ErrorType.NETWORK,
+                ok=False,
+            )
+
+        # Validate initial URL
+        try:
+            validate_proxy_url(url)
+        except ValueError as e:
+            return ProxyResult(
+                status=400,
+                error=f"SSRF validation failed: {e}",
+                error_type=ErrorType.UNKNOWN,
+                ok=False,
+            )
+
+        # Log cookie hash for correlation (never raw value)
+        cookie_hash = hashlib.sha256(cookie_raw.encode()).hexdigest()[:12] if cookie_raw else "empty"
+        ctx_id = uuid.uuid4().hex[:8]
+        timeout_val = timeout_ms or (settings.proxy_total_timeout * 1000)
+
+        # Normalize headers — strip hop-by-hop and accept-encoding, preserve rest
+        normalized = normalize_headers(headers)
+        normalized_params = normalize_params(params)
+
+        # Inject cookies as header (Option A: header-only, works for any browser source)
+        if cookie_raw:
+            normalized["cookie"] = cookie_raw
+
+        async with self._semaphore:
+            context = None
+            try:
+                logger.info(
+                    f"[{ctx_id}] proxy_request: method={method} url={url} "
+                    f"cookie_hash={cookie_hash}"
+                )
+                context = await _browser.new_context()
+                req_ctx = context.request
+
+                # Manual redirect loop — validate each hop against SSRF guard
+                current_url = url
+                current_method = method.upper()
+                max_redirects = 3
+                hops = 0
+
+                while True:
+                    if current_method == "POST":
+                        resp = await req_ctx.post(
+                            current_url,
+                            headers=normalized,
+                            params=normalized_params,
+                            data=json.dumps(body) if body else None,
+                            max_redirects=0,  # We handle redirects manually
+                            timeout=timeout_val,
+                        )
+                    else:
+                        resp = await req_ctx.get(
+                            current_url,
+                            headers=normalized,
+                            params=normalized_params,
+                            max_redirects=0,  # We handle redirects manually
+                            timeout=timeout_val,
+                        )
+
+                    # Handle redirect hops
+                    if resp.status in (301, 302, 303, 307, 308) and hops < max_redirects:
+                        location = resp.headers.get("location", "")
+                        if not location:
+                            logger.warning(f"[{ctx_id}] Redirect with no Location header at hop {hops}")
+                            break
+
+                        # Validate the redirect target before following — SSRF guard
+                        try:
+                            validate_proxy_url(location)
+                        except ValueError as ssrf_e:
+                            logger.error(f"[{ctx_id}] SSRF redirect blocked at hop {hops}: {ssrf_e}")
+                            return ProxyResult(
+                                status=403,
+                                error=f"SSRF redirect blocked: {ssrf_e}",
+                                error_type=ErrorType.BLOCKED_BOT,
+                                ok=False,
+                            )
+
+                        hops += 1
+                        current_url = location
+                        # 303 See Other turns POST into GET
+                        if resp.status == 303:
+                            current_method = "GET"
+                        logger.info(f"[{ctx_id}] Following redirect ({hops}/{max_redirects}) → {location}")
+                        continue
+
+                    # Final response (not a redirect, or max redirects reached)
+                    break
+
+                # Build ProxyResult
+                resp_content_type = resp.headers.get("content-type", "")
+                resp_headers = dict(resp.headers)
+                resp_json = None
+                resp_text = None
+                resp_truncated = False
+                parse_error = None
+
+                try:
+                    resp_json = await resp.json()
+                except Exception:
+                    parse_error = "json_parse_failed"
+                    try:
+                        raw_text = await resp.text()
+                        if len(raw_text) > 2000:
+                            resp_text = raw_text[:2000]
+                            resp_truncated = True
+                        else:
+                            resp_text = raw_text
+                    except Exception as te:
+                        resp_text = f"[text read failed: {te}]"
+
+                result = ProxyResult(
+                    status=resp.status,
+                    headers=resp_headers,
+                    json=resp_json,
+                    text=resp_text,
+                    content_type=resp_content_type,
+                    ok=resp.status < 400,
+                    error=parse_error,
+                    url_final=current_url if current_url != url else None,
+                    text_truncated=resp_truncated,
+                )
+
+                # Apply multi-signal classifier
+                result = classify_response(result)
+
+                # Cookie rotation: merge Set-Cookie headers into original cookies
+                if result.ok and cookie_raw:
+                    try:
+                        merged, merged_hash, changed = merge_set_cookies(
+                            cookie_raw, resp_headers
+                        )
+                        result.cookie_hash = merged_hash
+                        if changed:
+                            result.refreshed_cookie = merged
+                            result.cookie_rotatable = True
+                            logger.info(
+                                f"[{ctx_id}] cookie rotatable: "
+                                f"hash={merged_hash} cookie_hash={cookie_hash}"
+                            )
+                    except Exception as ce:
+                        logger.warning(
+                            f"[{ctx_id}] cookie merge failed: {ce}"
+                        )
+
+                logger.info(
+                    f"[{ctx_id}] proxy_request done: status={result.status} "
+                    f"ok={result.ok} error_type={result.error_type} "
+                    f"blocked_hint={result.blocked_hint}"
+                )
+                return result
+
+            except Exception as e:
+                logger.error(f"[{ctx_id}] proxy_request exception: {type(e).__name__}: {e}")
+                return ProxyResult(
+                    status=503,
+                    error=f"{type(e).__name__}: {e}",
+                    error_type=ErrorType.NETWORK,
+                    ok=False,
+                )
+            finally:
+                if context:
+                    await context.close()
 
     # ==============================================================
     # Cookie Management
     # ==============================================================
+
 
     @staticmethod
     async def _set_cookies(page: Page, cookie_string: str):

@@ -93,7 +93,7 @@ Route::middleware(['auth'])->group(function () {
 
     /*
     |----------------------------------------------------------------------
-    | Partners / CTV
+    | Partners
     |----------------------------------------------------------------------
     */
     Route::prefix('partners')->name('api.partners.')->group(function () {
@@ -268,6 +268,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('content-generations/{id}/status', [ContentGenerationController::class, 'status'])
         ->name('api.content-generations.status')
         ->middleware('throttle:120,1');
+
+    Route::get('content/statistics/account', [ContentGenerationController::class, 'accountStatistics'])
+        ->name('api.content.statistics.account');
 
     /*
     |----------------------------------------------------------------------

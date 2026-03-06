@@ -22,8 +22,8 @@ class TrackingLinkAuthorizationTest extends TestCase
      */
     public function test_user_cannot_update_another_users_tracking_link(): void
     {
-        $userA = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
-        $userB = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $userA = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
+        $userB = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $linkOfB = TrackingLink::create([
             'user_id'         => $userB->id,
@@ -51,8 +51,8 @@ class TrackingLinkAuthorizationTest extends TestCase
      */
     public function test_user_cannot_archive_another_users_tracking_link(): void
     {
-        $userA = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
-        $userB = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $userA = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
+        $userB = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $linkOfB = TrackingLink::create([
             'user_id'         => $userB->id,
@@ -79,7 +79,7 @@ class TrackingLinkAuthorizationTest extends TestCase
      */
     public function test_user_can_update_own_tracking_link(): void
     {
-        $user = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $user = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $link = TrackingLink::create([
             'user_id'         => $user->id,
@@ -115,12 +115,12 @@ class TrackingLinkAuthorizationTest extends TestCase
     public function test_owner_can_update_any_tracking_link(): void
     {
         $owner = User::factory()->create(['role' => UserRole::Owner, 'status' => UserStatus::Active]);
-        $ctv   = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $partner   = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $link = TrackingLink::create([
-            'user_id'         => $ctv->id,
-            'short_code'      => 'ctvlink1',
-            'destination_url' => 'https://example.com/ctv',
+            'user_id'         => $partner->id,
+            'short_code'      => 'partnerlink1',
+            'destination_url' => 'https://example.com/partner',
             'status'          => LinkStatus::Active,
         ]);
 
@@ -136,7 +136,7 @@ class TrackingLinkAuthorizationTest extends TestCase
 
     public function test_legacy_inactive_status_input_is_normalized_to_paused(): void
     {
-        $user = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $user = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $link = TrackingLink::create([
             'user_id'         => $user->id,
@@ -160,7 +160,7 @@ class TrackingLinkAuthorizationTest extends TestCase
 
     public function test_archived_tracking_link_cannot_transition_back_to_active(): void
     {
-        $user = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $user = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $link = TrackingLink::create([
             'user_id'         => $user->id,
@@ -184,8 +184,8 @@ class TrackingLinkAuthorizationTest extends TestCase
 
     public function test_user_cannot_assign_campaign_outside_scope_on_update(): void
     {
-        $user = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
-        $other = User::factory()->create(['role' => UserRole::CTV, 'status' => UserStatus::Active]);
+        $user = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
+        $other = User::factory()->create(['role' => UserRole::Partner, 'status' => UserStatus::Active]);
 
         $campaign = Campaign::create([
             'user_id' => $other->id,

@@ -159,14 +159,14 @@ class TelegramConfigTest extends TestCase
         $this->deleteJson('/api/alerts/telegram-config')->assertStatus(401);
     }
 
-    public function test_ctv_can_manage_own_telegram_config(): void
+    public function test_partner_can_manage_own_telegram_config(): void
     {
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV->value,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner->value,
             'path' => '1/2',
         ]);
 
-        $response = $this->actingAs($ctv)->putJson('/api/alerts/telegram-config', [
+        $response = $this->actingAs($partner)->putJson('/api/alerts/telegram-config', [
             'bot_token' => '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
             'group_id' => '-1005223515097',
             'is_enabled' => true,

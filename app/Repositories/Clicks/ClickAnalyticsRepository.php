@@ -164,7 +164,7 @@ class ClickAnalyticsRepository
                 $q->where('id', $actor->id)
                     ->orWhere('parent_id', $actor->id);
             });
-        } elseif ($actor->isCTV()) {
+        } elseif ($actor->isPartner()) {
             $query->where('user_id', $actor->id);
         }
 
@@ -208,16 +208,20 @@ class ClickAnalyticsRepository
      * @param  list<string>  $subIds
      * @return Collection<string, TrackingLink>
      */
-    public function resolveLinksBySubIds(array $subIds): Collection
+    public function resolveLinksBySubIds(array $subIds, ?int $platformConnectionId = null): Collection
     {
         if ($subIds === []) {
             return collect();
         }
 
-        return TrackingLink::with('user.parent')
-            ->whereIn('sub_id', $subIds)
-            ->get()
-            ->keyBy('sub_id');
+        $query = TrackingLink::with('user.parent')
+            ->whereIn('sub_id', $subIds);
+
+        if ($platformConnectionId !== null) {
+            $query->where('platform_connection_id', $platformConnectionId);
+        }
+
+        return $query->get()->keyBy('sub_id');
     }
 
     public function cleanupSyncedClicks(int $connectionId, Carbon $since, Carbon $until, string $source = 'shopee_sync'): int
@@ -294,8 +298,8 @@ class ClickAnalyticsRepository
 
         if ($actor->isLeader()) {
             $query->where('leader_id', $actor->id);
-        } elseif ($actor->isCTV()) {
-            $query->where('ctv_user_id', $actor->id);
+        } elseif ($actor->isPartner()) {
+            $query->where('partner_user_id', $actor->id);
         }
 
         if ($filter->dateFrom) {
@@ -318,9 +322,8 @@ class ClickAnalyticsRepository
     {
         if ($actor->isLeader()) {
             $query->where('leader_id', $actor->id);
-        } elseif ($actor->isCTV()) {
-            $query->where('ctv_user_id', $actor->id);
+        } elseif ($actor->isPartner()) {
+            $query->where('partner_user_id', $actor->id);
         }
     }
 }
-

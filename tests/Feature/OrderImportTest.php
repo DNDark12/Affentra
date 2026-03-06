@@ -16,7 +16,7 @@ class OrderImportTest extends TestCase
 
     private User $owner;
     private User $leader;
-    private User $ctv;
+    private User $partner;
 
     protected function setUp(): void
     {
@@ -40,20 +40,20 @@ class OrderImportTest extends TestCase
             'path'      => current_path($this->owner),
         ]);
         
-        $this->ctv = User::factory()->create([
-            'role'      => 'ctv',
+        $this->partner = User::factory()->create([
+            'role' => 'partner',
             'status'    => 'active',
             'parent_id' => $this->leader->id,
             'path'      => current_path($this->leader),
         ]);
     }
 
-    public function test_ctv_cannot_import_orders(): void
+    public function test_partner_cannot_import_orders(): void
     {
         Storage::fake('local');
         $file = UploadedFile::fake()->create('orders.csv', 100, 'text/csv');
 
-        $response = $this->actingAs($this->ctv)->postJson(route('api.orders.import'), [
+        $response = $this->actingAs($this->partner)->postJson(route('api.orders.import'), [
             'file'     => $file,
             'platform' => 'shopee',
         ]);
@@ -68,7 +68,7 @@ class OrderImportTest extends TestCase
         
         // Create a tracking link to test mapping
         $link = TrackingLink::create([
-            'user_id'         => $this->ctv->id,
+            'user_id'         => $this->partner->id,
             'campaign_id'     => null,
             'sub_id'          => 'SUB123',
             'short_code'      => 'TEST1234',
@@ -77,7 +77,7 @@ class OrderImportTest extends TestCase
         ]);
 
         $csvContent = "order_code,status,order_amount,commission,ordered_at,approved_at,sub_id\n";
-        $csvContent .= "SHP123,pending,100000,10000,2024-01-01 10:00:00,,SUB123\n"; // Valid, maps to CTV
+        $csvContent .= "SHP123,pending,100000,10000,2024-01-01 10:00:00,,SUB123\n"; // Valid, maps to Partner
         $csvContent .= "SHP456,approved,200000,20000,2024-01-02 10:00:00,2024-01-03 10:00:00,\n"; // Valid, no sub_id -> orphaned (owner)
 
         $file = UploadedFile::fake()->createWithContent('orders.csv', $csvContent);
@@ -95,10 +95,10 @@ class OrderImportTest extends TestCase
         // Assert orders were created
         $this->assertDatabaseCount('orders', 2);
 
-        // View mapped order 1 (CTV)
+        // View mapped order 1 (Partner)
         $this->assertDatabaseHas('orders', [
             'order_code'       => 'SHP123',
-            'user_id'          => $this->ctv->id,
+            'user_id'          => $this->partner->id,
             'tracking_link_id' => $link->id,
             'platform'         => 'shopee',
             'status'           => 'pending',
@@ -125,7 +125,7 @@ class OrderImportTest extends TestCase
     public function test_leader_can_view_downline_import_status(): void
     {
         $syncRun = SyncRun::create([
-            'user_id'                => $this->ctv->id,
+            'user_id'                => $this->partner->id,
             'platform_connection_id' => null,
             'integration'            => 'shopee',
             'type'                   => 'import',
@@ -142,10 +142,10 @@ class OrderImportTest extends TestCase
             ->assertJsonPath('data.status', 'completed');
     }
 
-    public function test_ctv_cannot_view_other_users_import_status(): void
+    public function test_partner_cannot_view_other_users_import_status(): void
     {
         $otherCtv = User::factory()->create([
-            'role'      => 'ctv',
+            'role' => 'partner',
             'status'    => 'active',
             'parent_id' => $this->leader->id,
             'path'      => current_path($this->leader),
@@ -162,7 +162,7 @@ class OrderImportTest extends TestCase
             'records_failed'         => 0,
         ]);
 
-        $response = $this->actingAs($this->ctv)
+        $response = $this->actingAs($this->partner)
             ->getJson(route('api.orders.import.status', ['syncRunId' => $syncRun->id]));
 
         $response->assertStatus(404);

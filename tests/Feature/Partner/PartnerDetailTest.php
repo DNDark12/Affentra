@@ -35,7 +35,7 @@ class PartnerDetailTest extends TestCase
         ]);
 
         $partner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $leader->id,
             'path' => $owner->id . '/2/3',
         ]);
@@ -149,7 +149,7 @@ class PartnerDetailTest extends TestCase
         ]);
 
         $outsidePartner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
             'parent_id' => $otherLeader->id,
             'path' => $owner->id . '/4/5',
         ]);
@@ -159,16 +159,16 @@ class PartnerDetailTest extends TestCase
         $response->assertStatus(404);
     }
 
-    public function test_ctv_cannot_access_partner_detail(): void
+    public function test_partner_cannot_access_partner_detail(): void
     {
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV->value,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner->value,
         ]);
         $otherPartner = User::factory()->create([
-            'role' => UserRole::CTV->value,
+            'role' => UserRole::Partner->value,
         ]);
 
-        $response = $this->actingAs($ctv)->get(route('partners.show', $otherPartner));
+        $response = $this->actingAs($partner)->get(route('partners.show', $otherPartner));
 
         $response->assertStatus(403);
     }

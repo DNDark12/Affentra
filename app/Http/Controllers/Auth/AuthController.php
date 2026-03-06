@@ -73,7 +73,7 @@ class AuthController extends Controller
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'status' => UserStatus::Active,
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'parent_id' => $parentId,
         ]);
 

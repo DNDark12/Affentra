@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     rate_limit_requests: int = int(os.getenv("RATE_LIMIT_REQUESTS", "10"))
     rate_limit_window: int = int(os.getenv("RATE_LIMIT_WINDOW", "60"))
 
+    # --- Proxy Endpoint Timeouts ---
+    proxy_connect_timeout: int = int(os.getenv("PROXY_CONNECT_TIMEOUT", "10"))
+    proxy_total_timeout: int = int(os.getenv("PROXY_TOTAL_TIMEOUT", "30"))
+
     class Config:
         env_file = ".env"
 

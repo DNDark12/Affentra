@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->enum('role', ['owner', 'leader', 'ctv'])->default('ctv')->index();
+            $table->enum('role', ['owner', 'leader', 'partner'])->default('partner')->index();
             $table->enum('status', ['active', 'inactive', 'blocked'])->default('active')->index();
             $table->tinyInteger('depth')->unsigned()->default(0);
             $table->string('path', 500)->nullable()->index();

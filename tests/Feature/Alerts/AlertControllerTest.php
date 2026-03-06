@@ -61,15 +61,15 @@ class AlertControllerTest extends TestCase
             ->assertOk();
     }
 
-    public function test_ctv_cannot_manage_alert_rules(): void
+    public function test_partner_cannot_manage_alert_rules(): void
     {
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV->value,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner->value,
             'path' => '1/2',
         ]);
 
-        $response = $this->actingAs($ctv)->postJson('/api/alerts/rules', [
-            'name' => 'CTV rule',
+        $response = $this->actingAs($partner)->postJson('/api/alerts/rules', [
+            'name' => 'Partner rule',
             'metric' => 'sync_failed_24h',
             'operator' => '>=',
             'threshold' => 1,

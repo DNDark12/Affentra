@@ -21,7 +21,7 @@ class ImageUploadSecurityTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create(['role' => UserRole::CTV]);
+        $this->user = User::factory()->create(['role' => UserRole::Partner]);
 
         Storage::fake('local');
     }

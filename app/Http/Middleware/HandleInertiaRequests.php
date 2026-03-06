@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Enums\UserRole;
 use App\Models\AlertIncident;
 use App\Models\PlatformConnection;
 use App\Models\User;
@@ -46,7 +47,9 @@ class HandleInertiaRequests extends Middleware
                     'email'  => $user->email,
                     'avatar' => $user->avatar,
                     'phone'  => $user->phone,
-                    'role'   => $user->role,
+                    'role'   => $user->isPartner()
+                        ? UserRole::Partner->value
+                        : (($user->role instanceof \UnitEnum) ? $user->role->value : (string) $user->role),
                     'status' => $user->status,
                 ] : null,
             ],
@@ -54,6 +57,7 @@ class HandleInertiaRequests extends Middleware
                 'success' => $request->session()->get('success'),
                 'error'   => $request->session()->get('error'),
                 'status'  => $request->session()->get('status'),
+                'sync_error' => $request->session()->get('sync_error'),
             ],
             'ziggy' => function () use ($request) {
                 return array_merge((new Ziggy())->toArray(), [
@@ -106,27 +110,9 @@ class HandleInertiaRequests extends Middleware
                     return ['status' => 'fresh', 'lastSyncAt' => null];
                 }
 
-                $latestFailureAt = $connections
-                    ->filter(static function (PlatformConnection $connection): bool {
-                        return $connection->status === 'error'
-                            || (
-                                str_starts_with((string) $connection->last_sync_status, 'failed')
-                                && $connection->last_error_at !== null
-                            );
-                    })
-                    ->map(static function (PlatformConnection $connection) {
-                        return $connection->last_error_at ?? $connection->last_sync_at;
-                    })
-                    ->filter()
-                    ->sortDesc()
-                    ->first();
+                // Removed persistent failure logic to prevent banner sticking.
+                // Failures should be handled via flash('sync_error') or local component state.
 
-                if ($latestFailureAt !== null && $latestFailureAt->greaterThan(now()->subMinutes(10))) {
-                    return [
-                        'status' => 'failed',
-                        'lastSyncAt' => $latestFailureAt->diffForHumans(),
-                    ];
-                }
 
                 // Delayed warning only applies to active scheduled connections.
                 $scheduledConnections = $connections->filter(static function (PlatformConnection $connection): bool {

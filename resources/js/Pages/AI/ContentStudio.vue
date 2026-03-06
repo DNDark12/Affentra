@@ -78,13 +78,97 @@
             <div class="flex-1 flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
 
                 <!-- No link selected -->
-                <div v-if="!selectedLink" class="flex-1 flex flex-col items-center justify-center gap-4 text-zinc-400">
-                    <div class="w-16 h-16 rounded-2xl bg-indigo-100 dark:bg-indigo-500/10 flex items-center justify-center">
-                        <Sparkles :size="28" class="text-indigo-400" />
-                    </div>
-                    <div class="text-center">
-                        <p class="font-semibold text-zinc-600 dark:text-zinc-300 text-sm">Chọn một tracking link</p>
-                        <p class="text-xs mt-1 text-zinc-400">để bắt đầu tạo content AI</p>
+                <div v-if="!selectedLink" class="flex-1 overflow-y-auto px-6 py-5">
+                    <div class="af-surface p-4 flex flex-col gap-3">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-500/10 flex items-center justify-center">
+                                <Sparkles :size="16" class="text-indigo-500" />
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-zinc-700 dark:text-zinc-200">Chọn một tracking link để bắt đầu tạo content</p>
+                                <p class="text-xs text-zinc-400">Thống kê theo tài khoản vẫn luôn hiển thị bên dưới.</p>
+                            </div>
+                        </div>
+
+                        <div v-if="accountStatsCards.length > 0" class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                    Thống kê theo tài khoản
+                                </p>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                    @click="accountStatsExpanded = !accountStatsExpanded"
+                                >
+                                    <span>{{ accountStatsExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
+                                    <ChevronUp v-if="accountStatsExpanded" :size="12" />
+                                    <ChevronDown v-else :size="12" />
+                                </button>
+                            </div>
+
+                            <div v-if="!accountStatsExpanded" class="mt-2 flex flex-wrap gap-1.5">
+                                <div
+                                    v-for="statCard in accountStatsCards"
+                                    :key="'summary-no-link-' + statCard.key"
+                                    class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60"
+                                >
+                                    <span class="text-[10px]">{{ statCard.icon }}</span>
+                                    <span class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{{ statCard.label }}</span>
+                                    <span class="text-[10px] font-mono font-semibold" :class="statCard.color">
+                                        {{ statCard.stats?.tokens?.toLocaleString() || 0 }} tk
+                                    </span>
+                                    <span class="text-[10px] text-zinc-400">· {{ statCard.stats?.requests_total?.toLocaleString() || 0 }} req</span>
+                                </div>
+                            </div>
+
+                            <div v-if="accountStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2">
+                                <div
+                                    v-for="statCard in accountStatsCards"
+                                    :key="'detail-no-link-' + statCard.key"
+                                    class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2"
+                                >
+                                    <div class="flex items-center gap-1.5 mb-1.5">
+                                        <span class="text-[10px]">{{ statCard.icon }}</span>
+                                        <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                            {{ statCard.label }}
+                                        </span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Tokens</span>
+                                            <span class="font-mono font-semibold" :class="statCard.color">{{ statCard.stats?.tokens?.toLocaleString() || 0 }}</span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Ảnh/Video</span>
+                                            <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                {{ statCard.stats?.images?.toLocaleString() || 0 }}/{{ statCard.stats?.videos?.toLocaleString() || 0 }}
+                                            </span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Req</span>
+                                            <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.requests_total?.toLocaleString() || 0 }}</span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Cache</span>
+                                            <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.cache_hits?.toLocaleString() || 0 }}</span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Success/Fail</span>
+                                            <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                {{ statCard.stats?.requests_succeeded?.toLocaleString() || 0 }}/{{ statCard.stats?.requests_failed?.toLocaleString() || 0 }}
+                                            </span>
+                                        </div>
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-zinc-400">Cost</span>
+                                            <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ fmtCost(statCard.stats?.cost_amount || 0) }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p v-else-if="accountStatisticsLoading" class="text-xs text-zinc-400">Đang tải thống kê tài khoản...</p>
+                        <p v-else class="text-xs text-zinc-400">Chưa có dữ liệu thống kê tài khoản.</p>
                     </div>
                 </div>
 
@@ -221,6 +305,9 @@
                                 <div>
                                     <p class="text-xs text-zinc-400">Generating for</p>
                                     <p class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 font-mono">{{ selectedLink.short_code }}</p>
+                                    <p v-if="selectedLink.shop_label" class="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                                        {{ selectedLink.shop_label }}
+                                    </p>
                                 </div>
                                 <div v-if="lastGeneration" class="text-right">
                                     <p class="text-[10px] text-zinc-400">Tokens used</p>
@@ -232,35 +319,163 @@
                             </div>
                             
                             <!-- Statistics Widget -->
-                            <div v-if="aiStatistics" class="grid grid-cols-3 gap-3">
-                                <template v-for="(statConfig, statKey) in {
-                                    account: { label: 'Toàn bộ tài khoản', icon: '👤', color: 'text-indigo-600 dark:text-indigo-400' },
-                                    shop:    { label: selectedLink.platform === 'shopee' ? 'Shopee' : (selectedLink.platform === 'lazada' ? 'Lazada' : (selectedLink.platform === 'tiktok' ? 'TikTok' : 'Shop')), icon: '🛒', color: 'text-orange-600 dark:text-orange-400' },
-                                    link:    { label: 'Tracking Link này', icon: '🔗', color: 'text-emerald-600 dark:text-emerald-400' }
-                                }" :key="statKey">
-                                    <div class="flex flex-col bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-100 dark:border-zinc-800 rounded-lg p-2.5">
-                                        <div class="flex items-center gap-1.5 mb-2">
-                                            <span class="text-[10px]">{{ statConfig.icon }}</span>
-                                            <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                                                {{ statConfig.label }}
+                            <div class="grid gap-2">
+                                <div v-if="accountStatsCards.length > 0" class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                            Thống kê theo tài khoản
+                                        </p>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                            @click="accountStatsExpanded = !accountStatsExpanded"
+                                        >
+                                            <span>{{ accountStatsExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
+                                            <ChevronUp v-if="accountStatsExpanded" :size="12" />
+                                            <ChevronDown v-else :size="12" />
+                                        </button>
+                                    </div>
+
+                                    <div v-if="!accountStatsExpanded" class="mt-2 flex flex-wrap gap-1.5">
+                                        <div
+                                            v-for="statCard in accountStatsCards"
+                                            :key="'summary-account-' + statCard.key"
+                                            class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60"
+                                        >
+                                            <span class="text-[10px]">{{ statCard.icon }}</span>
+                                            <span class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{{ statCard.label }}</span>
+                                            <span class="text-[10px] font-mono font-semibold" :class="statCard.color">
+                                                {{ statCard.stats?.tokens?.toLocaleString() || 0 }} tk
                                             </span>
+                                            <span class="text-[10px] text-zinc-400">· {{ statCard.stats?.requests_total?.toLocaleString() || 0 }} req</span>
                                         </div>
-                                        <div class="flex items-center justify-between mt-auto">
-                                            <div class="flex flex-col" title="Tokens">
-                                                <span class="text-[10px] text-zinc-400">Tokens</span>
-                                                <span class="text-xs font-mono font-bold" :class="statConfig.color">{{ aiStatistics[statKey]?.tokens?.toLocaleString() || 0 }}</span>
+                                    </div>
+
+                                    <div v-if="accountStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2">
+                                        <div
+                                            v-for="statCard in accountStatsCards"
+                                            :key="'detail-account-' + statCard.key"
+                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2"
+                                        >
+                                            <div class="flex items-center gap-1.5 mb-1.5">
+                                                <span class="text-[10px]">{{ statCard.icon }}</span>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                    {{ statCard.label }}
+                                                </span>
                                             </div>
-                                            <div class="flex flex-col text-center" title="Images">
-                                                <span class="text-[10px] text-zinc-400">Ảnh</span>
-                                                <span class="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">{{ aiStatistics[statKey]?.images?.toLocaleString() || 0 }}</span>
-                                            </div>
-                                            <div class="flex flex-col text-right" title="Videos">
-                                                <span class="text-[10px] text-zinc-400">Video</span>
-                                                <span class="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">{{ aiStatistics[statKey]?.videos?.toLocaleString() || 0 }}</span>
+                                            <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Tokens</span>
+                                                    <span class="font-mono font-semibold" :class="statCard.color">{{ statCard.stats?.tokens?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Ảnh/Video</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                        {{ statCard.stats?.images?.toLocaleString() || 0 }}/{{ statCard.stats?.videos?.toLocaleString() || 0 }}
+                                                    </span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Req</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.requests_total?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Cache</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.cache_hits?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Success/Fail</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                        {{ statCard.stats?.requests_succeeded?.toLocaleString() || 0 }}/{{ statCard.stats?.requests_failed?.toLocaleString() || 0 }}
+                                                    </span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Cost</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ fmtCost(statCard.stats?.cost_amount || 0) }}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </template>
+                                </div>
+
+                                <div v-if="linkStatsCards.length > 0" class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                            Thống kê theo link hiện tại
+                                        </p>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                            @click="linkStatsExpanded = !linkStatsExpanded"
+                                        >
+                                            <span>{{ linkStatsExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
+                                            <ChevronUp v-if="linkStatsExpanded" :size="12" />
+                                            <ChevronDown v-else :size="12" />
+                                        </button>
+                                    </div>
+
+                                    <div v-if="!linkStatsExpanded" class="mt-2 flex flex-wrap gap-1.5">
+                                        <div
+                                            v-for="statCard in linkStatsCards"
+                                            :key="'summary-link-' + statCard.key"
+                                            class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60"
+                                        >
+                                            <span class="text-[10px]">{{ statCard.icon }}</span>
+                                            <span class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{{ statCard.label }}</span>
+                                            <span class="text-[10px] font-mono font-semibold" :class="statCard.color">
+                                                {{ statCard.stats?.tokens?.toLocaleString() || 0 }} tk
+                                            </span>
+                                            <span class="text-[10px] text-zinc-400">· {{ statCard.stats?.requests_total?.toLocaleString() || 0 }} req</span>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="linkStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2">
+                                        <div
+                                            v-for="statCard in linkStatsCards"
+                                            :key="'detail-link-' + statCard.key"
+                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2"
+                                        >
+                                            <div class="flex items-center gap-1.5 mb-1.5">
+                                                <span class="text-[10px]">{{ statCard.icon }}</span>
+                                                <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                    {{ statCard.label }}
+                                                </span>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Tokens</span>
+                                                    <span class="font-mono font-semibold" :class="statCard.color">{{ statCard.stats?.tokens?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Ảnh/Video</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                        {{ statCard.stats?.images?.toLocaleString() || 0 }}/{{ statCard.stats?.videos?.toLocaleString() || 0 }}
+                                                    </span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Req</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.requests_total?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Cache</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ statCard.stats?.cache_hits?.toLocaleString() || 0 }}</span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Success/Fail</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">
+                                                        {{ statCard.stats?.requests_succeeded?.toLocaleString() || 0 }}/{{ statCard.stats?.requests_failed?.toLocaleString() || 0 }}
+                                                    </span>
+                                                </div>
+                                                <div class="flex items-center justify-between">
+                                                    <span class="text-zinc-400">Cost</span>
+                                                    <span class="font-mono text-zinc-700 dark:text-zinc-300">{{ fmtCost(statCard.stats?.cost_amount || 0) }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p v-else-if="linkStatisticsLoading" class="text-xs text-zinc-400 px-1">
+                                    Đang tải thống kê link hiện tại...
+                                </p>
                             </div>
                         </div>
 
@@ -639,6 +854,9 @@
                                 <span class="text-[9px] px-1 py-0.5 rounded" :class="item.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'">{{ item.status }}</span>
                             </div>
                             <p class="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-1">{{ item.preview || '—' }}</p>
+                            <p v-if="item.shop_label" class="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1 mt-0.5">
+                                {{ item.shop_label }}
+                            </p>
                             <p class="text-[10px] text-zinc-400 mt-0.5">{{ formatRelative(item.created_at) }}</p>
                         </button>
                     </div>
@@ -694,8 +912,12 @@ const selectedHistoryDetail = ref(null);
 const centerViewMode = ref('editor');
 const isAdvancedOpen = ref(false);
 
-const aiStatistics    = ref(null);
-const statisticsLoading = ref(false);
+const accountStatistics = ref(null);
+const linkStatistics = ref(null);
+const accountStatisticsLoading = ref(false);
+const linkStatisticsLoading = ref(false);
+const accountStatsExpanded = ref(false);
+const linkStatsExpanded = ref(false);
 
 const generating     = ref(false);
 const outputVariants = ref([]);
@@ -772,6 +994,81 @@ const providerCapsArray = computed(() => {
 
 /** True if provider has at least one capability */
 const hasAnyCapability = computed(() => providerCapsArray.value.length > 0);
+const accountStatsCards = computed(() => {
+    if (!accountStatistics.value) return [];
+
+    const stats = accountStatistics.value;
+    const meta = stats.meta || {};
+    const partnerCount = meta.partner_count ?? 0;
+    const partnerStats = stats.partner || {
+        requests_total: 0,
+        requests_succeeded: 0,
+        requests_failed: 0,
+        cache_hits: 0,
+        tokens: 0,
+        images: 0,
+        videos: 0,
+        cost_amount: 0,
+    };
+    const cards = [
+        {
+            key: 'account',
+            label: 'Tài khoản hiện tại',
+            icon: '👤',
+            color: 'text-indigo-600 dark:text-indigo-400',
+            stats: stats.account || {},
+        },
+    ];
+
+    cards.push({
+        key: 'partner',
+        label: `Partner (${partnerCount})`,
+        icon: '🤝',
+        color: 'text-cyan-600 dark:text-cyan-400',
+        stats: partnerStats,
+    });
+
+    cards.push({
+        key: 'total_shop',
+        label: `Tổng shop (${meta.total_shop_count || 0})`,
+        icon: '🛒',
+        color: 'text-orange-600 dark:text-orange-400',
+        stats: stats.total_shop || {},
+    });
+
+    cards.push({
+        key: 'unknown_shop',
+        label: 'Unknown Shop',
+        icon: '❓',
+        color: 'text-zinc-600 dark:text-zinc-300',
+        stats: stats.unknown_shop || {},
+    });
+
+    return cards;
+});
+const linkStatsCards = computed(() => {
+    if (!linkStatistics.value) return [];
+
+    const stats = linkStatistics.value;
+    const meta = stats.meta || {};
+
+    return [
+        {
+            key: 'shop',
+            label: meta.shop_label ? `Shop: ${meta.shop_label}` : 'Shop hiện tại',
+            icon: '🛒',
+            color: 'text-orange-600 dark:text-orange-400',
+            stats: stats.shop || {},
+        },
+        {
+            key: 'link',
+            label: 'Tracking Link hiện tại',
+            icon: '🔗',
+            color: 'text-emerald-600 dark:text-emerald-400',
+            stats: stats.link || {},
+        },
+    ];
+});
 const historyOutputVariants = computed(() => {
     const output = selectedHistoryDetail.value?.output ?? selectedHistoryDetail.value?.output_payload ?? {};
     return Array.isArray(output?.variants) ? output.variants : [];
@@ -793,6 +1090,8 @@ watch([selectedLink, selectedPreset], () => {
 });
 
 watch(selectedLink, (newLink) => {
+    accountStatsExpanded.value = false;
+    linkStatsExpanded.value = false;
     if (newLink) {
         if (newLink.product_name) {
             form.value.product_title = newLink.product_name;
@@ -813,6 +1112,8 @@ watch(form, () => {
 }, { deep: true });
 
 onMounted(() => {
+    fetchAccountStatistics();
+
     const urlParams = new URLSearchParams(window.location.search);
     const linkId = urlParams.get('link_id');
     
@@ -831,6 +1132,9 @@ onUnmounted(() => {
 // ── Methods ───────────────────────────────────────────────────────────────────
 function selectLink(link) {
     selectedLink.value = link;
+    linkStatistics.value = null;
+    accountStatsExpanded.value = false;
+    linkStatsExpanded.value = false;
     selectedHistoryItem.value = null;
     selectedHistoryDetail.value = null;
     centerViewMode.value = 'editor';
@@ -924,7 +1228,9 @@ async function fetchHistory() {
             const items = res.data.data?.data ?? res.data.data ?? [];
             history.value = items.map(item => ({
                 ...item,
-                platform: item.preset_id?.includes('fb') ? 'facebook' : (item.preset_id?.includes('tiktok') ? 'tiktok' : 'generic'),
+                platform: item.platform || inferHistoryPlatform(item.preset_id),
+                platform_connection_id: item.platform_connection_id ?? null,
+                shop_label: item.shop_label || null,
                 preview: item.preview_text || '',
             }));
             // Keep current detail view stable, only clear stale selection.
@@ -940,22 +1246,43 @@ async function fetchHistory() {
         toast.warning('Không thể làm mới lịch sử AI ngay lúc này.');
     } finally {
         historyLoading.value = false;
-        fetchStatistics();
+        await Promise.all([
+            fetchLinkStatistics(),
+            fetchAccountStatistics(),
+        ]);
     }
 }
 
-async function fetchStatistics() {
-    if (!selectedLink.value) return;
-    statisticsLoading.value = true;
+async function fetchAccountStatistics() {
+    accountStatisticsLoading.value = true;
+    try {
+        const res = await axios.get(route('api.content.statistics.account'));
+        if (res.data?.ok) {
+            accountStatistics.value = res.data.data;
+        }
+    } catch {
+        accountStatistics.value = null;
+    } finally {
+        accountStatisticsLoading.value = false;
+    }
+}
+
+async function fetchLinkStatistics() {
+    if (!selectedLink.value) {
+        linkStatistics.value = null;
+        return;
+    }
+
+    linkStatisticsLoading.value = true;
     try {
         const res = await axios.get(route('api.content.statistics', { trackingLink: selectedLink.value.id }));
         if (res.data?.ok) {
-            aiStatistics.value = res.data.data;
+            linkStatistics.value = res.data?.data || null;
         }
     } catch {
-        aiStatistics.value = null;
+        linkStatistics.value = null;
     } finally {
-        statisticsLoading.value = false;
+        linkStatisticsLoading.value = false;
     }
 }
 
@@ -1317,5 +1644,10 @@ function formatRelative(dateString) {
     if (diff < 3600)  return `${Math.floor(diff / 60)}m trước`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h trước`;
     return new Date(dateString).toLocaleDateString('vi-VN');
+}
+
+function fmtCost(value) {
+    const number = Number(value || 0);
+    return number.toLocaleString('en-US', { maximumFractionDigits: 6 });
 }
 </script>

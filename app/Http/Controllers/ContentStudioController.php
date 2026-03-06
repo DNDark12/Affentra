@@ -45,8 +45,19 @@ class ContentStudioController extends Controller
         $links = TrackingLink::query()
             ->where('user_id', $user->id)
             ->active()                        // uses scopeActive() → LinkStatus::Active enum
-            ->with(['campaign:id,name'])
-            ->select(['id', 'short_code', 'destination_url', 'campaign_id', 'product_name', 'product_price', 'product_image_urls', 'created_at'])
+            ->with(['campaign:id,name', 'platformConnection:id,label'])
+            ->select([
+                'id',
+                'short_code',
+                'destination_url',
+                'campaign_id',
+                'platform',
+                'platform_connection_id',
+                'product_name',
+                'product_price',
+                'product_image_urls',
+                'created_at',
+            ])
             ->latest()
             ->limit(100)
             ->get()
@@ -56,6 +67,9 @@ class ContentStudioController extends Controller
                 'track_url'          => route('redirect', $link->short_code),
                 'destination_url'    => $link->destination_url,
                 'campaign_name'      => $link->campaign?->name,
+                'platform'           => $link->platform?->value ?? (string) $link->platform,
+                'platform_connection_id' => $link->platform_connection_id,
+                'shop_label'         => $link->platformConnection?->label,
                 'product_name'       => $link->product_name,
                 'product_price'      => $link->product_price,
                 'product_image_urls' => $link->product_image_urls ?? [],

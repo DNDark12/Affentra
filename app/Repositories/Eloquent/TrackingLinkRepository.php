@@ -352,6 +352,7 @@ SQL;
             $query->with([
                 'campaign:id,name',
                 'user:id,name',
+                'platformConnection:id,label,platform',
             ]);
         }
 

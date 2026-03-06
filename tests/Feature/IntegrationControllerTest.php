@@ -75,11 +75,11 @@ class IntegrationControllerTest extends TestCase
         Queue::assertPushed(SyncShopeeCampaignsForConnectionJob::class);
     }
 
-    public function test_ctv_cannot_sync_other_connection()
+    public function test_partner_cannot_sync_other_connection()
     {
         Queue::fake();
 
-        $user = User::factory()->create(['role' => 'ctv']);
+        $user = User::factory()->create(['role' => 'partner']);
         $owner = User::factory()->create(['role' => 'owner']);
         $conn = PlatformConnection::factory()->create([
             'user_id' => $owner->id,

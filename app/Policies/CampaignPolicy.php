@@ -60,7 +60,7 @@ class CampaignPolicy
             return true;
         }
 
-        // Leader can manage campaigns of their CTVs
+        // Leader can manage campaigns of their partners
         if ($user->isLeader()) {
             $childIds = $user->getDescendantIds();
 

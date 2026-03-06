@@ -148,6 +148,9 @@
                                     <span class="text-xs truncate max-w-[320px]" style="color: var(--text-muted)" :title="link.destination_url">
                                         {{ link.destination_url }}
                                     </span>
+                                    <span v-if="link.platform_connection?.label || link.shop_label" class="text-[11px] truncate max-w-[320px]" style="color: var(--text-secondary)">
+                                        Shop: {{ link.platform_connection?.label || link.shop_label }}
+                                    </span>
                                 </div>
                             </td>
 
@@ -318,6 +321,24 @@
                             </p>
                         </div>
 
+                        <div>
+                            <label class="af-label">Shop <span style="color: var(--danger-text)">*</span></label>
+                            <select
+                                v-model="createForm.platform_connection_id"
+                                class="af-input"
+                                :class="{ error: createErrors.platform_connection_id }"
+                                required
+                            >
+                                <option value="">-- Chọn shop --</option>
+                                <option v-for="conn in platformConnections" :key="conn.id" :value="conn.id">
+                                    {{ conn.label || `Shop #${conn.id}` }} ({{ conn.platform }})
+                                </option>
+                            </select>
+                            <p v-if="createErrors.platform_connection_id" class="mt-1 text-xs" style="color: var(--danger-text)">
+                                {{ createErrors.platform_connection_id[0] }}
+                            </p>
+                        </div>
+
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="af-label">Source</label>
@@ -432,6 +453,7 @@ import { useToast } from '@/Composables/useToast';
 const props = defineProps({
     links: { type: Object, default: () => ({ data: [], total: 0, current_page: 1, last_page: 1, from: 0, to: 0 }) },
     campaigns: { type: Array, default: () => [] },
+    platformConnections: { type: Array, default: () => [] },
     filters: { type: Object, default: () => ({}) },
     summary: {
         type: Object,
@@ -479,6 +501,7 @@ const createForm = ref({
     channel: '',
     sub_id: '',
     campaign_id: '',
+    platform_connection_id: '',
 });
 
 const editForm = ref({
@@ -721,12 +744,15 @@ function navigateWithFilters(partial) {
 }
 
 function openCreate() {
+    const defaultConnectionId = props.platformConnections[0]?.id ?? '';
     createForm.value = {
         destination_url: '',
         short_code: '',
         source: '',
         channel: '',
         sub_id: '',
+        campaign_id: '',
+        platform_connection_id: defaultConnectionId,
     };
     createErrors.value = {};
     showCreate.value = true;

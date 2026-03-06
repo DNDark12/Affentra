@@ -19,7 +19,7 @@ class ScraperSecurityTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create(['role' => UserRole::CTV]);
+        $this->user = User::factory()->create(['role' => UserRole::Partner]);
     }
 
     // ─── Allowed domains ──────────────────────────────────────────────────────

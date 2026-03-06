@@ -44,10 +44,137 @@ class OfferService
             throw new OfferDomainException('This platform does not support offer discovery.', 'OFFER_CONNECTION_UNSUPPORTED');
         }
 
+        $searchType = $validated['search_type'] ?? null;
+
+        // Explicit detail mode: resolve URL/ID → return single product detail
+        if ($searchType === 'detail') {
+            return $this->searchByDetail($actor, $connection, $adapter, $validated);
+        }
+
+        // Explicit keyword mode: always do list search (no URL/ID auto-detect)
+        if ($searchType === 'keyword') {
+            return $this->searchByKeyword($connection, $adapter, $validated);
+        }
+
+        // null → legacy auto-detect (backward compat for existing callers)
         $filters = $this->buildSearchFilters($connection, $validated);
 
         $filterHash = md5(json_encode($filters, JSON_THROW_ON_ERROR));
         $cacheKey = "offers:{$connection->platform}:{$connection->method}:{$connection->id}:{$filterHash}";
+        $cacheTtl = $connection->method === 'cookie'
+            ? 10
+            : (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
+
+        try {
+            return Cache::remember($cacheKey, now()->addMinutes((int) $cacheTtl), function () use ($adapter, $connection, $filters): array {
+                return $adapter->getOffers($connection, array_filter($filters, static fn (mixed $value): bool => $value !== null));
+            });
+        } catch (\RuntimeException $e) {
+            $this->throwAdapterOfferException($e);
+        }
+    }
+
+    /**
+     * search_type=detail: resolve URL / item ID and return single-product detail.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function searchByDetail(User $actor, PlatformConnection $connection, object $adapter, array $validated): array
+    {
+        $keyword = trim((string) ($validated['keyword'] ?? ''));
+        $itemId = isset($validated['itemId']) ? (int) $validated['itemId'] : null;
+        $shopId = isset($validated['shopId']) ? (int) $validated['shopId'] : null;
+
+        // For Open-API connections the itemId query param already resolves directly
+        if ($connection->method !== 'cookie' && $itemId !== null && $itemId > 0) {
+            $cacheKey = sprintf(
+                'offer_detail:%s:%s:%d:%s:%s',
+                $connection->platform, $connection->method, $connection->id, $itemId, $shopId ?? '-'
+            );
+            $cacheTtl = (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
+            try {
+                return Cache::remember($cacheKey, now()->addMinutes($cacheTtl), function () use ($adapter, $connection, $itemId, $shopId): array {
+                    $raw = $adapter->getOfferDetail($connection, (string) $itemId, ['shopId' => $shopId]);
+                    if ($raw === []) {
+                        throw new NotFoundHttpException('Not found.');
+                    }
+                    return $this->normalizeOfferDetailPayload($raw);
+                });
+            } catch (\RuntimeException $e) {
+                $this->throwAdapterOfferException($e);
+            }
+        }
+
+        // Cookie connections: resolve keyword/URL → itemId
+        if ($keyword === '' && ($itemId === null || $itemId <= 0)) {
+            throw new OfferDomainException(
+                'Vui lòng nhập Item ID hoặc URL sản phẩm để tra cứu chi tiết.',
+                'OFFER_DETAIL_INPUT_REQUIRED'
+            );
+        }
+
+        if ($keyword !== '' && ($itemId === null || $itemId <= 0)) {
+            $resolved = $this->resolveCookieLookupFromInput($keyword);
+            $itemId = $resolved['itemId'];
+            $shopId = $resolved['shopId'] ?? $shopId;
+        }
+
+        if ($itemId === null || $itemId <= 0) {
+            throw new OfferDomainException(
+                'Không thể xác định Item ID từ đầu vào. Vui lòng nhập Item ID số hoặc URL Shopee hợp lệ.',
+                'OFFER_ID_INVALID'
+            );
+        }
+
+        $cacheKey = sprintf(
+            'offer_detail:%s:%s:%d:%s:%s',
+            $connection->platform, $connection->method, $connection->id, $itemId, $shopId ?? '-'
+        );
+        $cacheTtl = $connection->method === 'cookie'
+            ? 10
+            : (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
+
+        try {
+            return Cache::remember($cacheKey, now()->addMinutes((int) $cacheTtl), function () use ($adapter, $connection, $itemId, $shopId): array {
+                $raw = $adapter->getOfferDetail($connection, (string) $itemId, ['shopId' => (string) $shopId]);
+                if ($raw === []) {
+                    throw new NotFoundHttpException('Not found.');
+                }
+                return $this->normalizeOfferDetailPayload($raw);
+            });
+        } catch (\RuntimeException $e) {
+            $this->throwAdapterOfferException($e);
+        }
+    }
+
+    /**
+     * search_type=keyword: always do a keyword list search regardless of input format.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function searchByKeyword(PlatformConnection $connection, object $adapter, array $validated): array
+    {
+        $keyword = trim((string) ($validated['keyword'] ?? ''));
+        if ($keyword === '') {
+            throw new OfferDomainException(
+                'Vui lòng nhập từ khoá để tìm kiếm sản phẩm.',
+                'OFFER_KEYWORD_REQUIRED'
+            );
+        }
+
+        $filters = [
+            'keyword'      => $keyword,
+            'listType'     => $validated['listType'] ?? null,
+            'sortType'     => $validated['sortType'] ?? null,
+            'page'         => $validated['page'] ?? 1,
+            'limit'        => $validated['limit'] ?? 20,
+            'productCatId' => $validated['productCatId'] ?? null,
+        ];
+
+        $filterHash = md5(json_encode($filters, JSON_THROW_ON_ERROR));
+        $cacheKey = "offers:{$connection->platform}:{$connection->method}:{$connection->id}:kw:{$filterHash}";
         $cacheTtl = $connection->method === 'cookie'
             ? 10
             : (int) config("integrations.{$connection->platform}.offer_cache_ttl", 30);
@@ -97,6 +224,7 @@ class OfferService
 
         $trackingLink = $this->trackingLinkService->create($actor, [
             'campaign_id'     => $validated['campaign_id'] ?? null,
+            'platform_connection_id' => $connection->id,
             'destination_url' => $shortLink ?? $validated['offer_link'],
             'sub_id'          => $subId,
             'platform'        => $connection->platform,

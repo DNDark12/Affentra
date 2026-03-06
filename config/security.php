@@ -25,7 +25,7 @@ $toOrigin = static function (?string $url): ?string {
 $appEnv = (string) env('APP_ENV', 'production');
 $isLocalLike = in_array($appEnv, ['local', 'development', 'testing'], true);
 
-$scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'"];
+$scriptSrc = ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'blob:'];
 $styleSrc = ["'self'", "'unsafe-inline'", 'https://fonts.bunny.net'];
 $fontSrc = ["'self'", 'data:', 'https://fonts.bunny.net'];
 $connectSrc = ["'self'", 'https://open-api.affiliate.shopee.vn'];
@@ -103,6 +103,7 @@ return [
             'base-uri' => ["'self'"],
             'form-action' => ["'self'"],
             'frame-ancestors' => ["'none'"],
+            'worker-src' => ["'self'", 'blob:'],
         ],
     ],
 ];

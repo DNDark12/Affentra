@@ -13,7 +13,7 @@ class UserPolicy
     use HandlesAuthorization;
 
     /**
-     * Owner can see all users; Leader can see direct CTVs; CTV sees only self.
+     * Owner can see all users; Leader can see direct Partners; Partner sees only self.
      */
     public function viewAny(User $auth): bool
     {
@@ -21,7 +21,7 @@ class UserPolicy
     }
 
     /**
-     * Owner sees everyone; Leader sees own CTVs; CTV never.
+     * Owner sees everyone; Leader sees own partners; Partner never.
      */
     public function view(User $auth, User $target): bool
     {
@@ -41,7 +41,7 @@ class UserPolicy
     }
 
     /**
-     * Only owner or leader can create new users (CTVs).
+     * Only owner or leader can create new users (partners).
      */
     public function create(User $auth): bool
     {
@@ -49,7 +49,7 @@ class UserPolicy
     }
 
     /**
-     * Owner can update any; Leader can update own CTVs only; CTV can update self.
+     * Owner can update any; Leader can update own partners only; Partner can update self.
      */
     public function update(User $auth, User $target): bool
     {

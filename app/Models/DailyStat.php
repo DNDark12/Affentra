@@ -32,7 +32,7 @@ class DailyStat extends Model
         'commission',
         'owner_id',
         'leader_id',
-        'ctv_user_id',
+        'partner_user_id',
     ];
 
     /**

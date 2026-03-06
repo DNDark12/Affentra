@@ -26,7 +26,7 @@ class PartnerInviteFlowTest extends TestCase
         ]);
 
         $response = $this->actingAs($leader)->postJson(route('api.partners.store'), [
-            'email' => 'ctv-new@example.com',
+            'email' => 'partner-new@example.com',
         ]);
 
         $response

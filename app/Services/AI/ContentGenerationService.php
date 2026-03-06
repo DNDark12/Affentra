@@ -31,7 +31,7 @@ class ContentGenerationService
 {
     /** Fallback token quotas per day by role if user has no custom quota. */
     private const DEFAULT_QUOTAS = [
-        'ctv'    => 5_000,
+        'partner' => 5_000,
         'leader' => 20_000,
         'owner'  => 100_000,
     ];
@@ -42,6 +42,7 @@ class ContentGenerationService
         private readonly AiSettingsService      $aiSettings,
         private readonly PromptTemplateRegistry $registry,
         private readonly ImageFetcherService    $imageFetcher,
+        private readonly AiStatisticsCacheService $statisticsCache,
     ) {}
 
     /**
@@ -104,6 +105,7 @@ class ContentGenerationService
         $generation = ContentGeneration::create([
             'tracking_link_id'   => $link->id,
             'user_id'            => $user->id,
+            'platform_connection_id' => $link->platform_connection_id,
             'type'               => $type,
             'platform'           => $platform,
             'status'             => 'running',
@@ -121,6 +123,7 @@ class ContentGenerationService
                 'output_payload' => $cachedPayload,
             ]);
 
+            $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
             return $generation->refresh();
         }
 
@@ -143,6 +146,7 @@ class ContentGenerationService
             PollSeedanceTaskJob::dispatch($generation->id)
                 ->delay(now()->addSeconds(10));
 
+            $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
             return $generation->refresh();
         }
 
@@ -183,6 +187,7 @@ class ContentGenerationService
             $this->trackTokenUsage($user, $generation->tokens_prompt + $generation->tokens_completion);
         }
 
+        $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
         return $generation;
     }
 
@@ -190,8 +195,8 @@ class ContentGenerationService
 
     private function enforceTokenQuota(User $user): void
     {
-        $roleValue = $user->role instanceof \UnitEnum ? $user->role->value : ($user->role ?? 'ctv');
-        $limit = (int) (self::DEFAULT_QUOTAS[$roleValue] ?? self::DEFAULT_QUOTAS['ctv']);
+        $roleValue = $user->role instanceof \UnitEnum ? $user->role->value : ($user->role ?? 'partner');
+        $limit = (int) (self::DEFAULT_QUOTAS[$roleValue] ?? self::DEFAULT_QUOTAS['partner']);
 
         // Allow per-user quota override from their provider setting
         $setting = $this->aiSettings->getSettingsForUser($user)->first();

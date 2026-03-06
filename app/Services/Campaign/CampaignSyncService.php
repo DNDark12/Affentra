@@ -195,6 +195,7 @@ class CampaignSyncService
                 ->where('campaign_id', $campaign->id)
                 ->where('user_id', $connection->user_id)
                 ->where('platform', 'shopee')
+                ->where('platform_connection_id', $connection->id)
                 ->where('status', '!=', 'archived')
                 ->exists();
             if ($hasAssignedLink) {
@@ -209,6 +210,7 @@ class CampaignSyncService
             $unassignedLink = TrackingLink::query()
                 ->where('user_id', $connection->user_id)
                 ->where('platform', 'shopee')
+                ->where('platform_connection_id', $connection->id)
                 ->whereNull('campaign_id')
                 ->where('destination_url', $destinationUrl)
                 ->where('status', '!=', 'archived')
@@ -222,6 +224,7 @@ class CampaignSyncService
 
                 $unassignedLink->update([
                     'campaign_id' => $campaign->id,
+                    'platform_connection_id' => $connection->id,
                     'source' => $unassignedLink->source ?: 'campaign_sync_auto',
                     'channel' => $unassignedLink->channel ?: 'campaign',
                     'meta' => $meta,
@@ -233,6 +236,7 @@ class CampaignSyncService
             $link = new TrackingLink();
             $link->fill([
                 'user_id' => $connection->user_id,
+                'platform_connection_id' => $connection->id,
                 'campaign_id' => $campaign->id,
                 'short_code' => $this->generateUniqueShortCode(),
                 'destination_url' => $destinationUrl,

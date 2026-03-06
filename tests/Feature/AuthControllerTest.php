@@ -31,7 +31,7 @@ class AuthControllerTest extends TestCase
     {
         $user = User::factory()->create([
             'email'  => 'test@example.com',
-            'role'   => UserRole::CTV,
+            'role'   => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 

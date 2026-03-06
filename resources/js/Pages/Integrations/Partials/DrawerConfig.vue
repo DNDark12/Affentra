@@ -13,8 +13,8 @@
                     enter-from-class="translate-x-full" enter-to-class="translate-x-0"
                     leave-active-class="transform transition ease-in-out duration-300 sm:duration-500"
                     leave-from-class="translate-x-0" leave-to-class="translate-x-full">
-            <div class="relative w-[480px] max-w-full flex shadow-2xl h-full bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800">
-                <div class="flex flex-col h-full w-full">
+            <div class="relative w-[480px] max-w-full flex shadow-2xl h-screen bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800">
+                <div class="flex flex-col h-full w-full overflow-hidden">
                     
                     <!-- Header -->
                     <div class="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">

@@ -22,7 +22,7 @@ class PayoutBatchPolicy
 
     /**
      * PayoutBatch visibility is team-scoped via ScopeResolver.
-     * Only Owner/Leader roles can manage batches (CTV blocked by PayoutBatchService::assertCanManage).
+     * Only Owner/Leader roles can manage batches (Partner blocked by PayoutBatchService::assertCanManage).
      */
     public function view(User $user, PayoutBatch $batch): bool
     {
@@ -34,7 +34,7 @@ class PayoutBatchPolicy
      */
     public function create(User $user): bool
     {
-        return ! $user->isCTV();
+        return ! $user->isPartner();
     }
 
     public function update(User $user, PayoutBatch $batch): bool
@@ -79,7 +79,7 @@ class PayoutBatchPolicy
             return in_array($batch->created_by, $user->getDescendantIds(), true);
         }
 
-        // CTV cannot access batches (enforced by service layer too)
+        // Partner cannot access batches (enforced by service layer too)
         return false;
     }
 }

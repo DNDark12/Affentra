@@ -8,14 +8,14 @@ enum UserRole: string
 {
     case Owner  = 'owner';
     case Leader = 'leader';
-    case CTV    = 'ctv';
+    case Partner = 'partner';
 
     public function label(): string
     {
         return match($this) {
             self::Owner  => 'Owner',
             self::Leader => 'Leader',
-            self::CTV    => 'CTV',
+            self::Partner => 'Partner',
         };
     }
 
@@ -27,5 +27,10 @@ enum UserRole: string
     public function canManageCampaigns(): bool
     {
         return $this === self::Owner || $this === self::Leader;
+    }
+
+    public function isPartnerRole(): bool
+    {
+        return $this === self::Partner;
     }
 }

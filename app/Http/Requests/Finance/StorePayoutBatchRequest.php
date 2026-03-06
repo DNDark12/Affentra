@@ -10,7 +10,7 @@ class StorePayoutBatchRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return ! $this->user()->isCTV();
+        return ! $this->user()->isPartner();
     }
 
     public function rules(): array

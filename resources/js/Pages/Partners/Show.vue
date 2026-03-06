@@ -3,7 +3,7 @@
         <div class="flex flex-col gap-4" style="padding: 16px 24px;">
             <div class="flex items-start justify-between gap-3">
                 <div>
-                    <p class="text-xs mb-0.5" style="color: var(--text-muted)">Trang / Đối tác / CTV / Chi tiết</p>
+                    <p class="text-xs mb-0.5" style="color: var(--text-muted)">Trang / Đối tác / Partner / Chi tiết</p>
                     <h1 class="text-2xl font-bold" style="color: var(--text-primary)">{{ partner.name }}</h1>
                     <div class="flex items-center gap-2 mt-1">
                         <p class="text-xs" style="color: var(--text-muted)">{{ partner.email }}</p>
@@ -52,7 +52,7 @@
             <!-- Fraud Banner (Show if high rejection rate, defaulting to show for design alignment if no data) -->
             <div v-if="(overview.rejected_rate || 21) > 20" class="flex items-center gap-2 p-3 rounded-lg border bg-rose-50 border-rose-500/30 dark:bg-rose-950/20 -mt-1">
                 <AlertTriangle :size="16" class="text-rose-600 dark:text-rose-500" />
-                <span class="text-[13px] text-rose-800 dark:text-rose-200">Tỷ lệ từ chối cao ({{ (overview.rejected_rate || 20.4).toFixed(1) }}%) — Cần xem xét các đơn hàng từ CTV này để phòng chống gian lận.</span>
+                <span class="text-[13px] text-rose-800 dark:text-rose-200">Tỷ lệ từ chối cao ({{ (overview.rejected_rate || 20.4).toFixed(1) }}%) — Cần xem xét các đơn hàng từ Partner này để phòng chống gian lận.</span>
                 <button class="ml-auto bg-rose-500 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1.5 rounded-md">Kiểm tra</button>
             </div>
 
@@ -68,7 +68,7 @@
                 <!-- Right Column: Recent Links / Orders -->
                 <div class="af-surface p-4 rounded-xl border border-[var(--border)] flex flex-col min-h-[300px]">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-semibold" style="color: var(--text-primary)">Recent Orders by this CTV</h2>
+                        <h2 class="text-sm font-semibold" style="color: var(--text-primary)">Recent Orders by this Partner</h2>
                         <button @click="viewOrdersTab" class="text-xs font-medium" style="color: var(--color-primary-500)">
                             View All &rarr;
                         </button>
@@ -114,7 +114,7 @@
 
             <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="af-surface p-4 lg:col-span-2">
-                    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary)">Thông tin CTV</h2>
+                    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary)">Thông tin Partner</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                         <div>
                             <p class="text-xs mb-1" style="color: var(--text-muted)">Tên</p>

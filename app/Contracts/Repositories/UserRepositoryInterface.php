@@ -36,7 +36,7 @@ interface UserRepositoryInterface extends RepositoryInterface
     public function getActiveByRole(UserRole $role);
 
     /**
-     * Paginate CTV partners visible to manager (owner: all CTV, leader: direct children only).
+     * Paginate partners visible to manager (owner: all partners, leader: direct children only).
      *
      * @param  array<string, mixed>  $filters
      */

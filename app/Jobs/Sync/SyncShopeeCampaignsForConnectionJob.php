@@ -20,8 +20,30 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
 
     public function __construct(
         private readonly int $connectionId,
-        private readonly string $triggerType = 'manual',
+        private readonly string $triggerType = 'campaign_sync',
+        private readonly ?int $syncRunId = null,
     ) {}
+
+    /**
+     * Handle job failure: clean up any orphaned 'processing' SyncRuns.
+     */
+    public function failed(?\Throwable $exception): void
+    {
+        SyncRun::where('platform_connection_id', $this->connectionId)
+            ->where('type', 'campaign_sync')
+            ->where('status', 'processing')
+            ->update([
+                'status' => 'failed',
+                'finished_at' => now(),
+                'error_message' => 'Job failed (worker exception/timeout): ' . ($exception?->getMessage() ?? 'Unknown error'),
+            ]);
+
+        Log::warning('SyncShopeeCampaignsForConnectionJob::failed — cleaned up orphaned processing runs', [
+            'connection_id' => $this->connectionId,
+            'trigger_type' => $this->triggerType,
+            'error' => $exception?->getMessage(),
+        ]);
+    }
 
     public function handle(CampaignSyncService $campaignSyncService): void
     {
@@ -30,17 +52,28 @@ class SyncShopeeCampaignsForConnectionJob implements ShouldQueue
             return;
         }
 
-        $syncRun = SyncRun::create([
-            'platform_connection_id' => $connection->id,
-            'user_id' => $connection->user_id,
-            'integration' => $connection->platform,
-            'type' => $this->triggerType,
-            'status' => 'processing',
-            'started_at' => now(),
-            'records_fetched' => 0,
-            'records_upserted' => 0,
-            'records_failed' => 0,
-        ]);
+        $syncRun = $this->syncRunId !== null 
+            ? SyncRun::find($this->syncRunId) 
+            : null;
+
+        if (! $syncRun) {
+            $syncRun = SyncRun::create([
+                'platform_connection_id' => $connection->id,
+                'user_id' => $connection->user_id,
+                'integration' => $connection->platform,
+                'type' => 'campaign_sync',
+                'status' => 'processing',
+                'started_at' => now(),
+                'records_fetched' => 0,
+                'records_upserted' => 0,
+                'records_failed' => 0,
+            ]);
+        } else {
+            $syncRun->update([
+                'status' => 'processing',
+                'started_at' => now(),
+            ]);
+        }
 
         try {
             $result = $campaignSyncService->syncForConnection($connection);

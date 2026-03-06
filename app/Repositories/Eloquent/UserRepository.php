@@ -86,7 +86,7 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
         $dateTo = ! empty($filters['date_to']) ? (string) $filters['date_to'] : null;
 
         $query = $this->model->newQuery()
-            ->where('role', UserRole::CTV)
+            ->where('role', UserRole::Partner->value)
             ->withCount('trackingLinks')
             ->withSum(['dailyStats as total_clicks' => function ($relationQuery) use ($dateFrom, $dateTo): void {
                 if ($dateFrom !== null) {
@@ -136,7 +136,7 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
     public function partnerSummaryForManager(User $manager, array $filters = []): array
     {
         $query = $this->model->newQuery()
-            ->where('role', UserRole::CTV);
+            ->where('role', UserRole::Partner->value);
 
         if ($manager->isLeader()) {
             $query->whereIn('id', $manager->getDescendantIds());
@@ -182,7 +182,7 @@ class UserRepository extends BaseRepository implements UserRepositoryInterface
             'name'      => $attributes['name'],
             'email'     => $attributes['email'],
             'password'  => Hash::make($password),
-            'role'      => UserRole::CTV,
+            'role'      => UserRole::Partner,
             'status'    => UserStatus::Active,
             'parent_id' => $manager->id,
             'depth'     => $manager->depth + 1,

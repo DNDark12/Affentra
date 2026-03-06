@@ -15,12 +15,12 @@ class ClickAnalyticsTest extends TestCase
     public function test_leader_can_only_see_their_own_and_descendants_stats()
     {
         $leader = User::factory()->create(['role' => UserRole::Leader]);
-        $ctvUnderLeader = User::factory()->create([
-            'role' => UserRole::CTV,
+        $partnerUnderLeader = User::factory()->create([
+            'role' => UserRole::Partner,
             'parent_id' => $leader->id,
             'path' => (string) $leader->id
         ]);
-        $otherUser = User::factory()->create(['role' => UserRole::CTV]);
+        $otherUser = User::factory()->create(['role' => UserRole::Partner]);
 
         DailyStat::factory()->create([
             'user_id' => $leader->id,
@@ -30,7 +30,7 @@ class ClickAnalyticsTest extends TestCase
             'date' => now()->toDateString()
         ]);
         DailyStat::factory()->create([
-            'user_id' => $ctvUnderLeader->id,
+            'user_id' => $partnerUnderLeader->id,
             'leader_id' => $leader->id,
             'owner_id' => $leader->parent_id ?? $leader->id,
             'clicks' => 5,

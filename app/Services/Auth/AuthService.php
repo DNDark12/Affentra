@@ -126,7 +126,7 @@ class AuthService
                     'email'             => $email,
                     'email_verified_at' => now(),
                     'avatar'            => $socialiteUser->getAvatar(),
-                    'role'              => \App\Enums\UserRole::CTV,
+                    'role'              => \App\Enums\UserRole::Partner,
                     'status'            => \App\Enums\UserStatus::Pending,
                     'password'          => null,
                     'parent_id'         => $parentId,

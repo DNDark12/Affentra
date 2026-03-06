@@ -332,7 +332,7 @@ class DashboardService
         $query = Click::query()->leftJoin('tracking_links as tl', 'tl.id', '=', 'clicks.tracking_link_id');
         if ($userIds !== null) {
             $query->where(static function (Builder $builder) use ($userIds): void {
-                $builder->whereIn('clicks.ctv_user_id', $userIds)
+                $builder->whereIn('clicks.partner_user_id', $userIds)
                     ->orWhereIn('tl.user_id', $userIds);
             });
         }

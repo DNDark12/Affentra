@@ -21,6 +21,7 @@ class SearchOffersRequest extends FormRequest
         return [
             'connection_id' => ['required', 'integer'],
             'keyword'       => ['nullable', 'string', 'max:200'],
+            'search_type'   => ['nullable', 'string', 'in:detail,keyword'],
             'listType'      => ['nullable', 'integer'],
             'sortType'      => ['nullable', 'integer'],
             'page'          => ['nullable', 'integer', 'min:1', 'max:200'],

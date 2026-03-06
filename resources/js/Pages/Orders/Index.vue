@@ -20,7 +20,7 @@
                         >{{ p.label }}</button>
                     </div>
                     
-                    <button @click="showImportModal = true" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5" v-if="page.props.auth.user.role !== 'ctv'">
+                    <button @click="showImportModal = true" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5" v-if="page.props.auth.user.role !== 'partner'">
                         <Upload :size="14" />
                         Import CSV
                     </button>
@@ -79,7 +79,7 @@
                             <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Shop</th>
                             <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Sản phẩm</th>
                             <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Nguồn Link</th>
-                            <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">CTV Sở hữu</th>
+                            <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Partner Sở hữu</th>
                             <th class="text-right px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Giá Trị</th>
                             <th class="text-right px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Hoa Hồng (Chi tiết)</th>
                             <th class="text-center px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Trạng Thái</th>
@@ -93,7 +93,7 @@
                                 <div class="flex flex-col items-center gap-3">
                                     <ShoppingCart :size="32" style="color: var(--text-muted)" />
                                     <p>Không tìm thấy đơn hàng nào.</p>
-                                    <p class="text-xs" v-if="page.props.auth.user.role !== 'ctv'">Nhấn "Import CSV" để tải lên báo cáo đối soát từ hệ thống affiliate.</p>
+                                    <p class="text-xs" v-if="page.props.auth.user.role !== 'partner'">Nhấn "Import CSV" để tải lên báo cáo đối soát từ hệ thống affiliate.</p>
                                 </div>
                             </td>
                         </tr>

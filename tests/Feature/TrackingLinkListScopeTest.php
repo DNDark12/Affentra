@@ -26,14 +26,14 @@ class TrackingLinkListScopeTest extends TestCase
         ]);
 
         $child = User::factory()->create([
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
             'parent_id' => $leader->id,
             'path' => 'leader/' . $leader->id,
         ]);
 
         $outsider = User::factory()->create([
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 
@@ -88,7 +88,7 @@ class TrackingLinkListScopeTest extends TestCase
     public function test_metrics_respect_date_range_filters(): void
     {
         $user = User::factory()->create([
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 
@@ -136,12 +136,12 @@ class TrackingLinkListScopeTest extends TestCase
     public function test_show_returns_uniform_404_for_missing_and_out_of_scope_ids(): void
     {
         $user = User::factory()->create([
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 
         $other = User::factory()->create([
-            'role' => UserRole::CTV,
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 

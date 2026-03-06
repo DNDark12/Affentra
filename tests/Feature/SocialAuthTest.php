@@ -34,7 +34,7 @@ class SocialAuthTest extends TestCase
         $this->assertDatabaseHas('users', [
             'email'  => 'new-google@example.com',
             'status' => UserStatus::Pending->value,
-            'role'   => UserRole::CTV->value,
+            'role'   => UserRole::Partner->value,
         ]);
 
         $createdUser = User::query()->where('email', 'new-google@example.com')->firstOrFail();
@@ -51,7 +51,7 @@ class SocialAuthTest extends TestCase
     {
         $user = User::factory()->create([
             'email'  => 'active-google@example.com',
-            'role'   => UserRole::CTV,
+            'role'   => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 
@@ -78,7 +78,7 @@ class SocialAuthTest extends TestCase
     {
         $user = User::factory()->create([
             'email'  => 'suspended-google@example.com',
-            'role'   => UserRole::CTV,
+            'role'   => UserRole::Partner,
             'status' => UserStatus::Suspended,
         ]);
 

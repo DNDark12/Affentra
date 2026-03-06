@@ -12,7 +12,7 @@ class FinanceSyncRequest extends FormRequest
     {
         $user = $this->user();
 
-        return $user !== null && ! $user->isCTV();
+        return $user !== null && ! $user->isPartner();
     }
 
     /**

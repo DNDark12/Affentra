@@ -1,10 +1,10 @@
 <template>
     <div class="flex h-screen overflow-hidden" :style="{ backgroundColor: 'var(--app-bg)' }">
         <SyncBanner 
-            v-if="syncStatus && syncStatus.status !== 'fresh'"
-            :status="syncStatus.status" 
-            :lastSyncAt="syncStatus.lastSyncAt" 
-            :nextSyncIn="syncStatus.nextSyncIn" 
+            v-if="effectiveSyncStatus && effectiveSyncStatus.status !== 'fresh'"
+            :status="effectiveSyncStatus.status" 
+            :lastSyncAt="effectiveSyncStatus.lastSyncAt" 
+            :nextSyncIn="effectiveSyncStatus.nextSyncIn" 
             @sync="handleGlobalSync"
             @retry="handleGlobalSync"
         />
@@ -48,6 +48,18 @@ import { router } from '@inertiajs/vue3';
 const page = usePage();
 const user = computed(() => page.props.auth?.user);
 const syncStatus = computed(() => page.props.sync_status || { status: 'fresh' });
+const flash = computed(() => page.props.flash || {});
+
+const effectiveSyncStatus = computed(() => {
+    // If there is a flash error, override everything else
+    if (flash.value.sync_error) {
+        return {
+            status: 'failed',
+            lastSyncAt: 'just now'
+        };
+    }
+    return syncStatus.value;
+});
 
 function handleGlobalSync() {
     router.visit(route('integrations.index'));
@@ -56,17 +68,17 @@ function handleGlobalSync() {
 const navigation = computed(() => {
     const role = user.value?.role;
     const items = [
-        { label: 'Dashboard',      icon: LayoutDashboard, route: 'dashboard',         roles: ['owner','leader','ctv'] },
+        { label: 'Dashboard',      icon: LayoutDashboard, route: 'dashboard',         roles: ['owner','leader','partner'] },
         { label: 'Integrations',   icon: Settings2,       route: 'integrations.index',roles: ['owner','leader'] },
-        { label: 'Tracking Links', icon: Link2,           route: 'links.index',       roles: ['owner','leader','ctv'] },
-        { label: 'Offers',         icon: Tags,            route: 'offers.index',      roles: ['owner','leader','ctv'] },
-        { label: 'Campaigns',      icon: Rocket,          route: 'campaigns.index',   roles: ['owner','leader','ctv'] },
-        { label: 'Orders',         icon: ShoppingCart,    route: 'orders.index',      roles: ['owner','leader','ctv'] },
+        { label: 'Tracking Links', icon: Link2,           route: 'links.index',       roles: ['owner','leader','partner'] },
+        { label: 'Offers',         icon: Tags,            route: 'offers.index',      roles: ['owner','leader','partner'] },
+        { label: 'Campaigns',      icon: Rocket,          route: 'campaigns.index',   roles: ['owner','leader','partner'] },
+        { label: 'Orders',         icon: ShoppingCart,    route: 'orders.index',      roles: ['owner','leader','partner'] },
         { label: 'Click Analysis', icon: TrendingUp,      route: 'clicks.index',      roles: ['owner','leader'] },
         { label: 'Partners',       icon: Users,           route: 'partners.index',    roles: ['owner','leader'] },
         { label: 'Finance',        icon: Banknote,        route: 'finance.index',     roles: ['owner'] },
-        { label: 'Cảnh báo',       icon: BellRing,        route: 'alerts.index',      roles: ['owner','leader','ctv'] },
-        { label: 'AI Content',      icon: Sparkles,        route: 'ai.content.index',  roles: ['owner','leader','ctv'] },
+        { label: 'Cảnh báo',       icon: BellRing,        route: 'alerts.index',      roles: ['owner','leader','partner'] },
+        { label: 'AI Content',      icon: Sparkles,        route: 'ai.content.index',  roles: ['owner','leader','partner'] },
     ];
     return items.filter((item) => {
         if (role && !item.roles.includes(role)) {

@@ -496,7 +496,7 @@ class AlertService
 
     private function assertCanManageRules(User $actor): void
     {
-        if ($actor->isCTV()) {
+        if ($actor->isPartner()) {
             throw new AuthorizationException('Forbidden');
         }
     }

@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Services\Integration\CookieRotationService;
 use RuntimeException;
 
 class ShopeeIntegration extends BaseIntegration
@@ -323,6 +324,186 @@ class ShopeeIntegration extends BaseIntegration
                 'message' => $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Extract the raw Cookie: header string from a connection's cookie_header JSON.
+     *
+     * cookie_header is stored as a JSON string:
+     *   {"cookie": "SPC_F=abc; SPC_EC=def; ...", "af_ac_enc_dat": "...", "profiles": {...}}
+     *
+     * For the proxy endpoint we only need the raw cookie string — no jar injection.
+     * Cookie may come from any browser (Chrome, Firefox, Safari, Edge) — header-only
+     * approach is browser-agnostic.
+     */
+    private function extractCookieRaw(PlatformConnection $connection): string
+    {
+        $raw = trim((string) $connection->cookie_header);
+        if ($raw === '') {
+            return '';
+        }
+
+        if (str_starts_with($raw, '{')) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && isset($decoded['cookie']) && is_string($decoded['cookie'])) {
+                return $decoded['cookie'];
+            }
+        }
+
+        // Plain cookie string (legacy format)
+        return $raw;
+    }
+
+    /**
+     * Proxy a single HTTP request through the Python Scraper (Camoufox + Firefox TLS).
+     *
+     * Returns a normalized internal DTO:
+     * @return array{ok: bool, status: int, json: array|null, error_type: string|null, blocked_hint: bool, message: string}
+     *
+     * Error types (from scraper):
+     *   - auth_failure   → call markCookieAuthFailure() + throw
+     *   - blocked_bot    → throw with hint to update profile
+     *   - rate_limited   → throw with rate-limit message
+     *   - network        → throw with transient error message
+     *   - null           → success
+     */
+    private function proxyToPythonScraper(
+        PlatformConnection $connection,
+        string $endpoint,
+        string $referer,
+        string $method = 'GET',
+        array $queryParams = [],
+        array $postBody = [],
+        string $profile = '',
+    ): array {
+        $scraperUrl = config('services.scraper.url', 'http://scraper:8080');
+        $scraperToken = config('services.scraper.token', '');
+
+        $headers = $this->buildCookieHeaders($connection, $referer);
+        $cookieRaw = $this->extractCookieRaw($connection);
+
+        // Log cookie hash for correlation — never raw value
+        $cookieHash = $cookieRaw !== '' ? substr(hash('sha256', $cookieRaw), 0, 12) : 'empty';
+
+        Log::info('ShopeeIntegration::proxyToPythonScraper', [
+            'connection_id' => $connection->id,
+            'endpoint'      => $endpoint,
+            'method'        => $method,
+            'cookie_hash'   => $cookieHash,
+            'profile'       => $profile ?: 'default',
+        ]);
+
+        $payload = [
+            'url'     => $endpoint,
+            'method'  => $method,
+            'headers' => empty($headers) ? new \stdClass() : $headers,
+            'params'  => empty($queryParams) ? new \stdClass() : $queryParams,
+            'body'    => $method === 'POST' ? (empty($postBody) ? new \stdClass() : $postBody) : null,
+            'cookies' => $cookieRaw,
+        ];
+
+        $response = Http::withHeaders(['X-Internal-Token' => $scraperToken])
+            ->timeout(35)
+            ->post("{$scraperUrl}/api/v1/shopee/proxy", $payload);
+
+        if (! $response->successful()) {
+            $responseJson = $response->json();
+            $errorSummary = null;
+
+            if (is_array($responseJson) && is_array($responseJson['detail'] ?? null)) {
+                $errorSummary = array_map(
+                    static function (mixed $item): array {
+                        if (! is_array($item)) {
+                            return ['message' => (string) $item];
+                        }
+
+                        return [
+                            'loc' => $item['loc'] ?? null,
+                            'msg' => $item['msg'] ?? null,
+                            'type' => $item['type'] ?? null,
+                        ];
+                    },
+                    $responseJson['detail']
+                );
+            }
+
+            $bodySnippet = $errorSummary !== null
+                ? json_encode($errorSummary, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                : mb_substr((string) $response->body(), 0, 200);
+
+            Log::warning('ShopeeIntegration::proxyToPythonScraper.non_success', [
+                'connection_id' => $connection->id,
+                'endpoint' => $endpoint,
+                'status' => $response->status(),
+                'body_snippet' => $bodySnippet,
+            ]);
+
+            throw new RuntimeException(
+                "Shopee scraper proxy call failed: HTTP {$response->status()} | body: {$bodySnippet}"
+            );
+        }
+
+        /** @var array<string, mixed> $dto */
+        $dto = $response->json();
+        if (! is_array($dto)) {
+            throw new RuntimeException('Shopee scraper proxy returned invalid response.');
+        }
+
+        $errorType = $dto['error_type'] ?? null;
+        $blockedHint = (bool) ($dto['blocked_hint'] ?? false);
+        $message = (string) ($dto['error'] ?? '');
+        $status = (int) ($dto['status'] ?? 0);
+        $responseJson = is_array($dto['json'] ?? null) ? $dto['json'] : null;
+
+        // Classify and act on error types
+        if ($errorType === 'auth_failure') {
+            $this->markCookieAuthFailure($connection, "Cookie auth failed (scraper): {$message}");
+            throw new RuntimeException("Cookie authentication failed: {$message}");
+        }
+
+        if ($errorType === 'rate_limited') {
+            throw new RuntimeException("Shopee API rate limit exceeded (429). {$message}");
+        }
+
+        if ($errorType === 'blocked_bot') {
+            $hint = $blockedHint
+                ? ' Bot block detected — vui lòng cập nhật cookie/profile.'
+                : '';
+            throw new RuntimeException("Shopee blocked request (bot protection).{$hint} {$message}");
+        }
+
+        if ($errorType === 'network') {
+            throw new RuntimeException("Shopee scraper network error: {$message}");
+        }
+
+        $ok = (bool) ($dto['ok'] ?? false);
+
+        // Cookie rotation: attempt to persist refreshed cookies after successful call
+        try {
+            app(CookieRotationService::class)->rotateIfEligible($connection, [
+                'ok'               => $ok,
+                'error_type'       => $errorType,
+                'refreshed_cookie' => $dto['refreshed_cookie'] ?? null,
+                'cookie_hash'      => $dto['cookie_hash'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('cookie_rotation.hook_error', [
+                'connection_id' => $connection->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return [
+            'ok'               => $ok,
+            'status'           => $status,
+            'json'             => $responseJson,
+            'error_type'       => $errorType,
+            'blocked_hint'     => $blockedHint,
+            'message'          => $message,
+            'refreshed_cookie' => $dto['refreshed_cookie'] ?? null,
+            'cookie_rotatable' => (bool) ($dto['cookie_rotatable'] ?? false),
+            'cookie_hash'      => $dto['cookie_hash'] ?? null,
+        ];
     }
 
     /**
@@ -932,41 +1113,24 @@ class ShopeeIntegration extends BaseIntegration
 {"operationName":"affiliateCampaignsList","query":"\n      query affiliateCampaignsList ($pageNum: Int, $pageSize: Int){\n        affiliateCampaignsList(pageNum: $pageNum, pageSize: $pageSize) {\n          affiliateCampaignDetailList {\n            campaignId\n            campaignName\n            campaignStartTime\n            campaignEndTime\n            campaignDescription\n            campaignImpressionNum\n            campaignClickNum\n            bannerImageId\n            campaignStatus\n            campaignUrl\n          }\n        }\n      }\n    ","variables":{}}
 JSON;
 
-        // Shopee campaign anti-bot checks are sensitive to request-body fingerprint
-        // (x-sap-sec token is captured with the original browser payload).
-        // Prefer replaying the raw body captured from cURL if available.
-        $headers = $this->buildCookieHeaders($connection, self::GQL_CAMPAIGN_REFERER);
-        $headers['Content-Type'] = 'application/json; charset=UTF-8';
-        $headers['Origin'] = 'https://affiliate.shopee.vn';
-
         $requestBodyRaw = trim((string) ($campaignProfile['request_body'] ?? ''));
-        $http = Http::withHeaders($headers)->timeout(30);
         if ($requestBodyRaw === '' && $fallbackBodyRaw !== '') {
             $requestBodyRaw = $fallbackBodyRaw;
         }
 
-        $response = $http
-            ->withBody($requestBodyRaw, 'application/json; charset=UTF-8')
-            ->post(self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList');
+        // Campaigns endpoint is a POST with a raw JSON body — pass as postBody
+        // proxyToPythonScraper() handles auth/bot/rate-limit classification and throws
+        $dto = $this->proxyToPythonScraper(
+            $connection,
+            self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList',
+            self::GQL_CAMPAIGN_REFERER,
+            'POST',
+            [],
+            json_decode($requestBodyRaw, true) ?? [],
+            'campaign_list',
+        );
 
-        if (in_array($response->status(), [401, 403], true)) {
-            $this->markCookieAuthFailure(
-                $connection,
-                "Cookie authentication failed (HTTP {$response->status()})."
-            );
-
-            throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-        }
-
-        if ($response->status() === 429) {
-            throw new RuntimeException('Shopee cookie campaign API rate limit exceeded (429).');
-        }
-
-        if (! $response->successful()) {
-            throw new RuntimeException("Shopee cookie campaign API error: HTTP {$response->status()}");
-        }
-
-        $payload = $response->json();
+        $payload = $dto['json'];
         if (! is_array($payload)) {
             throw new RuntimeException('Shopee cookie campaign API returned invalid payload.');
         }
@@ -974,10 +1138,6 @@ JSON;
         $code = $payload['code'] ?? $payload['error'] ?? 0;
         if (is_numeric($code) && (int) $code !== 0) {
             $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
-            if (in_array((int) $code, [401, 403], true)) {
-                $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
-                throw new RuntimeException("Cookie authentication failed ({$code}).");
-            }
 
             if (in_array((int) $code, self::COOKIE_SOFT_BLOCK_CODES, true)) {
                 if (! $hasCampaignProfile) {
@@ -1098,35 +1258,22 @@ JSON;
         $this->resetCookieClickAttribution($connection, $since, $until);
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::COOKIE_CONVERSION_REFERER);
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->get(self::COOKIE_REPORT_ENDPOINT, [
-                    'page_size' => $pageSize,
-                    'page_num' => $page,
+            // proxyToPythonScraper() handles error classification and throws on failure
+            $dto = $this->proxyToPythonScraper(
+                $connection,
+                self::COOKIE_REPORT_ENDPOINT,
+                self::COOKIE_CONVERSION_REFERER,
+                'GET',
+                [
+                    'page_size'      => $pageSize,
+                    'page_num'       => $page,
                     'purchase_time_s' => $since->timestamp,
                     'purchase_time_e' => $until->timestamp,
-                    'version' => 1,
-                ]);
+                    'version'        => 1,
+                ],
+            );
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure(
-                    $connection,
-                    "Cookie authentication failed (HTTP {$response->status()})."
-                );
-
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-            }
-
-            if ($response->status() === 429) {
-                throw new RuntimeException('Shopee cookie report API rate limit exceeded (429).');
-            }
-
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee cookie report API error: HTTP {$response->status()}");
-            }
-
-            $payload = $response->json();
+            $payload = $dto['json'];
             if (! is_array($payload)) {
                 throw new RuntimeException('Shopee cookie report API returned invalid payload.');
             }
@@ -1134,12 +1281,6 @@ JSON;
             if (array_key_exists('code', $payload) && (int) $payload['code'] !== 0) {
                 $code = (int) $payload['code'];
                 $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
-
-                if (in_array($code, [401, 403], true)) {
-                    $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
-                    throw new RuntimeException("Cookie authentication failed ({$code}).");
-                }
-
                 throw new RuntimeException("Shopee cookie report API returned code {$code}: {$message}");
             }
 
@@ -1174,35 +1315,22 @@ JSON;
         $attributionByClickId = $this->getCookieClickAttribution($connection, $since, $until);
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::COOKIE_CLICK_REPORT_REFERER);
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->get(self::COOKIE_CLICK_REPORT_ENDPOINT, [
-                    'page_size' => $pageSize,
-                    'page_num' => $page,
+            // proxyToPythonScraper() handles auth/bot/rate-limit classification and throws
+            $dto = $this->proxyToPythonScraper(
+                $connection,
+                self::COOKIE_CLICK_REPORT_ENDPOINT,
+                self::COOKIE_CLICK_REPORT_REFERER,
+                'GET',
+                [
+                    'page_size'   => $pageSize,
+                    'page_num'    => $page,
                     'click_time_s' => $since->timestamp,
                     'click_time_e' => $until->timestamp,
-                    'version' => 1,
-                ]);
+                    'version'     => 1,
+                ],
+            );
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure(
-                    $connection,
-                    "Cookie authentication failed (HTTP {$response->status()})."
-                );
-
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-            }
-
-            if ($response->status() === 429) {
-                throw new RuntimeException('Shopee cookie click report API rate limit exceeded (429).');
-            }
-
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee cookie click report API error: HTTP {$response->status()}");
-            }
-
-            $payload = $response->json();
+            $payload = $dto['json'];
             if (! is_array($payload)) {
                 throw new RuntimeException('Shopee cookie click report API returned invalid payload.');
             }
@@ -1210,12 +1338,6 @@ JSON;
             if (array_key_exists('code', $payload) && (int) $payload['code'] !== 0) {
                 $code = (int) $payload['code'];
                 $message = (string) ($payload['msg'] ?? $payload['message'] ?? 'Unknown error');
-
-                if (in_array($code, [401, 403], true)) {
-                    $this->markCookieAuthFailure($connection, "Cookie authentication failed (code {$code}). {$message}");
-                    throw new RuntimeException("Cookie authentication failed: {$message}");
-                }
-
                 throw new RuntimeException("Shopee cookie click report API returned error: {$message}");
             }
 
@@ -2589,6 +2711,10 @@ JSON;
                         $this->markCookieAuthFailure($connection, "Cookie authentication failed (Scraper reported expired).");
                         throw new RuntimeException("Cookie authentication failed.");
                     }
+                }
+                
+                if ($errorCode === 'BLOCKED_BOT' || str_contains($json['message'] ?? '', '90309999')) {
+                    throw new RuntimeException("Shopee anti-bot 90309999 challenge.");
                 }
                 Log::warning('shopee_scraper.internal_service_error', [
                     'endpoint'   => $endpoint,

@@ -214,7 +214,7 @@ class PayoutBatchService
 
     private function assertCanManage(User $actor): void
     {
-        if ($actor->isCTV()) {
+        if ($actor->isPartner()) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Forbidden');
         }
     }

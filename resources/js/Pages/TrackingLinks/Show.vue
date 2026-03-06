@@ -77,6 +77,15 @@
                             <p style="color: var(--text-primary)">{{ trackingLink.owner?.name || '--' }}</p>
                         </div>
                         <div>
+                            <p class="text-xs mb-1" style="color: var(--text-muted)">Shop</p>
+                            <p style="color: var(--text-primary)">
+                                {{ trackingLink.platform_connection?.label || 'Unknown Shop' }}
+                                <span v-if="trackingLink.platform_connection?.platform" style="color: var(--text-muted)">
+                                    ({{ trackingLink.platform_connection.platform }})
+                                </span>
+                            </p>
+                        </div>
+                        <div>
                             <p class="text-xs mb-1" style="color: var(--text-muted)">Source / Channel</p>
                             <p style="color: var(--text-primary)">{{ trackingLink.source || '--' }} / {{ trackingLink.channel || '--' }}</p>
                         </div>

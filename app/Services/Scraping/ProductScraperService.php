@@ -5,6 +5,7 @@ namespace App\Services\Scraping;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Services\Integration\CookieCredentialService;
 use Exception;
 
 class ProductScraperService
@@ -256,10 +257,10 @@ class ProductScraperService
             return null;
         }
 
-        // Get cookies from PlatformConnection
+        // Get raw cookie string from PlatformConnection (not the full JSON)
         $cookies = null;
         if ($connection && $connection->method === 'cookie' && $connection->cookie_header) {
-            $cookies = $connection->cookie_header;
+            $cookies = app(CookieCredentialService::class)->extractRawCookie($connection);
         }
 
         if (! $cookies) {

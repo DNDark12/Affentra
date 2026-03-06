@@ -1,6 +1,6 @@
 # Affentra Affiliate Admin
 
-Hệ thống quản trị Affiliate tập trung cho team vận hành (Owner/Leader/CTV), tối ưu cho:
+Hệ thống quản trị Affiliate tập trung cho team vận hành (Owner/Leader/Partner), tối ưu cho:
 - Quản lý tracking link và attribution
 - Đồng bộ dữ liệu từ nền tảng (Shopee)
 - Theo dõi click, đơn hàng, hoa hồng, payout

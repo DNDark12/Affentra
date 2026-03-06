@@ -10,6 +10,7 @@ use App\Enums\LinkStatus;
 use App\Enums\Platform;
 use App\Models\DailyStat;
 use App\Models\Order;
+use App\Models\PlatformConnection;
 use App\Models\TrackingLink;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
@@ -161,6 +162,12 @@ class TrackingLinkService
             'destination_url' => $link->destination_url,
             'status' => $link->status->value,
             'platform' => $link->platform->value,
+            'platform_connection_id' => $link->platform_connection_id,
+            'platform_connection' => $link->platformConnection ? [
+                'id' => (int) $link->platformConnection->id,
+                'label' => (string) $link->platformConnection->label,
+                'platform' => (string) $link->platformConnection->platform,
+            ] : null,
             'source' => $link->source,
             'channel' => $link->channel,
             'sub_id' => $link->sub_id,
@@ -198,10 +205,39 @@ class TrackingLinkService
             $this->assertCampaignVisible($user, (int) $data['campaign_id']);
         }
 
-        $data['platform'] = $data['platform'] ?? Platform::Shopee;
+        $platformConnectionId = isset($data['platform_connection_id']) && $data['platform_connection_id'] !== null
+            ? (int) $data['platform_connection_id']
+            : null;
+
+        $platformConnection = null;
+        if ($platformConnectionId !== null) {
+            $platformConnection = PlatformConnection::query()
+                ->where('id', $platformConnectionId)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (! $platformConnection) {
+                throw new \DomainException('Shop connection is not accessible for this user.');
+            }
+        }
+
+        $data['platform'] = $data['platform'] ?? $platformConnection?->platform ?? Platform::Shopee;
         $platform = $data['platform'] instanceof Platform
             ? $data['platform']->value
             : (string) $data['platform'];
+
+        if ($platformConnection !== null && $platformConnection->platform !== $platform) {
+            throw new \DomainException('Tracking link platform must match selected shop connection platform.');
+        }
+
+        $data['platform_connection_id'] = $platformConnectionId;
+        if ($platformConnectionId === null) {
+            Log::warning('ai_shop_mapping_missing', [
+                'actor_id' => $user->id,
+                'destination_url' => (string) ($data['destination_url'] ?? ''),
+                'source' => (string) ($data['source'] ?? 'manual'),
+            ]);
+        }
         $incomingMeta = is_array($data['meta'] ?? null) ? $data['meta'] : null;
         $destinationUrl = (string) ($data['destination_url'] ?? '');
 
@@ -210,6 +246,7 @@ class TrackingLinkService
             platform: $platform,
             destinationUrl: $destinationUrl,
             meta: $incomingMeta,
+            platformConnectionId: $platformConnectionId,
         );
 
         if ($existing !== null) {
@@ -296,6 +333,9 @@ class TrackingLinkService
                 destinationUrl: (string) $normalized['destination_url'],
                 meta: $incomingMeta,
                 excludeId: $link->id,
+                platformConnectionId: $link->platform_connection_id !== null
+                    ? (int) $link->platform_connection_id
+                    : null,
             );
 
             if ($duplicate !== null) {
@@ -465,6 +505,7 @@ class TrackingLinkService
         return [
             'id' => $link->id,
             'user_id' => $link->user_id,
+            'platform_connection_id' => $link->platform_connection_id,
             'campaign_id' => $link->campaign_id,
             'short_code' => $link->short_code,
             'destination_url' => $link->destination_url,
@@ -488,6 +529,7 @@ class TrackingLinkService
         string $destinationUrl,
         ?array $meta = null,
         ?int $excludeId = null,
+        ?int $platformConnectionId = null,
     ): ?TrackingLink {
         $incomingIdentity = TrackingLinkIdentity::identityKey($platform, $destinationUrl, $meta);
         if ($incomingIdentity === null) {
@@ -498,6 +540,12 @@ class TrackingLinkService
             ->where('user_id', $user->id)
             ->where('platform', $platform)
             ->where('status', '!=', LinkStatus::Archived->value);
+
+        if ($platformConnectionId === null) {
+            $query->whereNull('platform_connection_id');
+        } else {
+            $query->where('platform_connection_id', $platformConnectionId);
+        }
 
         if ($excludeId !== null) {
             $query->where('id', '!=', $excludeId);

@@ -204,7 +204,7 @@
                         <table class="w-full text-sm border-collapse">
                             <thead>
                                 <tr style="border-bottom: 1px solid var(--border); background: var(--surface-2)">
-                                    <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">CTV</th>
+                                    <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">Partner</th>
                                     <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">Ngân hàng</th>
                                     <th class="text-left px-4 py-2.5 font-medium" style="color: var(--text-muted)">Cập nhật</th>
                                     <th class="text-right px-4 py-2.5 font-medium" style="color: var(--text-muted)">Thao tác</th>
@@ -405,7 +405,7 @@ async function rejectPayout(userId) {
     const reason = await promptDialog({
         variant: 'danger',
         title: 'Từ chối hồ sơ payout',
-        description: 'Vui lòng nhập lý do từ chối để hệ thống gửi lại cho CTV.',
+        description: 'Vui lòng nhập lý do từ chối để hệ thống gửi lại cho Partner.',
         confirmText: 'Xác nhận từ chối',
         cancelText: 'Hủy',
         inputLabel: 'Lý do từ chối',

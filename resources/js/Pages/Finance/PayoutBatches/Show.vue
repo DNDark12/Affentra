@@ -56,7 +56,7 @@
                     <thead>
                         <tr style="border-bottom: 1px solid var(--border); background: var(--surface-2)">
                             <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Payout ID</th>
-                            <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">CTV</th>
+                            <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Partner</th>
                             <th class="text-left px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Trạng thái</th>
                             <th class="text-right px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Số tiền</th>
                             <th class="text-right px-4 py-3 font-medium text-xs" style="color: var(--text-muted)">Thời gian payout</th>

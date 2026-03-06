@@ -92,7 +92,7 @@ class CampaignController extends Controller
     {
         Gate::authorize('viewAny', Campaign::class);
 
-        if ($request->user()->isCTV()) {
+        if ($request->user()->isPartner()) {
             return response()->json([
                 'ok' => false,
                 'message' => 'Unauthorized action.',

@@ -91,7 +91,7 @@ class PartnerService
             throw new NotFoundHttpException('Not found.');
         }
 
-        if ($partner->role !== UserRole::CTV) {
+        if ($partner->role !== UserRole::Partner) {
             throw new NotFoundHttpException('Not found.');
         }
 
@@ -292,7 +292,7 @@ class PartnerService
             // User exists: send confirmation link
             if ($partner->parent_id !== null) {
                 if ($partner->parent_id === $manager->id) {
-                    throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'Người dùng này đã là CTV của bạn.']);
+                    throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'Người dùng này đã là Partner của bạn.']);
                 } else {
                     throw \Illuminate\Validation\ValidationException::withMessages(['email' => 'Người dùng này đã thuộc hệ thống của người quản lý khác.']);
                 }

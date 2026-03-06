@@ -5,8 +5,8 @@
             <!-- Header -->
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-xs mb-0.5" style="color: var(--text-muted)">Trang / Partners / CTV</p>
-                    <h1 class="text-2xl font-bold" style="color: var(--text-primary)">Partners / CTV</h1>
+                    <p class="text-xs mb-0.5" style="color: var(--text-muted)">Trang / Partners / Partner</p>
+                    <h1 class="text-2xl font-bold" style="color: var(--text-primary)">Partners / Partner</h1>
                 </div>
                 <div class="flex items-center gap-2">
                     <div class="relative">
@@ -20,7 +20,7 @@
                         />
                     </div>
                     <!-- Copy Referral Link -->
-                    <button @click="copyReferralLink" class="af-btn-outline text-sm h-9 px-4 flex items-center gap-1.5" title="Copy link mời CTV">
+                    <button @click="copyReferralLink" class="af-btn-outline text-sm h-9 px-4 flex items-center gap-1.5" title="Copy link mời Partner">
                         <LinkIcon :size="14" />
                         Copy Link
                     </button>
@@ -155,13 +155,13 @@
             <div v-if="showAdd" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.4)">
                 <div class="af-surface w-full max-w-md" style="padding: 24px; margin: 16px">
                     <div class="flex items-center justify-between mb-5">
-                        <h2 class="text-base font-semibold" style="color: var(--text-primary)">Thêm Partner / CTV</h2>
+                        <h2 class="text-base font-semibold" style="color: var(--text-primary)">Thêm Partner</h2>
                         <button @click="showAdd = false"><X :size="16" style="color: var(--text-muted)" /></button>
                     </div>
                     <form @submit.prevent="submitAdd" class="flex flex-col gap-4">
                         <div>
                             <label class="af-label">Email <span style="color: var(--color-danger)">*</span></label>
-                            <input v-model="addForm.email" type="email" class="af-input" required placeholder="ctv@gmail.com" />
+                            <input v-model="addForm.email" type="email" class="af-input" required placeholder="partner@gmail.com" />
                         </div>
                         <div class="flex justify-end gap-2 pt-2">
                             <button type="button" @click="showAdd = false" class="af-btn-outline text-sm h-9 px-4">Huỷ</button>

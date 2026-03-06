@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\AI;
 
 use App\Models\ContentGeneration;
+use App\Services\AI\AiStatisticsCacheService;
 use App\Services\AI\Providers\SeedanceClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -55,8 +56,9 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
         return "seedance-poll-{$this->generationId}";
     }
 
-    public function handle(): void
+    public function handle(?AiStatisticsCacheService $statisticsCache = null): void
     {
+        $statisticsCache ??= app(AiStatisticsCacheService::class);
         $generation = ContentGeneration::find($this->generationId);
 
         // ── Guard: missing or already terminal ────────────────────────────────
@@ -110,15 +112,18 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
 
         // ── Map provider status → internal status ─────────────────────────────
         match ($providerStatus) {
-            'completed' => $this->handleCompleted($generation, $result),
-            'failed'    => $this->handleFailed($generation, $result),
+            'completed' => $this->handleCompleted($generation, $result, $statisticsCache),
+            'failed'    => $this->handleFailed($generation, $result, $statisticsCache),
             'queued', 'processing' => $this->handleProcessing($generation, $providerStatus),
             default => $this->handleProcessing($generation, $providerStatus),
         };
     }
 
-    private function handleCompleted(ContentGeneration $generation, array $result): void
-    {
+    private function handleCompleted(
+        ContentGeneration $generation,
+        array $result,
+        AiStatisticsCacheService $statisticsCache,
+    ): void {
         $generation->update([
             'status'                => 'succeeded',
             'provider_status'       => 'completed',
@@ -138,10 +143,15 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
             'generation_id' => $generation->id,
             'attempts'      => $generation->poll_attempts,
         ]);
+
+        $statisticsCache->bumpFor((int) $generation->user_id, (int) $generation->tracking_link_id);
     }
 
-    private function handleFailed(ContentGeneration $generation, array $result): void
-    {
+    private function handleFailed(
+        ContentGeneration $generation,
+        array $result,
+        AiStatisticsCacheService $statisticsCache,
+    ): void {
         $generation->update([
             'status'                => 'failed',
             'provider_status'       => 'failed',
@@ -154,6 +164,8 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
             'generation_id' => $generation->id,
             'error'         => $result['error'] ?? null,
         ]);
+
+        $statisticsCache->bumpFor((int) $generation->user_id, (int) $generation->tracking_link_id);
     }
 
     private function handleProcessing(ContentGeneration $generation, string $providerStatus): void

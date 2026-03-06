@@ -79,7 +79,11 @@ class FinanceService
             'summary' => $summary,
             'filters' => $this->exposeFilters($filters),
             'sync' => [
-                'is_running' => Cache::has($this->syncLockKey($user->id)),
+                'is_running' => \App\Models\SyncRun::query()
+                    ->where('user_id', $user->id)
+                    ->whereIn('type', ['payment_sync', 'manual'])
+                    ->where('status', 'processing')
+                    ->exists(),
             ],
         ];
     }

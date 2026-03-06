@@ -39,11 +39,19 @@ class TrackingLinkController extends Controller
             ->orderByDesc('created_at')
             ->get(['id', 'name']);
 
+        $platformConnections = \App\Models\PlatformConnection::query()
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['active', 'error'])
+            ->orderByDesc('last_sync_at')
+            ->orderByDesc('id')
+            ->get(['id', 'label', 'platform', 'status']);
+
         return Inertia::render('TrackingLinks/Index', [
             'links'     => $links,
             'filters'   => $filters,
             'summary'   => $summary,
             'campaigns' => $campaigns,
+            'platformConnections' => $platformConnections,
         ]);
     }
 

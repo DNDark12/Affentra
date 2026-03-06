@@ -7,6 +7,7 @@ namespace App\Http\Requests\TrackingLink;
 use App\Enums\Platform;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Database\Query\Builder;
 
 class CreateTrackingLinkRequest extends FormRequest
 {
@@ -20,6 +21,13 @@ class CreateTrackingLinkRequest extends FormRequest
         return [
             'destination_url' => ['required', 'url', 'max:2048'],
             'campaign_id'     => ['nullable', 'integer', 'exists:campaigns,id'],
+            'platform_connection_id' => [
+                'required',
+                'integer',
+                Rule::exists('platform_connections', 'id')->where(function (Builder $query): void {
+                    $query->where('user_id', (int) ($this->user()?->id ?? 0));
+                }),
+            ],
             'short_code'      => ['nullable', 'alpha_dash', 'max:20', 'unique:tracking_links,short_code'],
             'platform'        => ['nullable', 'string', Rule::in(array_map(static fn (Platform $platform): string => $platform->value, Platform::cases()))],
             'channel'         => ['nullable', 'string', 'max:100'],

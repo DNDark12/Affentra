@@ -13,8 +13,8 @@ class OrderScopeTest extends TestCase
 
     private User $owner;
     private User $leader;
-    private User $ctv1;
-    private User $ctv2;
+    private User $partner1;
+    private User $partner2;
 
     protected function setUp(): void
     {
@@ -33,15 +33,15 @@ class OrderScopeTest extends TestCase
             'path'      => (string) $this->owner->id,
         ]);
         
-        $this->ctv1 = User::factory()->create([
-            'role'      => 'ctv',
+        $this->partner1 = User::factory()->create([
+            'role' => 'partner',
             'status'    => 'active',
             'parent_id' => $this->leader->id,
             'path'      => $this->owner->id . '/' . $this->leader->id,
         ]);
 
-        $this->ctv2 = User::factory()->create([
-            'role'      => 'ctv',
+        $this->partner2 = User::factory()->create([
+            'role' => 'partner',
             'status'    => 'active',
             'parent_id' => $this->owner->id, // Direct child of owner, sibling of leader
             'path'      => (string) $this->owner->id,
@@ -50,13 +50,13 @@ class OrderScopeTest extends TestCase
         // Create orders
         Order::create(['user_id' => $this->owner->id, 'order_code' => 'O1', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
         Order::create(['user_id' => $this->leader->id, 'order_code' => 'L1', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
-        Order::create(['user_id' => $this->ctv1->id, 'order_code' => 'C1', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
-        Order::create(['user_id' => $this->ctv2->id, 'order_code' => 'C2', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
+        Order::create(['user_id' => $this->partner1->id, 'order_code' => 'C1', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
+        Order::create(['user_id' => $this->partner2->id, 'order_code' => 'C2', 'platform' => 'shopee', 'order_amount' => 100, 'commission' => 10, 'status' => 'pending', 'ordered_at' => now()]);
     }
 
-    public function test_ctv_only_sees_own_orders(): void
+    public function test_partner_only_sees_own_orders(): void
     {
-        $response = $this->actingAs($this->ctv1)->getJson(route('api.orders.list'));
+        $response = $this->actingAs($this->partner1)->getJson(route('api.orders.list'));
         
         $response->assertStatus(200);
         $data = $response->json('data.data');

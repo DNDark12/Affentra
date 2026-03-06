@@ -59,7 +59,7 @@ class AggregateDailyClicksJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         $platformExpr = "COALESCE(t.platform, pc.platform, 'shopee')";
-        $linkUserExpr = 'COALESCE(t.user_id, c.ctv_user_id, c.leader_id, c.owner_id)';
+        $linkUserExpr = 'COALESCE(t.user_id, c.partner_user_id, c.leader_id, c.owner_id)';
 
         // 1. Reset click metrics for the affected range
         DailyStat::where('platform', $this->platform)
@@ -83,7 +83,7 @@ class AggregateDailyClicksJob implements ShouldQueue, ShouldBeUnique
                 c.tracking_link_id,
                 c.owner_id,
                 c.leader_id,
-                c.ctv_user_id,
+                c.partner_user_id,
                 COUNT(c.id) as total_clicks,
                 COUNT(DISTINCT c.fingerprint_hash) as unique_clicks,
                 COUNT(DISTINCT CASE WHEN c.is_bot = 0 THEN c.fingerprint_hash END) as valid_clicks,
@@ -101,7 +101,7 @@ class AggregateDailyClicksJob implements ShouldQueue, ShouldBeUnique
                 c.tracking_link_id, 
                 c.owner_id, 
                 c.leader_id, 
-                c.ctv_user_id
+                c.partner_user_id
             ')
             ->get();
 
@@ -139,7 +139,7 @@ class AggregateDailyClicksJob implements ShouldQueue, ShouldBeUnique
                 // Update scope and click stats
                 $stat->owner_id      = $row->owner_id;
                 $stat->leader_id     = $row->leader_id;
-                $stat->ctv_user_id   = $row->ctv_user_id;
+                $stat->partner_user_id   = $row->partner_user_id;
                 $stat->clicks        = $row->total_clicks;
                 $stat->unique_clicks  = $row->unique_clicks;
                 $stat->valid_clicks  = $row->valid_clicks;

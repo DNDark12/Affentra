@@ -44,8 +44,17 @@ return [
     'scraper' => [
         'url'     => env('SCRAPER_SERVICE_URL', 'http://scraper:8000'),
         'api_key' => env('SCRAPER_API_KEY', 'dev-secret-key'),
+        'token'   => env('SCRAPER_API_KEY', 'dev-secret-key'), // alias used by proxyToPythonScraper()
         'timeout' => (int) env('SCRAPER_TIMEOUT', 20),
         'enabled' => (bool) env('SCRAPER_ENABLED', true),
+    ],
+
+    'shopee' => [
+        'cookie_auto_rotation' => (bool) env('SHOPEE_COOKIE_AUTO_ROTATION_ENABLED', false),
+    ],
+
+    'ai' => [
+        'statistics_cache_ttl' => (int) env('AI_STATISTICS_CACHE_TTL', 60),
     ],
 
 ];

@@ -36,7 +36,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { CheckCircle2, Clock, AlertCircle, CirclePause, X } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -48,6 +48,35 @@ const props = defineProps({
 defineEmits(['sync', 'retry']);
 
 const visible = ref(true);
+let timer = null;
+
+function startTimer() {
+    if (timer) clearTimeout(timer);
+    
+    // Only auto-hide if it's a notification type (status !== 'fresh' and status !== 'manual')
+    // Actually, user wants all persistent errors to hide after 10s.
+    if (props.status !== 'fresh') {
+        timer = setTimeout(() => {
+            visible.value = false;
+        }, 10000); // 10 seconds
+    }
+}
+
+watch(() => props.status, (newStatus) => {
+    if (newStatus !== 'fresh') {
+        visible.value = true;
+        startTimer();
+    } else {
+        visible.value = false;
+        if (timer) clearTimeout(timer);
+    }
+}, { immediate: true });
+
+onMounted(() => {
+    if (props.status !== 'fresh') {
+        startTimer();
+    }
+});
 
 const bannerIcon = computed(() => ({
     fresh:   CheckCircle2,

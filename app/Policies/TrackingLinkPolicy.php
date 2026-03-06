@@ -68,7 +68,7 @@ class TrackingLinkPolicy
             return true;
         }
 
-        // Leader can manage links of their direct children (CTVs)
+        // Leader can manage links of their direct children (partners)
         if ($user->isLeader()) {
             $childIds = $user->getDescendantIds();
 

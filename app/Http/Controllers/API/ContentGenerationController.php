@@ -6,9 +6,12 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Requests\AI\GenerateContentRequest;
 use App\Models\TrackingLink;
+use App\Services\AI\AiStatisticsCacheService;
+use App\Services\AI\AiUsageStatisticsService;
 use App\Services\AI\ContentGenerationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
@@ -16,6 +19,8 @@ class ContentGenerationController
 {
     public function __construct(
         private readonly ContentGenerationService $service,
+        private readonly AiUsageStatisticsService $statisticsService,
+        private readonly AiStatisticsCacheService $statisticsCache,
     ) {}
 
     /**
@@ -133,7 +138,20 @@ class ContentGenerationController
         }
 
         $generations = $trackingLink->contentGenerations()
-            ->select(['id', 'tracking_link_id', 'status', 'from_cache', 'error_code', 'error_message', 'created_at', 'output_payload', 'prompt_template_id'])
+            ->with(['platformConnection:id,label'])
+            ->select([
+                'id',
+                'tracking_link_id',
+                'platform_connection_id',
+                'platform',
+                'status',
+                'from_cache',
+                'error_code',
+                'error_message',
+                'created_at',
+                'output_payload',
+                'prompt_template_id',
+            ])
             ->orderByDesc('created_at')
             ->paginate(20);
 
@@ -147,6 +165,9 @@ class ContentGenerationController
             return [
                 'id' => $gen->id,
                 'status' => $gen->status,
+                'platform' => $gen->platform,
+                'platform_connection_id' => $gen->platform_connection_id,
+                'shop_label' => $gen->platformConnection?->label,
                 'from_cache' => $gen->from_cache,
                 'preset_id' => $gen->prompt_template_id,
                 'preview_text' => $preview,
@@ -207,34 +228,61 @@ class ContentGenerationController
      */
     public function statistics(TrackingLink $trackingLink, \Illuminate\Http\Request $request): JsonResponse
     {
-        $userId = $request->user()->id;
+        $actor = $request->user();
 
         // Scope check: link must belong to the user
-        if ((int) $trackingLink->user_id !== (int) $userId) {
+        if ((int) $trackingLink->user_id !== (int) $actor->id) {
             abort(404);
         }
 
-        $calcStats = function ($query) {
-            $stats = $query->selectRaw("
-                SUM(CASE WHEN status = 'succeeded' THEN (tokens_prompt + tokens_completion) ELSE 0 END) as total_tokens,
-                SUM(CASE WHEN type = 'image' AND status = 'succeeded' THEN JSON_LENGTH(output_payload, '$.media') ELSE 0 END) as total_images,
-                SUM(CASE WHEN type = 'video' AND status = 'succeeded' THEN JSON_LENGTH(output_payload, '$.media') ELSE 0 END) as total_videos
-            ")->first();
-
-            return [
-                'tokens' => (int) ($stats->total_tokens ?? 0),
-                'images' => (int) ($stats->total_images ?? 0),
-                'videos' => (int) ($stats->total_videos ?? 0),
-            ];
-        };
+        $cacheKey = $this->statisticsCache->linkCacheKey((int) $actor->id, (int) $trackingLink->id);
+        $stats = Cache::remember(
+            $cacheKey,
+            now()->addSeconds($this->statisticsCache->ttlSeconds()),
+            fn (): array => $this->statisticsService->forTrackingLink($actor, $trackingLink),
+        );
+        $stats = $this->normalizeStatisticsPayload($stats);
 
         return response()->json([
             'ok' => true,
-            'data' => [
-                'account' => $calcStats(\App\Models\ContentGeneration::where('user_id', $userId)),
-                'shop'    => $calcStats(\App\Models\ContentGeneration::where('user_id', $userId)->where('platform', $trackingLink->platform)),
-                'link'    => $calcStats(\App\Models\ContentGeneration::where('tracking_link_id', $trackingLink->id)),
-            ]
+            'data' => $stats,
         ]);
+    }
+
+    /**
+     * GET /api/content/statistics/account
+     * Returns account-level stats (account/partner/total_shop/unknown_shop).
+     */
+    public function accountStatistics(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        $cacheKey = $this->statisticsCache->accountCacheKey((int) $actor->id);
+        $stats = Cache::remember(
+            $cacheKey,
+            now()->addSeconds($this->statisticsCache->ttlSeconds()),
+            fn (): array => $this->statisticsService->forActor($actor),
+        );
+        $stats = $this->normalizeStatisticsPayload($stats);
+
+        return response()->json([
+            'ok' => true,
+            'data' => $stats,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stats
+     * @return array<string, mixed>
+     */
+    private function normalizeStatisticsPayload(array $stats): array
+    {
+        $stats['partner'] = is_array($stats['partner'] ?? null) ? $stats['partner'] : null;
+
+        $meta = is_array($stats['meta'] ?? null) ? $stats['meta'] : [];
+        $meta['has_partner'] = (bool) ($meta['has_partner'] ?? false);
+        $meta['partner_count'] = (int) ($meta['partner_count'] ?? 0);
+        $stats['meta'] = $meta;
+
+        return $stats;
     }
 }

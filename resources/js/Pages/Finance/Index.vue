@@ -17,15 +17,15 @@
                         Payout Batches
                     </button>
                     <span
-                        v-if="sync?.is_running"
+                        v-if="sync?.is_running && !isSyncing"
                         class="inline-flex items-center h-9 px-3 rounded-full text-xs font-semibold"
                         style="background: var(--warning-bg); color: var(--warning-text)"
                     >
                         Sync đang chạy...
                     </span>
-                    <button @click="triggerSync" :disabled="isSyncing" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5">
-                        <RefreshCw :size="14" :class="{ 'animate-spin': isSyncing }" />
-                        Đồng bộ ngay
+                    <button @click="triggerSync" :disabled="!!(isSyncing || sync?.is_running)" :class="['af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5', { 'opacity-50 cursor-not-allowed pointer-events-none': isSyncing || sync?.is_running }]">
+                        <RefreshCw :size="14" :class="{ 'animate-spin': isSyncing || sync?.is_running }" />
+                        {{ (isSyncing || sync?.is_running) ? 'Đang đồng bộ...' : 'Đồng bộ ngay' }}
                     </button>
                 </div>
             </div>
@@ -51,7 +51,7 @@
                     <input v-model="dateTo" type="date" class="af-input af-input-date h-9 text-sm" @click="$event.target.showPicker?.()" @change="applyFilters" />
                     <button class="af-btn-outline text-sm h-9 px-3" @click="applyFilters">Apply</button>
                 </div>
-                <p v-if="syncMessage" class="text-xs" style="color: var(--text-muted)">{{ syncMessage }}</p>
+                <p v-if="syncMessage" class="text-sm font-medium" style="color: var(--text-primary)">{{ syncMessage }}</p>
             </div>
 
             <!-- Tabs -->
@@ -195,8 +195,15 @@ const tabs = [
     { id: 'payouts', label: 'Chi Trả (Payouts)' },
 ];
 
+let pollInterval = null;
+let pollCount = 0;
+
 async function triggerSync() {
-    if (isSyncing.value) return;
+    if (isSyncing.value || props.sync?.is_running) {
+        syncMessage.value = 'Hệ thống đang đồng bộ dữ liệu, vui lòng chờ...';
+        return;
+    }
+    
     isSyncing.value = true;
     syncMessage.value = '';
 
@@ -204,20 +211,42 @@ async function triggerSync() {
         const response = await axios.post(route('api.finance.sync'));
         if (response.data?.ok) {
             syncMessage.value = response.data?.message || 'Đang đồng bộ dữ liệu tài chính...';
-            setTimeout(() => {
-                router.reload({
+            
+            // Start polling for status
+            pollCount = 0;
+            if (pollInterval) clearInterval(pollInterval);
+            
+            pollInterval = setInterval(async () => {
+                pollCount++;
+                if (pollCount > 30) { // 90 seconds timeout
+                    clearInterval(pollInterval);
+                    isSyncing.value = false;
+                    syncMessage.value = 'Đồng bộ mất nhiều thời gian hơn dự kiến, vui lòng tải lại trang sau.';
+                    return;
+                }
+                
+                await router.reload({
                     only: ['billings', 'payouts', 'summary', 'filters', 'sync'],
                     preserveScroll: true,
+                    onSuccess: () => {
+                        // Check if sync has finished after reload
+                        if (!props.sync?.is_running) {
+                            clearInterval(pollInterval);
+                            isSyncing.value = false;
+                            syncMessage.value = 'Đồng bộ hoàn tất.';
+                        }
+                    }
                 });
-            }, 1800);
+            }, 3000);
+            
             return;
         }
 
         syncMessage.value = response.data?.message || 'Không thể đồng bộ dữ liệu.';
+        isSyncing.value = false;
     } catch (error) {
         const message = error.response?.data?.message || 'Không thể đồng bộ dữ liệu.';
         syncMessage.value = message;
-    } finally {
         isSyncing.value = false;
     }
 }

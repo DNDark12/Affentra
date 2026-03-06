@@ -179,9 +179,13 @@ class User extends Authenticatable
         return $this->role === UserRole::Leader;
     }
 
-    public function isCTV(): bool
+    public function isPartner(): bool
     {
-        return $this->role === UserRole::CTV;
+        if ($this->role instanceof UserRole) {
+            return $this->role->isPartnerRole();
+        }
+
+        return (string) $this->role === UserRole::Partner->value;
     }
 
     public function isActive(): bool

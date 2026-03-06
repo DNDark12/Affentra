@@ -15,6 +15,7 @@ class ContentGeneration extends Model
     protected $fillable = [
         'tracking_link_id',
         'user_id',
+        'platform_connection_id',
         'type',
         'platform',
         'status',
@@ -42,6 +43,7 @@ class ContentGeneration extends Model
      * @var array<string, string>
      */
     protected $casts = [
+        'platform_connection_id'   => 'integer',
         'prompt_attributes'      => 'array',
         'output_payload'         => 'array',
         'force_new_seed'         => 'boolean',
@@ -61,6 +63,11 @@ class ContentGeneration extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function platformConnection(): BelongsTo
+    {
+        return $this->belongsTo(PlatformConnection::class, 'platform_connection_id');
     }
 
     /**

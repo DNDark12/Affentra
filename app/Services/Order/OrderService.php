@@ -579,7 +579,11 @@ class OrderService
         $links = TrackingLink::query()
             ->where('platform', $connection->platform)
             ->where('user_id', $connection->user_id)
-            ->get(['id', 'user_id', 'campaign_id', 'destination_url', 'meta']);
+            ->where(function ($query) use ($connection): void {
+                $query->where('platform_connection_id', $connection->id)
+                    ->orWhereNull('platform_connection_id');
+            })
+            ->get(['id', 'user_id', 'campaign_id', 'destination_url', 'meta', 'platform_connection_id']);
 
         foreach ($links as $link) {
             $productKey = TrackingLinkIdentity::extractShopeeProductKey(
@@ -590,18 +594,30 @@ class OrderService
                 continue;
             }
 
-            if (
-                isset($map[$productKey])
-                && (($map[$productKey]['ambiguous'] ?? false) === true
-                    || ($map[$productKey]['id'] ?? null) !== $link->id)
-            ) {
-                $ambiguousKeys[$productKey] = true;
+            $priority = ((int) ($link->platform_connection_id ?? 0) === (int) $connection->id) ? 2 : 1;
+            $existing = $map[$productKey] ?? null;
+            if (($existing['ambiguous'] ?? false) === true || isset($ambiguousKeys[$productKey])) {
                 $map[$productKey] = ['ambiguous' => true];
                 continue;
             }
 
-            if (isset($ambiguousKeys[$productKey])) {
-                $map[$productKey] = ['ambiguous' => true];
+            if ($existing !== null) {
+                $existingPriority = (int) ($existing['priority'] ?? 0);
+                if ($priority > $existingPriority) {
+                    $map[$productKey] = [
+                        'id' => $link->id,
+                        'user_id' => $link->user_id,
+                        'campaign_id' => $link->campaign_id,
+                        'priority' => $priority,
+                    ];
+                    continue;
+                }
+
+                if ($priority === $existingPriority && (int) ($existing['id'] ?? 0) !== (int) $link->id) {
+                    $ambiguousKeys[$productKey] = true;
+                    $map[$productKey] = ['ambiguous' => true];
+                }
+
                 continue;
             }
 
@@ -609,6 +625,7 @@ class OrderService
                 'id' => $link->id,
                 'user_id' => $link->user_id,
                 'campaign_id' => $link->campaign_id,
+                'priority' => $priority,
             ];
         }
 
@@ -678,6 +695,7 @@ class OrderService
         $existingLink = TrackingLink::query()
             ->where('user_id', $connection->user_id)
             ->where('platform', $connection->platform)
+            ->where('platform_connection_id', $connection->id)
             ->where('destination_url', $destinationUrl)
             ->first(['id', 'user_id', 'campaign_id', 'destination_url', 'meta']);
 
@@ -686,6 +704,7 @@ class OrderService
                 try {
                     $existingLink = TrackingLink::query()->create([
                         'user_id' => $connection->user_id,
+                        'platform_connection_id' => $connection->id,
                         'campaign_id' => null,
                         'short_code' => Str::lower(Str::random(8)),
                         'destination_url' => $destinationUrl,
@@ -721,6 +740,7 @@ class OrderService
             'id' => (int) $existingLink->id,
             'user_id' => (int) $existingLink->user_id,
             'campaign_id' => $existingLink->campaign_id !== null ? (int) $existingLink->campaign_id : null,
+            'priority' => 2,
         ];
 
         $linksByProductKey[$resolvedProductKey] = $payload;

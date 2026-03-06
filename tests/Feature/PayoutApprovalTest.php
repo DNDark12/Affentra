@@ -23,21 +23,21 @@ class PayoutApprovalTest extends TestCase
             'role' => UserRole::Owner,
             'status' => UserStatus::Active,
         ]);
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
             'parent_id' => $owner->id,
         ]);
 
         $profile = UserProfile::factory()->create([
-            'user_id' => $ctv->id,
+            'user_id' => $partner->id,
             'is_payout_ready' => false,
             'payout_review_status' => PayoutReviewStatus::Pending,
         ]);
 
         $response = $this->actingAs($owner)
             ->withHeader('X-Request-ID', 'payout-approve-req-001')
-            ->postJson(route('api.payout-approvals.approve', ['userId' => $ctv->id]));
+            ->postJson(route('api.payout-approvals.approve', ['userId' => $partner->id]));
 
         $response
             ->assertOk()
@@ -69,31 +69,31 @@ class PayoutApprovalTest extends TestCase
             'role' => UserRole::Leader,
             'status' => UserStatus::Active,
         ]);
-        $ctvOfB = User::factory()->create([
-            'role' => UserRole::CTV,
+        $partnerOfB = User::factory()->create([
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
             'parent_id' => $leaderB->id,
         ]);
 
         UserProfile::factory()->create([
-            'user_id' => $ctvOfB->id,
+            'user_id' => $partnerOfB->id,
             'payout_review_status' => PayoutReviewStatus::Pending,
         ]);
 
         $response = $this->actingAs($leaderA)
-            ->postJson(route('api.payout-approvals.approve', ['userId' => $ctvOfB->id]));
+            ->postJson(route('api.payout-approvals.approve', ['userId' => $partnerOfB->id]));
 
         $response->assertStatus(404);
     }
 
-    public function test_ctv_cannot_access_payout_approval_endpoints(): void
+    public function test_partner_cannot_access_payout_approval_endpoints(): void
     {
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 
-        $response = $this->actingAs($ctv)->getJson(route('api.payout-approvals.index'));
+        $response = $this->actingAs($partner)->getJson(route('api.payout-approvals.index'));
         $response->assertStatus(403);
     }
 
@@ -103,19 +103,19 @@ class PayoutApprovalTest extends TestCase
             'role' => UserRole::Owner,
             'status' => UserStatus::Active,
         ]);
-        $ctv = User::factory()->create([
-            'role' => UserRole::CTV,
+        $partner = User::factory()->create([
+            'role' => UserRole::Partner,
             'status' => UserStatus::Active,
             'parent_id' => $owner->id,
         ]);
 
         UserProfile::factory()->create([
-            'user_id' => $ctv->id,
+            'user_id' => $partner->id,
             'payout_review_status' => PayoutReviewStatus::Pending,
         ]);
 
         $response = $this->actingAs($owner)
-            ->postJson(route('api.payout-approvals.reject', ['userId' => $ctv->id]), []);
+            ->postJson(route('api.payout-approvals.reject', ['userId' => $partner->id]), []);
 
         $response
             ->assertStatus(422)
@@ -127,20 +127,20 @@ class PayoutApprovalTest extends TestCase
             'role'   => UserRole::Owner,
             'status' => UserStatus::Active,
         ]);
-        $ctv = User::factory()->create([
-            'role'      => UserRole::CTV,
+        $partner = User::factory()->create([
+            'role'      => UserRole::Partner,
             'status'    => UserStatus::Active,
             'parent_id' => $owner->id,
         ]);
 
         UserProfile::factory()->create([
-            'user_id'              => $ctv->id,
+            'user_id'              => $partner->id,
             'is_payout_ready'      => true,
             'payout_review_status' => PayoutReviewStatus::Approved, // already approved
         ]);
 
         $response = $this->actingAs($owner)
-            ->postJson(route('api.payout-approvals.approve', ['userId' => $ctv->id]));
+            ->postJson(route('api.payout-approvals.approve', ['userId' => $partner->id]));
 
         // State machine guard: cannot approve a non-pending profile
         $response->assertStatus(422);

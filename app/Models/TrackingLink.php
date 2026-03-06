@@ -19,6 +19,7 @@ class TrackingLink extends Model
     /** @var list<string> */
     protected $fillable = [
         'user_id',
+        'platform_connection_id',
         'campaign_id',
         'short_code',
         'destination_url',
@@ -47,6 +48,7 @@ class TrackingLink extends Model
     protected function casts(): array
     {
         return [
+            'platform_connection_id'    => 'integer',
             'tags'               => 'array',
             'meta'               => 'array',
             'product_image_urls'      => 'array',
@@ -69,6 +71,11 @@ class TrackingLink extends Model
     public function campaign(): BelongsTo
     {
         return $this->belongsTo(Campaign::class);
+    }
+
+    public function platformConnection(): BelongsTo
+    {
+        return $this->belongsTo(PlatformConnection::class, 'platform_connection_id');
     }
 
     public function clicks(): HasMany

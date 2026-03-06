@@ -19,7 +19,7 @@ class ProfileControllerTest extends TestCase
     public function test_social_user_can_set_password_without_current_password(): void
     {
         $user = User::factory()->create([
-            'role'     => UserRole::CTV,
+            'role'     => UserRole::Partner,
             'status'   => UserStatus::Active,
             'password' => null,
         ]);
@@ -46,7 +46,7 @@ class ProfileControllerTest extends TestCase
     public function test_updating_bank_info_marks_payout_as_not_ready(): void
     {
         $user = User::factory()->create([
-            'role'   => UserRole::CTV,
+            'role'   => UserRole::Partner,
             'status' => UserStatus::Active,
         ]);
 

@@ -156,11 +156,11 @@ class CampaignSyncTest extends TestCase
             ->assertJsonPath('ok', false);
     }
 
-    public function test_ctv_cannot_trigger_campaign_sync(): void
+    public function test_partner_cannot_trigger_campaign_sync(): void
     {
-        $ctv = User::factory()->create(['role' => 'ctv']);
+        $partner = User::factory()->create(['role' => 'partner']);
 
-        $response = $this->actingAs($ctv)->postJson('/api/campaigns/sync');
+        $response = $this->actingAs($partner)->postJson('/api/campaigns/sync');
 
         $response->assertStatus(403);
     }

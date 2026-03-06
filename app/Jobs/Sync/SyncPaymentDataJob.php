@@ -20,6 +20,12 @@ class SyncPaymentDataJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 2;
+
+    public int $maxExceptions = 1;
+
+    public int $timeout = 300; // 5 minutes max
+
     /**
      * Create a new job instance.
      */
@@ -27,8 +33,30 @@ class SyncPaymentDataJob implements ShouldQueue
         protected PlatformConnection $platformConnection,
         protected ?Carbon $since = null,
         protected ?Carbon $until = null,
-        protected string $triggerType = 'auto'
+        protected string $triggerType = 'payment_sync',
+        protected ?int $syncRunId = null,
     ) {}
+
+    /**
+     * Handle job failure: finalize any orphan processing SyncRuns.
+     */
+    public function failed(?\Throwable $exception): void
+    {
+        // Mark any SyncRuns left in 'processing' for this connection as 'failed'
+        SyncRun::where('platform_connection_id', $this->platformConnection->id)
+            ->where('type', 'payment_sync')
+            ->where('status', 'processing')
+            ->update([
+                'status' => 'failed',
+                'finished_at' => now(),
+                'error_message' => 'Job failed: ' . ($exception?->getMessage() ?? 'Unknown error'),
+            ]);
+
+        Log::warning('SyncPaymentDataJob::failed — cleaned up orphan runs', [
+            'connection_id' => $this->platformConnection->id,
+            'error' => $exception?->getMessage(),
+        ]);
+    }
 
     /**
      * Execute the job.
@@ -52,14 +80,25 @@ class SyncPaymentDataJob implements ShouldQueue
 
         $adapter = $factory->make($this->platformConnection->platform);
         
-        $syncRun = SyncRun::create([
-            'platform_connection_id' => $this->platformConnection->id,
-            'user_id' => $this->platformConnection->user_id,
-            'integration' => $this->platformConnection->platform,
-            'type' => $this->triggerType,
-            'status' => 'processing',
-            'started_at' => now(),
-        ]);
+        $syncRun = $this->syncRunId !== null 
+            ? SyncRun::find($this->syncRunId) 
+            : null;
+
+        if (! $syncRun) {
+            $syncRun = SyncRun::create([
+                'platform_connection_id' => $this->platformConnection->id,
+                'user_id' => $this->platformConnection->user_id,
+                'integration' => $this->platformConnection->platform,
+                'type' => 'payment_sync',
+                'status' => 'processing',
+                'started_at' => now(),
+            ]);
+        } else {
+            $syncRun->update([
+                'status' => 'processing',
+                'started_at' => now(),
+            ]);
+        }
 
         try {
             $warnings = [];
@@ -148,7 +187,7 @@ class SyncPaymentDataJob implements ShouldQueue
             );
 
             $syncRun->update([
-                'status' => 'completed',
+                'status' => $warnings === [] ? 'completed' : 'completed_with_warnings',
                 'finished_at' => now(),
                 'records_fetched' => count($billings) + count($payouts) + count($serviceFeeInvoices),
                 'records_upserted' => $billingsCount + $payoutsCount + $reconciledOrders,
@@ -159,7 +198,7 @@ class SyncPaymentDataJob implements ShouldQueue
 
             $this->platformConnection->update([
                 'last_sync_at' => now(),
-                'last_sync_status' => 'completed',
+                'last_sync_status' => $warnings === [] ? 'completed' : 'completed_with_warnings',
                 'status' => 'active',
                 'last_error' => null,
                 'last_error_at' => null,

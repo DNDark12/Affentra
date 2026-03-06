@@ -50,15 +50,15 @@ class RecordClickJob implements ShouldQueue
         // Resolve scope keys
         $ownerId = null;
         $leaderId = null;
-        $ctvUserId = null;
+        $partnerUserId = null;
 
         if ($user->isOwner()) {
             $ownerId = $user->id;
         } elseif ($user->isLeader()) {
             $ownerId = $user->parent_id ?? $user->id; // Fallback if schema is somehow malformed
             $leaderId = $user->id;
-        } elseif ($user->isCTV()) {
-            $ctvUserId = $user->id;
+        } elseif ($user->isPartner()) {
+            $partnerUserId = $user->id;
             $leader = $user->parent;
             if ($leader) {
                 $leaderId = $leader->id;
@@ -113,7 +113,7 @@ class RecordClickJob implements ShouldQueue
         $enrichedData = array_merge($this->clickData, [
             'owner_id' => $ownerId,
             'leader_id' => $leaderId,
-            'ctv_user_id' => $ctvUserId,
+            'partner_user_id' => $partnerUserId,
             'fingerprint_hash' => $fingerprintHash,
             'hash_version' => 1,
             'is_bot' => $isBot,

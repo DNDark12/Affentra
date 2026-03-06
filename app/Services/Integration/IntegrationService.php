@@ -46,7 +46,7 @@ class IntegrationService
         return $user->platformConnections()
             ->withCount('syncRuns')
             ->with(['syncRuns' => static function ($query): void {
-                $query->latest('started_at')->limit(5);
+                $query->latest('started_at')->limit(20);
             }])
             ->latest()
             ->get();
@@ -356,7 +356,7 @@ class IntegrationService
 
     public function canManageConnections(User $user): bool
     {
-        return ! $user->isCTV();
+        return ! $user->isPartner();
     }
 
     public function canUseCookieMethod(User $user): bool
@@ -431,11 +431,39 @@ class IntegrationService
             syncRunId: $syncRun->id,
         );
 
-        // Keep payout status/settlement data in sync with manual sync requests.
-        SyncPaymentDataJob::dispatch($connection, triggerType: 'manual');
+        $paymentSyncRun = SyncRun::create([
+            'user_id' => $actor->id,
+            'platform_connection_id' => $connection->id,
+            'integration' => $connection->platform,
+            'type' => 'payment_sync',
+            'status' => 'pending',
+            'started_at' => now(),
+        ]);
+
+        SyncPaymentDataJob::dispatch(
+            platformConnection: $connection, 
+            triggerType: 'payment_sync', 
+            syncRunId: $paymentSyncRun->id
+        );
 
         if ($connection->platform === 'shopee') {
-            SyncShopeeCampaignsForConnectionJob::dispatch($connection->id, 'manual');
+            $campaignSyncRun = SyncRun::create([
+                'user_id' => $actor->id,
+                'platform_connection_id' => $connection->id,
+                'integration' => $connection->platform,
+                'type' => 'campaign_sync',
+                'status' => 'pending',
+                'started_at' => now(),
+                'records_fetched' => 0,
+                'records_upserted' => 0,
+                'records_failed' => 0,
+            ]);
+
+            SyncShopeeCampaignsForConnectionJob::dispatch(
+                connectionId: $connection->id, 
+                triggerType: 'campaign_sync', 
+                syncRunId: $campaignSyncRun->id
+            );
         }
 
         $this->auditLogger->log(

@@ -37,6 +37,35 @@ class SyncPlatformConnectionJob implements ShouldQueue
         private readonly ?int $syncRunId = null,
     ) {}
 
+    /**
+     * Handle job failure: clean up any orphaned 'processing' SyncRuns.
+     */
+    public function failed(?\Throwable $exception): void
+    {
+        $runQuery = SyncRun::where('platform_connection_id', $this->connectionId)
+            ->where('status', 'processing');
+        
+        // If a specific run ID was passed, scope to that run
+        if ($this->syncRunId !== null) {
+            $runQuery->where('id', $this->syncRunId);
+        } else {
+            // Otherwise, scope to the run type this job attempted
+            $runQuery->where('type', $this->type);
+        }
+
+        $runQuery->update([
+            'status' => 'failed',
+            'finished_at' => now(),
+            'error_message' => 'Job failed (worker exception/timeout): ' . ($exception?->getMessage() ?? 'Unknown error'),
+        ]);
+
+        Log::warning('SyncPlatformConnectionJob::failed — cleaned up orphaned processing runs', [
+            'connection_id' => $this->connectionId,
+            'sync_run_id' => $this->syncRunId,
+            'error' => $exception?->getMessage(),
+        ]);
+    }
+
     public function handle(OrderService $orderService, ClickAnalyticsService $clickAnalyticsService): void
     {
         $connection = PlatformConnection::find($this->connectionId);
@@ -268,7 +297,7 @@ class SyncPlatformConnectionJob implements ShouldQueue
                 'warnings'      => $warnings,
             ]);
 
-        } catch (\RuntimeException $e) {
+        } catch (\Throwable $e) {
             $status = $this->classifyError($e);
 
             $syncRun->update([
@@ -314,7 +343,7 @@ class SyncPlatformConnectionJob implements ShouldQueue
     /**
      * Classify the error into our status taxonomy.
      */
-    private function classifyError(\RuntimeException $e): string
+    private function classifyError(\Throwable $e): string
     {
         $message = strtolower($e->getMessage());
 

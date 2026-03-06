@@ -20,7 +20,7 @@ use InvalidArgumentException;
 class PromptTemplateRegistry
 {
     /**
-     * @var array<string, array{description: string, types: list<string>, renderer: callable}>
+     * @var array<string, array{description: string, types: list<string>, platform: string, renderer: callable}>
      */
     private array $templates = [];
 
@@ -62,7 +62,7 @@ class PromptTemplateRegistry
 
             Trả về đúng {$count} phiên bản, KHÔNG thêm tiêu đề hay đánh số phiên bản.
             PROMPT;
-        });
+        }, 'facebook');
 
         $this->register('tiktok_caption', 'TikTok caption + hook', ['text'], function (array $attrs): string {
             $product  = $attrs['product_title']   ?? 'sản phẩm';
@@ -81,7 +81,7 @@ class PromptTemplateRegistry
 
             Phân cách mỗi phiên bản bằng ---.
             PROMPT;
-        });
+        }, 'tiktok');
 
         $this->register('hashtags_pack', 'Hashtags pack', ['text'], function (array $attrs): string {
             $product  = $attrs['product_title']   ?? 'sản phẩm';
@@ -89,7 +89,7 @@ class PromptTemplateRegistry
             $count    = max(10, (int) ($attrs['variant_count'] ?? 20));
 
             return "Tạo {$count} hashtag phù hợp {$platform} cho sản phẩm \"{$product}\". Trả về mỗi hashtag trên một dòng.";
-        });
+        }, 'generic');
 
         $this->register('fb_post_image', 'Ảnh quảng cáo Facebook', ['image'], function (array $attrs): string {
             $product = $attrs['product_title'] ?? 'sản phẩm';
@@ -99,15 +99,21 @@ class PromptTemplateRegistry
             return "Tạo một ảnh quảng cáo chuyên nghiệp cho sản phẩm \"{$product}\". " .
                    "Điểm nổi bật: {$usp}. Phong cách: {$tone}. " .
                    "Ảnh nên có bố cục sạch sẽ, ánh sáng studio, thu hút người nhìn cho quảng cáo Facebook.";
-        });
+        }, 'facebook');
     }
 
     /**
      * @param  list<string> $types  Supported generation types (text|image|video)
      */
-    public function register(string $id, string $description, array $types, callable $renderer): void
+    public function register(
+        string $id,
+        string $description,
+        array $types,
+        callable $renderer,
+        string $platform = 'generic',
+    ): void
     {
-        $this->templates[$id] = compact('description', 'types', 'renderer');
+        $this->templates[$id] = compact('description', 'types', 'platform', 'renderer');
     }
 
     /**

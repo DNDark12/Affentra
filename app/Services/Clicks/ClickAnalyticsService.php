@@ -58,7 +58,7 @@ class ClickAnalyticsService
             array_map(fn (array $row): ?string => $this->normalizeSubId($row['sub_id'] ?? null), $clicks),
         ))));
 
-        $links = $this->repository->resolveLinksBySubIds($subIds);
+        $links = $this->repository->resolveLinksBySubIds($subIds, $connection->id);
         $linksByItemId = $this->buildLinksByItemId($connection);
 
         $deleted = $this->repository->cleanupSyncedClicks(
@@ -141,7 +141,7 @@ class ClickAnalyticsService
                     'bot_reason' => null,
                     'owner_id' => $scope['owner_id'],
                     'leader_id' => $scope['leader_id'],
-                    'ctv_user_id' => $scope['ctv_user_id'],
+                    'partner_user_id' => $scope['partner_user_id'],
                     'created_at' => $clickTime->format('Y-m-d H:i:s'),
                     'sub_id' => $subId,
                     'attribution_status' => $attributionStatus,
@@ -175,19 +175,19 @@ class ClickAnalyticsService
     }
 
     /**
-     * @return array{owner_id: int|null, leader_id: int|null, ctv_user_id: int|null}
+     * @return array{owner_id: int|null, leader_id: int|null, partner_user_id: int|null}
      */
     private function resolveScopeIds(User $user): array
     {
         if ($user->isOwner()) {
-            return ['owner_id' => $user->id, 'leader_id' => null, 'ctv_user_id' => null];
+            return ['owner_id' => $user->id, 'leader_id' => null, 'partner_user_id' => null];
         }
 
         if ($user->isLeader()) {
             return [
                 'owner_id' => $user->parent_id ?? $user->id,
                 'leader_id' => $user->id,
-                'ctv_user_id' => null,
+                'partner_user_id' => null,
             ];
         }
 
@@ -196,14 +196,14 @@ class ClickAnalyticsService
             return [
                 'owner_id' => $leader->parent_id ?? $leader->id,
                 'leader_id' => $leader->id,
-                'ctv_user_id' => $user->id,
+                'partner_user_id' => $user->id,
             ];
         }
 
         return [
             'owner_id' => null,
             'leader_id' => null,
-            'ctv_user_id' => $user->id,
+            'partner_user_id' => $user->id,
         ];
     }
 
@@ -237,7 +237,11 @@ class ClickAnalyticsService
         $links = TrackingLink::query()
             ->where('platform', $connection->platform)
             ->where('user_id', $connection->user_id)
-            ->get(['id', 'destination_url', 'meta']);
+            ->where(function ($query) use ($connection): void {
+                $query->where('platform_connection_id', $connection->id)
+                    ->orWhereNull('platform_connection_id');
+            })
+            ->get(['id', 'destination_url', 'meta', 'platform_connection_id']);
 
         foreach ($links as $link) {
             $productKey = TrackingLinkIdentity::extractShopeeProductKey(
@@ -254,16 +258,27 @@ class ClickAnalyticsService
                 continue;
             }
 
-            if (isset($map[$itemId]) && (($map[$itemId]['id'] ?? null) !== $link->id)) {
-                $map[$itemId] = ['ambiguous' => true];
+            $priority = ((int) ($link->platform_connection_id ?? 0) === (int) $connection->id) ? 2 : 1;
+            $existing = $map[$itemId] ?? null;
+            if (($existing['ambiguous'] ?? false) === true) {
                 continue;
             }
 
-            if (($map[$itemId]['ambiguous'] ?? false) === true) {
+            if ($existing !== null) {
+                $existingPriority = (int) ($existing['priority'] ?? 0);
+                if ($priority > $existingPriority) {
+                    $map[$itemId] = ['id' => $link->id, 'priority' => $priority];
+                    continue;
+                }
+
+                if ($priority === $existingPriority && (int) ($existing['id'] ?? 0) !== (int) $link->id) {
+                    $map[$itemId] = ['ambiguous' => true];
+                }
+
                 continue;
             }
 
-            $map[$itemId] = ['id' => $link->id];
+            $map[$itemId] = ['id' => $link->id, 'priority' => $priority];
         }
 
         return $map;

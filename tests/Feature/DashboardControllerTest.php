@@ -45,7 +45,7 @@ class DashboardControllerTest extends TestCase
 
         Click::query()->create([
             'tracking_link_id' => $link->id,
-            'ctv_user_id' => $owner->id,
+            'partner_user_id' => $owner->id,
             'created_at' => now()->subDay(),
         ]);
 

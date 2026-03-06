@@ -29,11 +29,40 @@
 
             <!-- Search Panel -->
             <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 shadow-sm flex flex-col gap-4">
+                <!-- Search Mode Toggle (cookie connections only) -->
+                <div v-if="isCookieLookupMode" class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-zinc-500 dark:text-zinc-400 mr-1">Chế độ:</span>
+                    <button
+                        type="button"
+                        @click="searchType = 'detail'"
+                        :class="[
+                            'px-3 py-1.5 rounded-full text-sm font-semibold transition-colors border',
+                            searchType === 'detail'
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                        ]"
+                    >
+                        Tra cứu sản phẩm
+                    </button>
+                    <button
+                        type="button"
+                        @click="searchType = 'keyword'"
+                        :class="[
+                            'px-3 py-1.5 rounded-full text-sm font-semibold transition-colors border',
+                            searchType === 'keyword'
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                        ]"
+                    >
+                        Tìm kiếm từ khoá
+                    </button>
+                </div>
+
                 <form @submit.prevent="performSearch" class="flex flex-col md:flex-row items-stretch md:items-center gap-3">
                     <div class="relative flex-1">
                         <Search :size="18" class="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                         <input type="text" v-model="searchUrl" 
-                               :placeholder="isCookieLookupMode ? 'Nhập Item ID hoặc URL Shopee/affiliate...' : 'Dán link sản phẩm Shopee hoặc nhập từ khóa/Item ID...'" 
+                               :placeholder="searchInputPlaceholder" 
                                class="w-full h-12 pl-12 pr-[120px] rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/30 text-[15px] focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-zinc-100 font-medium" />
                         
                         <button type="submit" :disabled="!searchUrl || isSearching || !selectedConnectionId" class="absolute right-1.5 top-1.5 bottom-1.5 px-6 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-sm">
@@ -46,8 +75,11 @@
                 <!-- Quick Filters / Tags -->
                 <div class="flex items-center gap-3 text-sm">
                     <span class="text-zinc-500 dark:text-zinc-400">Lọc nhanh:</span>
-                    <template v-if="isCookieLookupMode">
-                        <span class="px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-medium">Chế độ cookie: tra cứu theo Item ID / URL</span>
+                    <template v-if="isCookieLookupMode && searchType === 'keyword'">
+                        <span class="px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">Tìm kiếm theo từ khoá</span>
+                    </template>
+                    <template v-else-if="isCookieLookupMode">
+                        <span class="px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-medium">Cookie: tra cứu theo Item ID / URL</span>
                     </template>
                     <template v-else>
                         <button class="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition-colors cursor-not-allowed opacity-50">Hoa hồng cao</button>
@@ -176,7 +208,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import axios from 'axios';
 import { router } from '@inertiajs/vue3';
 import { Compass, Search, Loader2, AlertTriangle, CheckCircle2, ImageOff, Info, Copy, Link } from 'lucide-vue-next';
@@ -223,11 +255,31 @@ function formatCurrency(amount) {
 // Search State
 // ----------------------------------------------------
 const searchUrl = ref('');
+const searchType = ref('detail'); // 'detail' | 'keyword'
 const isSearching = ref(false);
 const hasSearched = ref(false);
 const errorMsg = ref('');
 const errorCode = ref('');
 const searchResults = ref([]); // Arrays in case API returns multiple based on shop link search
+
+const searchInputPlaceholder = computed(() => {
+    if (isCookieLookupMode.value && searchType.value === 'keyword') {
+        return 'Nhập từ khoá tìm kiếm sản phẩm...';
+    }
+    if (isCookieLookupMode.value) {
+        return 'Nhập Item ID hoặc URL Shopee/affiliate...';
+    }
+    return 'Dán link sản phẩm Shopee hoặc nhập từ khóa/Item ID...';
+});
+
+// Reset search mode to 'detail' when switching connections
+watch(selectedConnectionId, () => {
+    searchType.value = 'detail';
+    searchUrl.value = '';
+    searchResults.value = [];
+    errorMsg.value = '';
+    hasSearched.value = false;
+});
 
 async function performSearch() {
     if (!searchUrl.value || !selectedConnectionId.value) return;
@@ -239,22 +291,42 @@ async function performSearch() {
     searchResults.value = [];
 
     try {
-        const searchParams = buildSearchParams(searchUrl.value);
-        if (isCookieLookupMode.value && !searchParams.itemId) {
-            errorMsg.value = 'Kết nối cookie chỉ hỗ trợ Item ID hoặc URL Shopee hợp lệ.';
-            errorCode.value = 'OFFER_COOKIE_ITEMID_REQUIRED';
-            return;
+        // Determine search_type to send
+        let resolvedSearchType = null;
+        let searchParams = {};
+
+        if (isCookieLookupMode.value) {
+            // Cookie connection: use explicit toggle selection
+            resolvedSearchType = searchType.value;
+            if (searchType.value === 'keyword') {
+                searchParams = { keyword: searchUrl.value.trim() };
+            } else {
+                // detail mode: pass raw input to backend (backend resolves URL/ID)
+                searchParams = { keyword: searchUrl.value.trim() };
+            }
+        } else {
+            // Open API: auto-detect (null search_type, use buildSearchParams)
+            searchParams = buildSearchParams(searchUrl.value);
         }
 
         const res = await axios.get(route('api.offers.search'), {
             params: {
                 connection_id: Number(selectedConnectionId.value),
+                ...(resolvedSearchType ? { search_type: resolvedSearchType } : {}),
                 ...searchParams,
             },
         });
 
         if (res.data?.ok) {
-            const nodes = Array.isArray(res.data?.data?.nodes) ? res.data.data.nodes : [];
+            const raw = res.data?.data;
+            // Detail mode returns a single object (not a nodes array)
+            let nodes = [];
+            if (Array.isArray(raw?.nodes)) {
+                nodes = raw.nodes;
+            } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                // Single detail result — wrap in array for display
+                nodes = [raw];
+            }
             searchResults.value = nodes
                 .map(normalizeOffer)
                 .filter((offer) => offer.item_id && offer.item_url);
@@ -396,7 +468,15 @@ function normalizeOfferError(message, code) {
     }
 
     if (code === 'OFFER_ID_INVALID') {
-        return 'Offer ID không hợp lệ cho kết nối cookie.';
+        return 'Không thể xác định Item ID. Vui lòng nhập Item ID số hoặc URL Shopee hợp lệ.';
+    }
+
+    if (code === 'OFFER_DETAIL_INPUT_REQUIRED') {
+        return 'Vui lòng nhập Item ID hoặc URL sản phẩm để tra cứu chi tiết.';
+    }
+
+    if (code === 'OFFER_KEYWORD_REQUIRED') {
+        return 'Vui lòng nhập từ khoá để tìm kiếm sản phẩm.';
     }
 
     return message || 'Có lỗi hệ thống xảy ra khi tìm dữ liệu Offer.';

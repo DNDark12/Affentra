@@ -169,7 +169,8 @@ class OfferControllerTest extends TestCase
     }
 
     public function test_cookie_connection_returns_antibot_code_for_soft_block(): void
-    {
+    { 
+        /** @var User $user */
         $user = User::factory()->create();
         $conn = PlatformConnection::factory()->create([
             'user_id'  => $user->id,
@@ -180,9 +181,10 @@ class OfferControllerTest extends TestCase
         ]);
 
         Http::fake([
-            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
-                'code' => 90309999,
-                'msg' => 'Unknown error',
+            'http://scraper:8000/api/v1/shopee/product' => Http::response([
+                'ok' => false,
+                'error_code' => 'BLOCKED_BOT',
+                'error' => 'Unknown error',
             ], 200),
         ]);
 
@@ -461,16 +463,13 @@ class OfferControllerTest extends TestCase
         ]);
 
         Http::fake([
-            'https://affiliate.shopee.vn/api/v3/offer/product*' => Http::response([
-                'code' => 0,
-                'msg' => 'success',
+            'http://scraper:8000/api/v1/shopee/product*' => Http::response([
+                'ok' => true,
                 'data' => [
-                    'product' => [
-                        'item_id' => 19760277380,
-                        'shop_id' => 1663031317,
-                        'product_name' => 'Cookie Detail Product',
-                        'commission_rate' => 4500,
-                    ],
+                    'item_id' => 19760277380,
+                    'shop_id' => 1663031317,
+                    'item_name' => 'Cookie Detail Product',
+                    'commission_rate' => 4500,
                 ],
             ], 200),
         ]);
@@ -563,13 +562,124 @@ class OfferControllerTest extends TestCase
         $response->assertStatus(404);
     }
 
-    public function test_show_offer_detail_requires_connection_id(): void
+    public function test_search_offers_with_keyword_type_forces_list_search_for_cookie(): void
     {
         $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'http://scraper:8000/api/v1/shopee/search*' => Http::response([
+                'ok' => true,
+                'data' => [
+                    [
+                        'item_id' => 111,
+                        'shop_id' => 222,
+                        'item_name' => 'Keyword Result',
+                        'commission_rate' => 5000,
+                    ]
+                ]
+            ], 200),
+        ]);
 
         $response = $this->actingAs($user)
-            ->getJson('/api/offers/123');
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&search_type=keyword&keyword=99999999991');
 
-        $response->assertStatus(422);
+        $response->assertStatus(200)
+            ->assertJsonPath('data.nodes.0.itemId', 111)
+            ->assertJsonPath('data.nodes.0.productName', 'Keyword Result');
+    }
+
+    public function test_search_offers_with_detail_type_returns_single_offer_detail(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'http://scraper:8000/api/v1/shopee/product*' => Http::response([
+                'ok' => true,
+                'data' => [
+                    'item_id' => 222999,
+                    'shop_id' => 888,
+                    'item_name' => 'Detail Result',
+                    'commission_rate' => 6000,
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&search_type=detail&keyword=222999');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.item_id', '222999')
+            ->assertJsonPath('data.item_name', 'Detail Result');
+    }
+
+    public function test_search_offers_null_type_maintains_auto_detect_backward_compatibility(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'http://scraper:8000/api/v1/shopee/product*' => Http::response([
+                'ok' => true,
+                'data' => [
+                    'item_id' => 333999,
+                    'shop_id' => 888,
+                    'item_name' => 'Auto-Detect Result',
+                    'commission_rate' => 6000,
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&keyword=333999');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.nodes.0.itemId', 333999)
+            ->assertJsonPath('data.nodes.0.productName', 'Auto-Detect Result');
+    }
+
+    public function test_search_offers_handles_blocked_response_properly(): void
+    {
+        $user = User::factory()->create();
+        $conn = PlatformConnection::factory()->create([
+            'user_id'  => $user->id,
+            'platform' => 'shopee',
+            'method'   => 'cookie',
+            'status'   => 'active',
+            'cookie_header' => 'a=b',
+        ]);
+
+        Http::fake([
+            'http://scraper:8000/api/v1/shopee/product' => Http::response([
+                'ok' => false,
+                'error_code' => 'BLOCKED_BOT',
+                'error' => 'block',
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($user)
+            ->getJson('/api/offers/search?connection_id=' . $conn->id . '&search_type=detail&keyword=999');
+
+        $response->assertStatus(422)
+            ->assertJsonPath('code', 'SHOPEE_ANTIBOT_90309999');
     }
 }
