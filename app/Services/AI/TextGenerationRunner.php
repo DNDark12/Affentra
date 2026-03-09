@@ -27,7 +27,7 @@ class TextGenerationRunner
      *
      * Updates the ContentGeneration row in-place and returns it.
      */
-    public function run(ContentGeneration $generation): ContentGeneration
+    public function run(ContentGeneration $generation, ?string $systemPrompt = null): ContentGeneration
     {
         try {
             // 1. Render prompt from template registry
@@ -36,12 +36,20 @@ class TextGenerationRunner
                 $generation->prompt_attributes ?? [],
             );
 
-            // 2. Call AI provider
-            $result = $this->client->generateText($prompt, [
-                'max_tokens'  => 2048,
-                'temperature' => 0.9,
-                'images'      => $generation->prompt_attributes['images'] ?? [],
-            ]);
+            $options = [
+                'max_tokens'    => 2048,
+                'temperature'   => 0.9,
+                'images'        => $generation->prompt_attributes['images'] ?? [],
+                'system_prompt' => $systemPrompt,
+            ];
+
+            // 2. Fallback for non-native system prompt support
+            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt('text')) {
+                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
+            }
+
+            // 3. Call AI provider
+            $result = $this->client->generateText($prompt, $options);
 
             // 3. Persist successful result
             $generation->update([

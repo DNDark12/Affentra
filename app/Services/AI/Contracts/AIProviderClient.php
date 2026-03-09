@@ -45,4 +45,14 @@ interface AIProviderClient
      * and require polling to retrieve the finished output.
      */
     public function supportsAsyncMedia(): bool;
+
+    /**
+     * Check if this provider supports a specific capability (text, image, video).
+     */
+    public function supportsCapability(string $capability): bool;
+
+    /**
+     * Check if this provider supports native system prompt for a modality.
+     */
+    public function supportsNativeSystemPrompt(string $modality): bool;
 }

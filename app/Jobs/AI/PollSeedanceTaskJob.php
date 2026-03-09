@@ -7,6 +7,7 @@ namespace App\Jobs\AI;
 use App\Models\ContentGeneration;
 use App\Services\AI\AiStatisticsCacheService;
 use App\Services\AI\Providers\SeedanceClient;
+use App\Actions\AI\PersistGeneratedMediaAction;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -56,9 +57,12 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
         return "seedance-poll-{$this->generationId}";
     }
 
-    public function handle(?AiStatisticsCacheService $statisticsCache = null): void
-    {
+    public function handle(
+        ?AiStatisticsCacheService $statisticsCache = null,
+        ?PersistGeneratedMediaAction $persistAction = null,
+    ): void {
         $statisticsCache ??= app(AiStatisticsCacheService::class);
+        $persistAction ??= app(PersistGeneratedMediaAction::class);
         $generation = ContentGeneration::find($this->generationId);
 
         // ── Guard: missing or already terminal ────────────────────────────────
@@ -112,7 +116,7 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
 
         // ── Map provider status → internal status ─────────────────────────────
         match ($providerStatus) {
-            'completed' => $this->handleCompleted($generation, $result, $statisticsCache),
+            'completed' => $this->handleCompleted($generation, $result, $statisticsCache, $persistAction),
             'failed'    => $this->handleFailed($generation, $result, $statisticsCache),
             'queued', 'processing' => $this->handleProcessing($generation, $providerStatus),
             default => $this->handleProcessing($generation, $providerStatus),
@@ -123,7 +127,17 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
         ContentGeneration $generation,
         array $result,
         AiStatisticsCacheService $statisticsCache,
+        PersistGeneratedMediaAction $persistAction,
     ): void {
+        // Calculate tokens based on duration if available (5 tokens per second)
+        $attrs = $generation->prompt_attributes ?? [];
+        $duration = (int) ($attrs['duration'] ?? ($attrs['options']['duration'] ?? 10)); // Default to 10 if missing
+        
+        // Normalize token reporting
+        $usageRaw = [
+            'total_tokens' => $duration * 5,
+        ];
+
         $generation->update([
             'status'                => 'succeeded',
             'provider_status'       => 'completed',
@@ -133,11 +147,15 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
                     [
                         'type'     => 'video',
                         'url'      => $result['video_url'] ?? '',
+                        'duration' => $duration,
                         'provider' => 'seedance',
                     ],
                 ],
             ],
         ]);
+
+        // Persist locally and normalize usage
+        $persistAction->execute($generation, $usageRaw);
 
         Log::info('PollSeedanceTaskJob: completed', [
             'generation_id' => $generation->id,
@@ -202,5 +220,27 @@ class PollSeedanceTaskJob implements ShouldQueue, ShouldBeUnique
             baseUrl: $creds['base_url'] ?? null,
             model:   $setting->default_model,
         );
+    }
+
+    /**
+     * Handle a job failure.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('ai.poll_seedance_job.failed', [
+            'generation_id' => $this->generationId,
+            'error'         => $exception->getMessage(),
+        ]);
+
+        $generation = \App\Models\ContentGeneration::find($this->generationId);
+        if ($generation && $generation->status === 'running') {
+            $generation->update([
+                'status'         => 'failed',
+                'error_payload'  => [
+                    'message'    => 'Polling task failed or timed out: ' . $exception->getMessage(),
+                    'failed_at'  => now()->toIso8601String(),
+                ],
+            ]);
+        }
     }
 }

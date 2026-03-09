@@ -17,12 +17,13 @@ class MediaGenerationRunner
     public function __construct(
         private readonly AIProviderClient $client,
         private readonly PromptTemplateRegistry $registry,
+        private readonly \App\Actions\AI\PersistGeneratedMediaAction $persistAction,
     ) {}
 
     /**
      * Run the media generation.
      */
-    public function run(ContentGeneration $generation): ContentGeneration
+    public function run(ContentGeneration $generation, ?string $systemPrompt = null): ContentGeneration
     {
         $templateId = $generation->prompt_template_id;
         $attributes = $generation->prompt_attributes ?: [];
@@ -32,8 +33,15 @@ class MediaGenerationRunner
             // Render the prompt
             $prompt = $this->registry->render($templateId, $attributes);
 
+            $options = $attributes;
+            $options['system_prompt'] = $systemPrompt;
+
+            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt($type)) {
+                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
+            }
+
             // Execute via provider client
-            $result = $this->client->generateMedia($prompt, $type, $attributes);
+            $result = $this->client->generateMedia($prompt, $type, $options);
 
             // Update generation record
             $generation->update([
@@ -43,6 +51,12 @@ class MediaGenerationRunner
                 'tokens_completion' => $result->tokensCompletion,
                 'ai_provider'       => $result->provider,
                 'ai_model'          => $result->model,
+            ]);
+
+            // Persist locally
+            $this->persistAction->execute($generation, [
+                'prompt_tokens'     => $result->tokensPrompt,
+                'completion_tokens' => $result->tokensCompletion,
             ]);
 
         } catch (Exception $e) {
@@ -64,8 +78,11 @@ class MediaGenerationRunner
     /**
      * Run media generation and append to existing text generation output.
      */
-    public function runMediaEnrichment(ContentGeneration $generation, string $type): ContentGeneration
-    {
+    public function runMediaEnrichment(
+        ContentGeneration $generation,
+        string $type,
+        ?string $systemPrompt = null
+    ): ContentGeneration {
         $templateId = $generation->prompt_template_id;
         $attributes = $generation->prompt_attributes ?: [];
 
@@ -79,9 +96,15 @@ class MediaGenerationRunner
                 $prompt = "Tạo một hình ảnh/media đẹp mắt minh hoạ cho sản phẩm: {$productTitle}";
             }
 
+            $options = $attributes;
+            $options['system_prompt'] = $systemPrompt;
+
+            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt($type)) {
+                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
+            }
+
             // Execute via provider client
-            // We pass the type ('image' or 'video') explicitly here
-            $result = $this->client->generateMedia($prompt, $type, $attributes);
+            $result = $this->client->generateMedia($prompt, $type, $options);
 
             $currentOutput = $generation->output_payload ?: [];
             $mediaResult = $result->toPayload();
@@ -107,6 +130,9 @@ class MediaGenerationRunner
                 'tokens_completion' => ($generation->tokens_completion ?? 0) + ($result->tokensCompletion ?? 0),
                 // We keep the primary text provider/model for the record or we could track multiple
             ]);
+
+            // Persist locally
+            $this->persistAction->execute($generation);
 
         } catch (Exception $e) {
             Log::error('ai.media_enrichment_failed', [

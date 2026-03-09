@@ -25,4 +25,14 @@ return [
         'allow_force_new_seed' => env('AI_ALLOW_FORCE_SEED', true),
         'max_variants'         => (int) env('AI_MAX_VARIANTS', 5),
     ],
+
+    'providers' => [
+        'seedance' => [
+            'video_duration' => [
+                'min' => 4,
+                'max' => 12,
+            ],
+            'credit_cost_per_second' => 5, // 10s = 50 credits, 5s = 25 credits
+        ],
+    ],
 ];

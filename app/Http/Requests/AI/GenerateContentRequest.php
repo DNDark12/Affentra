@@ -35,10 +35,22 @@ class GenerateContentRequest extends FormRequest
             'options.landing_link'   => ['nullable', 'string', 'max:1000'],
             'options.audience'       => ['nullable', 'string', 'max:200'],
             'options.tone'           => ['nullable', 'string', 'max:100'],
-            'options.usp'            => ['nullable', 'string', 'max:500'],
-            'options.offers'         => ['nullable', 'string', 'max:500'],
+            'options.usp'            => ['nullable', 'string', 'max:2000'],
+            'options.offers'         => ['nullable', 'string', 'max:2000'],
             'options.expiration'     => ['nullable', 'string', 'max:200'],
-            'options.policy'         => ['nullable', 'string', 'max:500'],
+            'options.policy'         => ['nullable', 'string', 'max:2000'],
+            'options.duration'       => [
+                'nullable', 
+                'integer', 
+                'min:' . config('ai.providers.seedance.video_duration.min', 4),
+                'max:' . config('ai.providers.seedance.video_duration.max', 12)
+            ],
+            'options.duration_sec'   => ['nullable', 'integer', 'min:4', 'max:30'],
+            'options.aspect_ratio'   => ['nullable', 'string', 'max:20'],
+            'options.headline'       => ['nullable', 'string', 'max:200'],
+            'options.cta_text'       => ['nullable', 'string', 'max:120'],
+            'options.visual_style'   => ['nullable', 'string', 'max:300'],
+            'options.length'         => ['nullable', 'string', Rule::in(['short', 'medium', 'long'])],
             'options.custom_prompt'  => ['nullable', 'string', 'max:1000'],
             
             // Safety Toggles

@@ -172,7 +172,13 @@ class TrackingLinkService
             'channel' => $link->channel,
             'sub_id' => $link->sub_id,
             'product_name' => $link->product_name,
+            'product_price' => $link->product_price,
+            'product_price_value' => $link->product_price_value,
             'product_image_urls' => $link->product_image_urls ?? [],
+            'product_last_scraped_at' => $link->product_last_scraped_at?->toIso8601String(),
+            'product_scrape_confidence' => $link->product_scrape_confidence,
+            'product_scrape_source' => $link->product_scrape_source,
+            'product_scrape_error' => $link->product_scrape_error,
             'clicks_count' => $link->clicks_count,
             'orders_count' => $link->orders_count,
             'metrics_clicks_30d' => (int) ($metrics30?->clicks ?? 0),
@@ -644,6 +650,68 @@ class TrackingLinkService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Refresh product information for all active links in actor scope.
+     *
+     * @return array{
+     *   total:int,
+     *   success:int,
+     *   failed:int,
+     *   errors:list<array{id:int,message:string}>
+     * }
+     */
+    public function refreshActiveProducts(User $user): array
+    {
+        $scopeUserIds = $this->scopeResolver->resolveVisibleUserIds($user);
+
+        $query = TrackingLink::query()
+            ->select(['id', 'user_id'])
+            ->where('status', LinkStatus::Active->value);
+
+        if ($scopeUserIds !== null) {
+            $query->whereIn('user_id', $scopeUserIds);
+        }
+
+        $total = (clone $query)->count();
+        $success = 0;
+        $failed = 0;
+        $errors = [];
+
+        $query
+            ->orderBy('id')
+            ->chunkById(50, function ($links) use ($user, &$success, &$failed, &$errors): void {
+                foreach ($links as $link) {
+                    try {
+                        $this->refreshProductInfo($user, (int) $link->id);
+                        $success++;
+                    } catch (\Throwable $e) {
+                        $failed++;
+
+                        if (count($errors) < 20) {
+                            $errors[] = [
+                                'id' => (int) $link->id,
+                                'message' => $e->getMessage(),
+                            ];
+                        }
+                    }
+                }
+            }, 'id');
+
+        Log::info('tracking_links.refresh_product_active', [
+            'actor_id' => $user->id,
+            'total' => $total,
+            'success' => $success,
+            'failed' => $failed,
+        ]);
+
+        return [
+            'total' => $total,
+            'success' => $success,
+            'failed' => $failed,
+            'errors' => $errors,
+        ];
     }
 
     /**

@@ -55,9 +55,17 @@ class AiSettingController
      */
     public function providers(): JsonResponse
     {
+        $registry = AiSettingsService::PROVIDER_REGISTRY;
+
+        // Inject dynamic config for Seedance
+        if (isset($registry['seedance'])) {
+            $registry['seedance']['video_duration'] = config('ai.providers.seedance.video_duration');
+            $registry['seedance']['credit_cost_per_second'] = config('ai.providers.seedance.credit_cost_per_second');
+        }
+
         return response()->json([
             'ok'   => true,
-            'data' => AiSettingsService::PROVIDER_REGISTRY,
+            'data' => $registry,
         ]);
     }
 

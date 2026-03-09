@@ -100,5 +100,91 @@ class TrackingLinkRefreshProductTest extends TestCase
         $this->assertNotNull($link->product_scrape_error);
         $this->assertStringContainsString('Không lấy được dữ liệu sản phẩm', $link->product_scrape_error);
     }
-}
 
+    public function test_refresh_active_products_only_processes_active_links_in_scope(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+
+        $activeA = TrackingLink::create([
+            'user_id' => $user->id,
+            'short_code' => 'rfpbulk01',
+            'destination_url' => 'https://shopee.vn/product/1/111',
+            'status' => LinkStatus::Active,
+        ]);
+        $paused = TrackingLink::create([
+            'user_id' => $user->id,
+            'short_code' => 'rfpbulk02',
+            'destination_url' => 'https://shopee.vn/product/1/222',
+            'status' => LinkStatus::Paused,
+        ]);
+        $activeB = TrackingLink::create([
+            'user_id' => $user->id,
+            'short_code' => 'rfpbulk03',
+            'destination_url' => 'https://shopee.vn/product/1/333',
+            'status' => LinkStatus::Active,
+        ]);
+        $otherActive = TrackingLink::create([
+            'user_id' => $otherUser->id,
+            'short_code' => 'rfpbulk04',
+            'destination_url' => 'https://shopee.vn/product/1/444',
+            'status' => LinkStatus::Active,
+        ]);
+
+        $this->mock(ProductScraperService::class, function (MockInterface $mock) use ($user, $activeA, $activeB): void {
+            $mock->shouldReceive('scrape')
+                ->twice()
+                ->andReturnUsing(function ($url, $actor) use ($user, $activeA, $activeB): array {
+                    $this->assertInstanceOf(User::class, $actor);
+                    $this->assertTrue($actor->is($user));
+
+                    if ($url === $activeA->destination_url) {
+                        return [
+                            'data' => [
+                                'title' => 'Sản phẩm bulk A',
+                                'price_value' => 101000,
+                                'price_display' => '101.000₫',
+                                'images' => [],
+                            ],
+                            'confidence' => 0.8,
+                            'source' => 'test',
+                        ];
+                    }
+
+                    if ($url === $activeB->destination_url) {
+                        return [
+                            'data' => [
+                                'title' => 'Sản phẩm bulk B',
+                                'price_value' => 202000,
+                                'price_display' => '202.000₫',
+                                'images' => [],
+                            ],
+                            'confidence' => 0.8,
+                            'source' => 'test',
+                        ];
+                    }
+
+                    throw new \RuntimeException('Unexpected URL: ' . (string) $url);
+                });
+        });
+
+        $response = $this->actingAs($user)
+            ->postJson('/api/links/refresh-product-active');
+
+        $response->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('data.total', 2)
+            ->assertJsonPath('data.success', 2)
+            ->assertJsonPath('data.failed', 0);
+
+        $activeA->refresh();
+        $paused->refresh();
+        $activeB->refresh();
+        $otherActive->refresh();
+
+        $this->assertSame('Sản phẩm bulk A', $activeA->product_name);
+        $this->assertSame('Sản phẩm bulk B', $activeB->product_name);
+        $this->assertNull($paused->product_name);
+        $this->assertNull($otherActive->product_name);
+    }
+}

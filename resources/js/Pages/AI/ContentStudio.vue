@@ -268,6 +268,7 @@
                                         <div class="bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden" :class="item.type === 'video' ? 'aspect-video' : 'aspect-square'">
                                             <video
                                                 v-if="item.type === 'video' && item.url"
+                                                :key="item.url"
                                                 :src="item.url"
                                                 controls
                                                 class="w-full h-full object-contain"
@@ -480,13 +481,13 @@
                         </div>
 
                         <!-- Preset tabs -->
-                        <div class="flex gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                        <div class="flex gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg overflow-x-auto">
                             <button
                                 v-for="preset in presets"
                                 :key="preset.id"
                                 @click="selectPreset(preset)"
                                 :disabled="generating"
-                                class="flex-1 h-8 rounded-md text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="shrink-0 h-8 px-3 rounded-md text-xs font-medium whitespace-nowrap transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="selectedPreset?.id === preset.id
                                     ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm'
                                     : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'"
@@ -520,7 +521,27 @@
                                 <!-- Model -->
                                 <div class="flex flex-col gap-1.5">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Model</label>
+                                    
+                                    <!-- Dropdown for registered models -->
+                                    <select 
+                                        v-if="selectedProvider && selectedProvider.models && selectedProvider.models.length > 0"
+                                        v-model="form.model" 
+                                        :disabled="generating"
+                                        class="af-input h-9 text-sm disabled:opacity-50"
+                                    >
+                                        <option value="" disabled>-- Chọn model --</option>
+                                        <option 
+                                            v-for="m in selectedProvider.models" 
+                                            :key="m.id" 
+                                            :value="m.id"
+                                        >
+                                            {{ m.name }}
+                                        </option>
+                                    </select>
+
+                                    <!-- Text input fallback for unknown/custom -->
                                     <input
+                                        v-else
                                         v-model="form.model"
                                         type="text"
                                         :disabled="generating"
@@ -567,11 +588,24 @@
                                             <input type="checkbox" v-model="form.generate_video" :disabled="generating" class="w-3.5 h-3.5 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-600 dark:border-zinc-700 dark:bg-zinc-800 disabled:opacity-50" />
                                             <span class="text-xs text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 group-hover:dark:text-zinc-200">🎬 Video</span>
                                         </label>
+
+                                        <!-- Video Duration Selector -->
+                                        <div v-if="form.generate_video && form.provider_key === 'seedance'" class="mt-1 ml-5.5 flex flex-col gap-1">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-[10px] text-zinc-500">Thời lượng:</span>
+                                                <select v-model="form.video_duration" :disabled="generating" class="text-[10px] h-6 px-1.5 py-0 border-zinc-200 rounded-md bg-white dark:bg-zinc-800 dark:border-zinc-700">
+                                                    <option v-for="s in [4,5,6,7,8,9,10,11,12]" :key="s" :value="s">{{ s }} giây</option>
+                                                </select>
+                                            </div>
+                                            <p class="text-[9px]" :class="form.video_duration > 5 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-zinc-400'">
+                                                Tiêu tốn {{ form.video_duration * 5 }} credits
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
 
                                 <!-- Goal — only FB Post -->
-                                <div v-if="selectedPreset?.id === 'fb_post'" class="flex flex-col gap-1.5">
+                                <div v-if="requiresGoal" class="flex flex-col gap-1.5">
                                     <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Mục tiêu</label>
                                     <select v-model="form.goal" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50">
                                         <option value="traffic">Traffic (click)</option>
@@ -594,7 +628,7 @@
                             </div>
 
                             <!-- Audience — only FB Post -->
-                            <div v-if="selectedPreset?.id === 'fb_post'" class="flex flex-col gap-1.5">
+                            <div v-if="requiresAudience" class="flex flex-col gap-1.5">
                                 <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Đối tượng mục tiêu</label>
                                 <input
                                     v-model="form.audience"
@@ -621,7 +655,7 @@
                                 <div class="grid grid-cols-2 gap-4">
                                     <div class="flex flex-col gap-1.5 col-span-2">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">USP / Điểm nổi bật</label>
-                                        <input v-model="form.usp" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Chất son lỳ, lâu trôi 24h, không bám cốc" />
+                                        <textarea v-model="form.usp" :disabled="generating" class="af-input h-20 py-2 text-sm disabled:opacity-50 resize-none" placeholder="VD: Chất son lỳ, lâu trôi 24h, không bám cốc"></textarea>
                                     </div>
                                     <div class="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Ưu đãi / Flash Sale</label>
@@ -633,7 +667,7 @@
                                     </div>
                                     <div class="flex flex-col gap-1.5 col-span-2">
                                         <label class="text-xs font-medium text-zinc-700 dark:text-zinc-300">Lưu ý / Chính sách</label>
-                                        <input v-model="form.policy" type="text" :disabled="generating" class="af-input h-9 text-sm disabled:opacity-50" placeholder="VD: Bảo hành 12 tháng, Đổi trả 7 ngày" />
+                                        <textarea v-model="form.policy" :disabled="generating" class="af-input h-20 py-2 text-sm disabled:opacity-50 resize-none" placeholder="VD: Bảo hành 12 tháng, Đổi trả 7 ngày"></textarea>
                                     </div>
                                 </div>
 
@@ -789,7 +823,7 @@
                                     </svg>
                                 </div>
                                 <div class="flex-1">
-                                    <p class="text-sm font-medium text-indigo-800 dark:text-indigo-300">
+                                    <p class="text-sm font-medium text-indigo-800 dark:text-indigo-300 truncate">
                                         {{ asyncStatus === 'queued' ? 'Đang chờ xử lý video...' : 'Đang tạo video...' }}
                                     </p>
                                     <p class="text-xs text-indigo-600/70 dark:text-indigo-400/70 mt-0.5">
@@ -897,6 +931,9 @@ const props = defineProps({
     configuredProviders: { type: Array, default: () => [] },
 });
 
+const GOAL_PRESET_IDS = new Set(['fb_post', 'carousel_ad_copy', 'short_video_ad', 'product_story_video', 'ugc_review_video']);
+const AUDIENCE_PRESET_IDS = new Set(['fb_post', 'carousel_ad_copy', 'short_video_ad', 'product_story_video', 'ugc_review_video', 'seo_description']);
+
 const toast = useToast();
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -962,6 +999,7 @@ const form = ref({
     generate_text: true,
     generate_image: false,
     generate_video: false,
+    video_duration: 5,
 });
 
 // ── Computed ─────────────────────────────────────────────────────────────────
@@ -975,25 +1013,39 @@ const filteredLinks = computed(() => {
     );
 });
 
+const selectedProvider = computed(() => {
+    return props.configuredProviders.find(p => p.key === form.value.provider_key) || null;
+});
+
 const selectedProviderDefaultModel = computed(() => {
-    const p = props.configuredProviders.find(p => p.key === form.value.provider_key);
-    return p?.model ?? '';
+    return selectedProvider.value?.default_model ?? '';
 });
 
 const selectedProviderCapabilities = computed(() => {
-    const p = props.configuredProviders.find(p => p.key === form.value.provider_key);
-    return p?.capabilities ?? {};
+    return selectedProvider.value?.capabilities ?? {};
+});
+
+const selectedModelInfo = computed(() => {
+    if (!selectedProvider.value || !form.value.model) return null;
+    return selectedProvider.value.models.find(m => m.id === form.value.model) || null;
 });
 
 /** Normalized array of caps: ['text', 'image', 'video'] */
 const providerCapsArray = computed(() => {
-    const caps = selectedProviderCapabilities.value;
+    // If a specific model is selected, use ITS capabilities
+    if (selectedModelInfo.value) {
+        return selectedModelInfo.value.capabilities || [];
+    }
+    // Fallback to provider-level capabilities
+    const caps = selectedProvider.value?.capabilities ?? {};
     if (!caps || Object.keys(caps).length === 0) return [];
     return Array.isArray(caps) ? caps : Object.keys(caps).filter(k => caps[k]);
 });
 
 /** True if provider has at least one capability */
 const hasAnyCapability = computed(() => providerCapsArray.value.length > 0);
+const requiresGoal = computed(() => GOAL_PRESET_IDS.has(selectedPreset.value?.id || ''));
+const requiresAudience = computed(() => AUDIENCE_PRESET_IDS.has(selectedPreset.value?.id || ''));
 const accountStatsCards = computed(() => {
     if (!accountStatistics.value) return [];
 
@@ -1107,12 +1159,17 @@ watch(selectedLink, (newLink) => {
     }
 });
 
+watch(() => form.value.provider_key, () => {
+    onProviderChange();
+});
+
 watch(form, () => {
     idempotencyKey = crypto.randomUUID();
 }, { deep: true });
 
 onMounted(() => {
     fetchAccountStatistics();
+    applyPresetOutputDefaults();
 
     const urlParams = new URLSearchParams(window.location.search);
     const linkId = urlParams.get('link_id');
@@ -1130,6 +1187,40 @@ onUnmounted(() => {
 });
 
 // ── Methods ───────────────────────────────────────────────────────────────────
+function selectedPresetType() {
+    const type = selectedPreset.value?.type;
+    return ['text', 'image', 'video'].includes(type) ? type : 'text';
+}
+
+function setOutputFlagsByType(type) {
+    form.value.generate_text = type === 'text';
+    form.value.generate_image = type === 'image';
+    form.value.generate_video = type === 'video';
+}
+
+function enforceProviderCapabilities() {
+    const caps = providerCapsArray.value;
+    if (caps.length === 0) return;
+    const knownCaps = caps.filter((cap) => ['text', 'image', 'video'].includes(cap));
+    if (knownCaps.length === 0) return;
+
+    if (!knownCaps.includes('text')) form.value.generate_text = false;
+    if (!knownCaps.includes('image')) form.value.generate_image = false;
+    if (!knownCaps.includes('video')) form.value.generate_video = false;
+
+    if (!form.value.generate_text && !form.value.generate_image && !form.value.generate_video) {
+        const preferred = selectedPresetType();
+        const fallbackOrder = Array.from(new Set([preferred, 'video', 'image', 'text']));
+        const picked = fallbackOrder.find((cap) => knownCaps.includes(cap)) ?? knownCaps[0];
+        setOutputFlagsByType(picked);
+    }
+}
+
+function applyPresetOutputDefaults() {
+    setOutputFlagsByType(selectedPresetType());
+    enforceProviderCapabilities();
+}
+
 function selectLink(link) {
     selectedLink.value = link;
     linkStatistics.value = null;
@@ -1143,24 +1234,26 @@ function selectLink(link) {
 
 function selectPreset(preset) {
     selectedPreset.value = preset;
+    applyPresetOutputDefaults();
 }
 
 function onProviderChange() {
     const p = props.configuredProviders.find(p => p.key === form.value.provider_key);
-    if (p) form.value.model = p.model ?? '';
-
-    // Auto-check available outputs, uncheck unavailable
-    const caps = providerCapsArray.value;
-    if (caps.length > 0) {
-        form.value.generate_text  = caps.includes('text');
-        form.value.generate_image = false; // optional, user opts in
-        form.value.generate_video = false; // optional, user opts in
+    
+    if (p) {
+        const models = p.models || [];
+        const isCurrentModelValid = models.some(m => m.id === form.value.model);
+        
+        // If current model is NOT in the new provider's model list, sync to default
+        if (!isCurrentModelValid) {
+            form.value.model = p.default_model || (models.length > 0 ? models[0].id : '');
+        }
     } else {
-        // Auto mode — reset to text only
-        form.value.generate_text  = true;
-        form.value.generate_image = false;
-        form.value.generate_video = false;
+        // "Auto" mode
+        form.value.model = '';
     }
+
+    applyPresetOutputDefaults();
 }
 
 function addImageUrl() {
@@ -1297,6 +1390,7 @@ function inferHistoryPlatform(presetId) {
     const value = String(presetId ?? '');
     if (value.includes('fb')) return 'facebook';
     if (value.includes('tiktok')) return 'tiktok';
+    if (value.includes('shopee')) return 'shopee';
     return 'generic';
 }
 
@@ -1369,10 +1463,8 @@ async function generate(forceNewSeed = false) {
     const options = { variant_count: form.value.variant_count };
     
     if (selectedPreset.value.id !== 'hashtags_pack') options.tone = form.value.tone;
-    if (selectedPreset.value.id === 'fb_post') {
-        options.goal     = form.value.goal;
-        options.audience = form.value.audience;
-    }
+    if (requiresGoal.value) options.goal = form.value.goal;
+    if (requiresAudience.value) options.audience = form.value.audience;
     
     if (form.value.product_title) options.product_title = form.value.product_title;
     if (form.value.product_price) options.product_price = form.value.product_price;
@@ -1380,7 +1472,10 @@ async function generate(forceNewSeed = false) {
     if (form.value.offers) options.offers = form.value.offers;
     if (form.value.expiration) options.expiration = form.value.expiration;
     if (form.value.policy) options.policy = form.value.policy;
+    if (selectedPreset.value.type === 'image') options.aspect_ratio = '4:5';
+    if (selectedPreset.value.type === 'video') options.aspect_ratio = '9:16';
     if (form.value.custom_prompt) options.custom_prompt = form.value.custom_prompt;
+    if (form.value.generate_video) options.duration = form.value.video_duration;
 
     options.safety_no_absolute = form.value.safety_no_absolute;
     options.safety_no_medical = form.value.safety_no_medical;
@@ -1498,6 +1593,12 @@ function startAsyncPolling(generationId) {
                 lastGeneration.value = { from_cache: false, usage: {} };
                 await fetchHistory();
                 toast.success('Video đã tạo xong!');
+
+                // Automatic transition to detail view
+                const newItem = history.value.find(h => String(h.id) === String(generationId));
+                if (newItem) {
+                    await selectHistoryItem(newItem);
+                }
             } else if (data.status === 'failed') {
                 stopAsyncPolling();
                 errorMsg.value = data.error_message || 'Tạo video thất bại.';
@@ -1567,10 +1668,12 @@ function applyHistoryToEditor() {
     if (attrs.expiration) form.value.expiration = attrs.expiration;
     if (attrs.policy) form.value.policy = attrs.policy;
     if (attrs.custom_prompt) form.value.custom_prompt = attrs.custom_prompt;
+    if (attrs.duration) form.value.video_duration = Number(attrs.duration);
     
     form.value.safety_no_absolute = !!attrs.safety_no_absolute;
     form.value.safety_no_medical = !!attrs.safety_no_medical;
     form.value.safety_no_sensitive = !!attrs.safety_no_sensitive;
+    applyPresetOutputDefaults();
 
     errorMsg.value = '';
     centerViewMode.value = 'editor';
@@ -1613,7 +1716,8 @@ function copyVariantWithLink(text, index) {
     }
     
     // Nối link vào text: "\n👉 Mua ngay tại: [link]"
-    const separator = selectedPreset.value?.id === 'tiktok_caption' ? '\n🛒 Xem giỏ hàng/thêm vào giỏ:' : '\n👉 Đặt mua ngay tại đây:';
+    const isTikTokLike = ['tiktok_caption', 'ugc_review_video'].includes(selectedPreset.value?.id || '');
+    const separator = isTikTokLike ? '\n🛒 Xem giỏ hàng/thêm vào giỏ:' : '\n👉 Đặt mua ngay tại đây:';
     const combinedText = `${text}\n${separator} ${trackingUrl}`;
     
     navigator.clipboard.writeText(combinedText).then(() => {
@@ -1632,6 +1736,7 @@ function platformBadgeClass(platform) {
     const map = {
         facebook: 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300',
         tiktok:   'bg-zinc-900 text-white dark:bg-zinc-700 dark:text-zinc-100',
+        shopee:   'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
         generic:  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
     };
     return map[platform] ?? map.generic;

@@ -41,8 +41,10 @@ class ContentGenerationService
     public function __construct(
         private readonly AiSettingsService      $aiSettings,
         private readonly PromptTemplateRegistry $registry,
+        private readonly SystemPromptRegistry   $systemPrompts,
         private readonly ImageFetcherService    $imageFetcher,
         private readonly AiStatisticsCacheService $statisticsCache,
+        private readonly \App\Actions\AI\PersistGeneratedMediaAction $persistAction,
     ) {}
 
     /**
@@ -51,62 +53,87 @@ class ContentGenerationService
     public function generate(TrackingLink $link, User $user, array $payload): ContentGeneration
     {
         $templateId   = $payload['preset_id'] ?? 'fb_post';
-        
-        // Derive type & platform from Preset (since request no longer explicitly passes them)
-        // Or in a real scenario, the template registry provides this info
-        $preset = $this->registry->get($templateId);
-        $type = $preset['type'] ?? 'text';
-        $platform = $preset['platform'] ?? 'generic';
-        
+        $preset       = $this->registry->get($templateId);
+        $type         = $preset['default_type'] ?? ($preset['types'][0] ?? 'text');
+        $platform     = $preset['platform'] ?? 'generic';
+
         $options      = $payload['options']  ?? [];
         $forceNewSeed = (bool) ($payload['force_new_seed'] ?? false);
         $imageUrls    = $payload['image_urls'] ?? [];
-        
-        // Use user-requested provider if exists, otherwise fallback to auto (handled by settings service)
         $providerKey  = $payload['provider_key'] ?? null;
         $modelName    = $payload['model'] ?? null;
 
-        // 1. Resolve per-user provider client (throws RuntimeException if not configured)
-        $client = $this->aiSettings->resolveClientForUser($user, $type, $providerKey, $modelName);
+        // 1. Determine requested outputs
+        $requestedTypes = [];
+        if ($payload['generate_text'] ?? false)  $requestedTypes[] = 'text';
+        if ($payload['generate_image'] ?? false) $requestedTypes[] = 'image';
+        if ($payload['generate_video'] ?? false) $requestedTypes[] = 'video';
 
-        // 2. Fetch images
+        if (empty($requestedTypes)) {
+            // Fallback to preset default if nothing selected (backward compat)
+            $requestedTypes = [$type]; 
+        }
+
+        // 2. Identify the "Primary" output type
+        $primaryType = 'text';
+        if (in_array('video', $requestedTypes)) $primaryType = 'video';
+        elseif (in_array('image', $requestedTypes)) $primaryType = 'image';
+        elseif (in_array('text', $requestedTypes)) $primaryType = 'text';
+
+        // 3. Resolve per-user provider client for the PRIMARY type
+        $client = $this->aiSettings->resolveClientForUser($user, $primaryType, $providerKey, $modelName);
+
+        // 4. Fetch images for reference
         $base64Images = [];
         if (!empty($imageUrls)) {
             $base64Images = $this->imageFetcher->fetchAsBase64($imageUrls);
         }
 
-        // 3. Build canonical attributes (sorted for stable hashing)
+        // 5. Build canonical attributes (sorted for stable hashing)
         $attributes = array_merge($options, [
             'platform'      => $platform,
             'tracking_url'  => route('redirect', $link->short_code),
             'product_title' => $options['product_title'] ?? $link->offer?->title ?? '',
             'product_price' => $options['product_price'] ?? '',
-            'images'        => $base64Images, // Include fetched images in attributes
+            'images'        => $base64Images,
             'variant_count' => $payload['variant_count'] ?? 1
         ]);
         ksort($attributes);
 
-        $promptHash = hash('sha256', $templateId . ':' . json_encode($attributes));
+        // 6. Build System Prompt & Context
+        $sysContext = [
+            'platform'     => $platform,
+            'language'     => $payload['language'] ?? 'Vietnamese',
+            'policy_flags' => [
+                'safety_no_absolute'  => (bool) ($payload['options']['safety_no_absolute'] ?? false),
+                'safety_no_medical'   => (bool) ($payload['options']['safety_no_medical'] ?? false),
+                'safety_no_sensitive' => (bool) ($payload['options']['safety_no_sensitive'] ?? false),
+            ],
+        ];
+        $systemPrompt = $this->systemPrompts->getSystemPrompt($primaryType, $sysContext);
+        $attributes['system_prompt'] = $systemPrompt;
 
-        // 3. Quota check
+        $promptHash = hash('sha256', $templateId . ':' . json_encode($attributes) . ':' . implode(',', $requestedTypes));
+
+        // 7. Quota check
         $this->enforceTokenQuota($user);
 
-        // 4. Dedup check
+        // 8. Dedup check
         $fromCache     = false;
         $cachedPayload = null;
 
         if (! $forceNewSeed) {
-            $cacheKey      = "ai:gen:dedup:{$type}:{$promptHash}";
+            $cacheKey      = "ai:gen:dedup:{$templateId}:{$promptHash}";
             $cachedPayload = Cache::get($cacheKey);
             $fromCache     = $cachedPayload !== null;
         }
 
-        // 5. Create generation row (always; history must reflect user actions)
+        // 9. Create generation row
         $generation = ContentGeneration::create([
             'tracking_link_id'   => $link->id,
             'user_id'            => $user->id,
             'platform_connection_id' => $link->platform_connection_id,
-            'type'               => $type,
+            'type'               => $primaryType,
             'platform'           => $platform,
             'status'             => 'running',
             'prompt_template_id' => $templateId,
@@ -116,7 +143,7 @@ class ContentGenerationService
             'from_cache'         => $fromCache,
         ]);
 
-        // 6. Serve from cache or execute
+        // 10. Serve from cache or execute
         if ($fromCache && $cachedPayload !== null) {
             $generation->update([
                 'status'         => 'succeeded',
@@ -127,56 +154,75 @@ class ContentGenerationService
             return $generation->refresh();
         }
 
-        // ── Async path: provider returns task_id, poll later ──────────────
-        if ($type === 'video' && $client->supportsAsyncMedia()) {
-            $result = $client->generateMedia(
-                $this->registry->render($templateId, $attributes),
-                'video',
-                $attributes,
-            );
+        // 11. Execute PRIMARY generation
+        $renderedPrompt = $this->registry->render($templateId, $attributes);
+
+        // Capability-aware prompt prepending for providers without native system prompt support
+        if (! $client->supportsNativeSystemPrompt($primaryType)) {
+            Log::info("ai.generation_fallback_prepend_sys_prompt", [
+                'provider' => $client->providerKey(),
+                'modality' => $primaryType,
+            ]);
+            $renderedPrompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$renderedPrompt}";
+        }
+
+        // -- Async Video Path (Primary) --
+        if ($primaryType === 'video' && $client->supportsAsyncMedia()) {
+            $result = $client->generateMedia($renderedPrompt, 'video', $attributes);
 
             $generation->update([
                 'status'           => 'queued',
-                'provider_task_id' => $result->meta['task_id'],
+                'provider_task_id' => $result->meta['task_id'] ?? null,
                 'provider_status'  => 'queued',
                 'ai_provider'      => $client->providerKey(),
                 'ai_model'         => $client->modelKey(),
             ]);
 
-            PollSeedanceTaskJob::dispatch($generation->id)
-                ->delay(now()->addSeconds(10));
-
+            PollSeedanceTaskJob::dispatch($generation->id)->delay(now()->addSeconds(10));
             $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
             return $generation->refresh();
         }
 
-        // ── Sync path: text generation ────────────────────────────────────
-        // Build appropriate runner
-        $runner = new TextGenerationRunner($client, $this->registry);
-        $generation = $runner->run($generation);
+        // -- Sync Path (Primary: Text or Image) --
+        if ($primaryType === 'text') {
+            $runner = new TextGenerationRunner($client, $this->registry);
+            $generation = $runner->run($generation, $systemPrompt);
+        } else {
+            // Primary is Image (or sync Video if ever supported)
+            $runner = new MediaGenerationRunner($client, $this->registry, $this->persistAction);
+            $generation = $runner->run($generation, $systemPrompt);
+        }
 
-        // 6.5 Best-effort media generation if requested
-        foreach (['image' => 'generate_image', 'video' => 'generate_video'] as $mediaType => $payloadKey) {
-            if ($generation->status === 'succeeded' && ($payload[$payloadKey] ?? false)) {
-                try {
-                    $mediaClient = $this->aiSettings->resolveClientForUser($user, $mediaType, $providerKey, $modelName);
-                    $mediaRunner = new MediaGenerationRunner($mediaClient, $this->registry);
-                    
-                    // We run the media runner with the specific media type override
-                    $generation = $mediaRunner->runMediaEnrichment($generation, $mediaType);
-                } catch (\Exception $e) {
-                    Log::warning("content_generation.{$mediaType}_failed_best_effort", [
-                        'id' => $generation->id,
-                        'error' => $e->getMessage()
-                    ]);
+        // 12. Execute SECONDARY generations (Enrichment)
+        foreach (['text', 'image', 'video'] as $secType) {
+            if ($secType === $primaryType) continue; // Already done
+            if (!in_array($secType, $requestedTypes)) continue; // Not requested
+
+            if ($generation->status !== 'succeeded' && $generation->status !== 'queued') continue;
+
+            try {
+                $secClient       = $this->aiSettings->resolveClientForUser($user, $secType, $providerKey, $modelName);
+                $secSystemPrompt = $this->systemPrompts->getSystemPrompt($secType, $sysContext);
+                
+                if ($secType === 'text') {
+                    $secRunner = new TextGenerationRunner($secClient, $this->registry);
+                    $generation = $secRunner->run($generation, $secSystemPrompt);
+                } else {
+                    $secRunner = new MediaGenerationRunner($secClient, $this->registry, $this->persistAction);
+                    $generation = $secRunner->runMediaEnrichment($generation, $secType, $secSystemPrompt);
                 }
+            } catch (\Exception $e) {
+                Log::warning("content_generation.secondary_{$secType}_failed", [
+                    'id' => $generation->id,
+                    'error' => $e->getMessage()
+                ]);
             }
         }
 
         // 7. Warm dedup cache on success
         if ($generation->status === 'succeeded' && ! $forceNewSeed) {
             Cache::put(
-                "ai:gen:dedup:{$type}:{$promptHash}",
+                "ai:gen:dedup:{$templateId}:{$promptHash}",
                 $generation->output_payload,
                 self::DEDUP_CACHE_TTL
             );

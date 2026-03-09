@@ -289,14 +289,34 @@
                         <!-- Default model -->
                         <div>
                             <label class="af-label">Model mặc định</label>
+                            
+                            <!-- Dropdown for registered models -->
+                            <select 
+                                v-if="selectedProviderInfo && selectedProviderInfo.models && selectedProviderInfo.models.length > 0"
+                                v-model="form.default_model" 
+                                class="af-input"
+                            >
+                                <option value="" disabled>-- Chọn model --</option>
+                                <option 
+                                    v-for="m in selectedProviderInfo.models" 
+                                    :key="m.id" 
+                                    :value="m.id"
+                                >
+                                    {{ m.name }} ({{ m.id }})
+                                </option>
+                            </select>
+
+                            <!-- Text input fallback for self-hosted or unknown -->
                             <input
+                                v-else
                                 v-model="form.default_model"
                                 type="text"
                                 class="af-input"
                                 :placeholder="modelPlaceholder"
                             />
-                            <p class="mt-1 text-xs" style="color: var(--text-muted)">
-                                Gemini: <code>gemini-3.1-flash</code> · OpenAI: <code>gpt-5.3-mini</code> · Seedance: <code>doubao-seedance-2-0</code>
+                            
+                            <p v-if="!selectedProviderInfo || !selectedProviderInfo.models || selectedProviderInfo.models.length === 0" class="mt-1 text-xs" style="color: var(--text-muted)">
+                                Gemini: <code>gemini-1.5-flash</code> · OpenAI: <code>gpt-4o-mini</code> · Seedance: <code>doubao-seedance-2-0</code>
                             </p>
                         </div>
 
@@ -474,6 +494,18 @@ watch(() => form.provider_key, (newKey) => {
     if (info.default_model)    form.default_model = info.default_model;
     if (info.default_base_url) form.base_url      = info.default_base_url;
     if (info.capabilities)     form.capabilities  = [...info.capabilities];
+});
+
+// ── Sync capabilities when selecting a model ─────────────────────────────────
+watch(() => form.default_model, (newModelId) => {
+    if (!newModelId || !selectedProviderInfo.value) return;
+    
+    const models = selectedProviderInfo.value.models || [];
+    const foundModel = models.find(m => m.id === newModelId);
+    
+    if (foundModel && foundModel.capabilities) {
+        form.capabilities = [...foundModel.capabilities];
+    }
 });
 
 // ── Save ──────────────────────────────────────────────────────────────────────

@@ -9,6 +9,15 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button class="af-btn-outline h-9 px-3 text-sm" @click="router.visit(route('links.index'))">Quay lại danh sách</button>
+                    <button
+                        class="af-btn-outline h-9 px-3 text-sm flex items-center gap-1"
+                        :disabled="refreshingProduct"
+                        @click="refreshProductInfo"
+                    >
+                        <Loader2 v-if="refreshingProduct" :size="14" class="animate-spin" />
+                        <RefreshCw v-else :size="14" />
+                        {{ refreshingProduct ? 'Đang đồng bộ...' : 'Đồng bộ thông tin SP' }}
+                    </button>
                     <button class="af-btn-primary h-9 px-3 text-sm flex items-center gap-1" @click="copyTrackUrl">
                         <Copy :size="14" />
                         Copy Track URL
@@ -86,12 +95,41 @@
                             </p>
                         </div>
                         <div>
+                            <p class="text-xs mb-1" style="color: var(--text-muted)">Tên sản phẩm</p>
+                            <p style="color: var(--text-primary)">{{ trackingLink.product_name || '--' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs mb-1" style="color: var(--text-muted)">Giá sản phẩm</p>
+                            <p style="color: var(--text-primary)">
+                                {{ trackingLink.product_price || (trackingLink.product_price_value ? fmtCurrency(trackingLink.product_price_value) : '--') }}
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-xs mb-1" style="color: var(--text-muted)">Lần đồng bộ sản phẩm</p>
+                            <p style="color: var(--text-primary)">
+                                {{ formatDateTime(trackingLink.product_last_scraped_at) }}
+                                <span v-if="trackingLink.product_scrape_source" style="color: var(--text-muted)">
+                                    · {{ trackingLink.product_scrape_source }}
+                                </span>
+                                <span
+                                    v-if="Number.isFinite(Number(trackingLink.product_scrape_confidence))"
+                                    style="color: var(--text-muted)"
+                                >
+                                    · conf {{ Number(trackingLink.product_scrape_confidence).toFixed(2) }}
+                                </span>
+                            </p>
+                        </div>
+                        <div>
                             <p class="text-xs mb-1" style="color: var(--text-muted)">Source / Channel</p>
                             <p style="color: var(--text-primary)">{{ trackingLink.source || '--' }} / {{ trackingLink.channel || '--' }}</p>
                         </div>
                         <div>
                             <p class="text-xs mb-1" style="color: var(--text-muted)">Created</p>
                             <p style="color: var(--text-primary)">{{ formatDateTime(trackingLink.created_at) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs mb-1" style="color: var(--text-muted)">Lỗi đồng bộ gần nhất</p>
+                            <p style="color: var(--text-primary)">{{ trackingLink.product_scrape_error || '--' }}</p>
                         </div>
                     </div>
                 </div>
@@ -145,9 +183,9 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { router, usePage } from '@inertiajs/vue3';
-import { Copy } from 'lucide-vue-next';
+import { Copy, Loader2, RefreshCw } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useToast } from '@/Composables/useToast';
 
@@ -160,6 +198,7 @@ const props = defineProps({
 
 const page = usePage();
 const toast = useToast();
+const refreshingProduct = ref(false);
 
 const conversionRate = computed(() => {
     const clicks = Number(props.trackingLink.clicks_count || 0);
@@ -234,5 +273,47 @@ function copyTrackUrl() {
         .catch(() => {
             toast.error('Không thể copy tracking URL.');
         });
+}
+
+async function apiRequest(url, options = {}) {
+    const headers = {
+        Accept: 'application/json',
+        'X-CSRF-TOKEN': document.head.querySelector('meta[name="csrf-token"]')?.content || '',
+        ...(options.headers || {}),
+    };
+
+    if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+        ...options,
+        headers,
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok) {
+        const error = new Error(payload.message || 'Request failed.');
+        error.payload = payload;
+        throw error;
+    }
+
+    return payload;
+}
+
+async function refreshProductInfo() {
+    refreshingProduct.value = true;
+    try {
+        const response = await apiRequest(route('api.links.refresh-product', props.trackingLink.id), {
+            method: 'POST',
+        });
+        toast.success(response.message || 'Đã đồng bộ lại thông tin sản phẩm.');
+        router.reload({ only: ['trackingLink'] });
+    } catch (error) {
+        toast.error(error.message || 'Không thể đồng bộ lại thông tin sản phẩm.');
+    } finally {
+        refreshingProduct.value = false;
+    }
 }
 </script>

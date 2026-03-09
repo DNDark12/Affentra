@@ -41,32 +41,67 @@ class AiSettingsService
             'name'              => 'Google Gemini',
             'capabilities'      => ['text', 'image', 'video'],
             'has_base_url'      => false,
-            'default_model'     => 'gemini-3.1-flash',
+            'default_model'     => 'gemini-2.5-flash',
+            'models' => [
+                ['id' => 'gemini-3.1-pro-preview',        'name' => 'Gemini 3.1 Pro (Preview)',      'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gemini-3.1-flash-lite-preview', 'name' => 'Gemini 3.1 Flash Lite (Preview)', 'capabilities' => ['text']],
+                ['id' => 'gemini-3.1-flash-image-preview', 'name' => 'Gemini 3.1 Flash Image (Preview)', 'capabilities' => ['image']],
+                ['id' => 'gemini-2.5-pro',                'name' => 'Gemini 2.5 Pro (Stable)',       'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gemini-2.5-flash',              'name' => 'Gemini 2.5 Flash (Stable)',     'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gemini-1.5-pro',                'name' => 'Gemini 1.5 Pro',               'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gemini-1.5-flash',              'name' => 'Gemini 1.5 Flash',             'capabilities' => ['text', 'image', 'video']],
+            ]
         ],
         'openai' => [
             'name'              => 'OpenAI',
             'capabilities'      => ['text', 'image', 'video'],
             'has_base_url'      => false,
-            'default_model'     => 'gpt-5.3-mini',
+            'default_model'     => 'gpt-5-mini',
+            'models' => [
+                ['id' => 'gpt-5.4',            'name' => 'GPT-5.4 (Frontier)',    'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gpt-5.4-pro',        'name' => 'GPT-5.4 Pro',           'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gpt-5-mini',         'name' => 'GPT-5 Mini',            'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gpt-5.3-codex',      'name' => 'GPT-5.3 Codex (Agentic)', 'capabilities' => ['text']],
+                ['id' => 'gpt-4.1',            'name' => 'GPT-4.1 (Stable)',      'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gpt-4o',             'name' => 'GPT-4o',                'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'gpt-4o-mini',        'name' => 'GPT-4o Mini',           'capabilities' => ['text', 'image', 'video']],
+                ['id' => 'o1-preview',         'name' => 'OpenAI o1 Preview',    'capabilities' => ['text']],
+                ['id' => 'gpt-image-1.5',      'name' => 'GPT Image 1.5 (DALL-E Next)', 'capabilities' => ['image']],
+            ]
         ],
         'self_hosted' => [
-            'name'              => 'Self-Hosted',
+            'name'              => 'Self-Hosted / OpenAI Compatible',
             'capabilities'      => ['text'],
             'has_base_url'      => true,
             'default_model'     => '',
+            'models' => [] // User manually enters for self-hosted
         ],
         'anthropic' => [
             'name'              => 'Anthropic Claude',
             'capabilities'      => ['text'],
             'has_base_url'      => false,
-            'default_model'     => 'claude-4-sonnet',
+            'default_model'     => 'claude-sonnet-4-6',
+            'models' => [
+                ['id' => 'claude-opus-4-6',   'name' => 'Claude 4.6 Opus',   'capabilities' => ['text']],
+                ['id' => 'claude-sonnet-4-6', 'name' => 'Claude 4.6 Sonnet', 'capabilities' => ['text']],
+                ['id' => 'claude-haiku-4-5',  'name' => 'Claude 4.5 Haiku',  'capabilities' => ['text']],
+                ['id' => 'claude-3-5-sonnet-latest', 'name' => 'Claude 3.5 Sonnet', 'capabilities' => ['text']],
+            ]
         ],
         'seedance' => [
             'name'              => 'Seedance (Video AI)',
-            'capabilities'      => ['video'],
+            'capabilities'      => ['video', 'image'],
             'has_base_url'      => true,
             'default_base_url'  => 'https://seedance2.app/api/v1',
             'default_model'     => 'doubao-seedance-2-0',
+            'models' => [
+                ['id' => 'doubao-seedance-2-0',             'name' => 'Seedance 2.0 (Pro)', 'capabilities' => ['video']],
+                ['id' => 'doubao-seedance-1-5-pro',         'name' => 'Seedance 1.5 Pro',   'capabilities' => ['video']],
+                ['id' => 'doubao-seedance-1-0-lite-t2v-250428', 'name' => 'Seedance 1.0 Lite (Text2Video)', 'capabilities' => ['video']],
+                // --- Image Models ---
+                ['id' => 'nano-banana-2-0',                 'name' => 'Nano Banana 2.0',      'capabilities' => ['image']],
+                ['id' => 'nano-banana-2-0-edit',            'name' => 'Nano Banana 2.0 Edit', 'capabilities' => ['image']],
+            ]
         ],
     ];
 

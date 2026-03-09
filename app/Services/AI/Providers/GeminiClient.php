@@ -72,6 +72,18 @@ class GeminiClient implements AIProviderClient
         return false;
     }
 
+    public function supportsCapability(string $capability): bool
+    {
+        return in_array($capability, ['text', 'image'], true);
+    }
+
+    public function supportsNativeSystemPrompt(string $modality): bool
+    {
+        // Gemini supports system_instruction for text models. 
+        // For Imagen/Media, we usually prepend or use specific config if supported.
+        return $modality === 'text';
+    }
+
     /**
      * @throws RuntimeException  on provider failure or bad response
      */
@@ -103,18 +115,26 @@ class GeminiClient implements AIProviderClient
         try {
             $requestUrl = $this->baseUrl . "/models/{$this->model}:generateContent?key=" . $this->apiKey;
 
+            $payload = [
+                'contents' => [
+                    ['role' => 'user', 'parts' => $parts],
+                ],
+                'generationConfig' => [
+                    'maxOutputTokens' => $maxTokens,
+                    'temperature'     => (float) ($options['temperature'] ?? 0.9),
+                ],
+            ];
+
+            if (! empty($options['system_prompt'])) {
+                $payload['system_instruction'] = [
+                    'parts' => [['text' => $options['system_prompt']]],
+                ];
+            }
+
             $response = Http::timeout(12)
                 ->retry(1, 500)
                 ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($requestUrl, [
-                    'contents' => [
-                        ['role' => 'user', 'parts' => $parts],
-                    ],
-                    'generationConfig' => [
-                        'maxOutputTokens' => $maxTokens,
-                        'temperature'     => (float) ($options['temperature'] ?? 0.9),
-                    ],
-                ])
+                ->post($requestUrl, $payload)
                 ->throw();
         } catch (RequestException $e) {
             throw new RuntimeException(
@@ -158,9 +178,11 @@ class GeminiClient implements AIProviderClient
             $targetModel = 'gemini-3.1-flash'; // Safest fallback text model for Gemini proxies
         }
 
-        $messages = [
-            ['role' => 'user', 'content' => $prompt]
-        ];
+        $messages = [];
+        if (! empty($options['system_prompt'])) {
+            $messages[] = ['role' => 'system', 'content' => $options['system_prompt']];
+        }
+        $messages[] = ['role' => 'user', 'content' => $prompt];
 
         try {
             $response = Http::timeout(60)

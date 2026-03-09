@@ -37,3 +37,8 @@ Schedule::command('analytics:aggregate-orders --platform=shopee --days=2')
 Schedule::command('analytics:clean-clicks --days=60')
     ->daily()
     ->onOneServer();
+
+// Clean up stale AI generations hourly
+Schedule::command('ai:cleanup-zombies --hours=4')
+    ->hourly()
+    ->onOneServer();

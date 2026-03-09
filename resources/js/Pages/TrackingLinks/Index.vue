@@ -7,10 +7,21 @@
                     <h1 class="text-2xl font-bold" style="color: var(--text-primary)">Tracking Links</h1>
                     <p class="text-xs" style="color: var(--text-muted)">Quản lý link hiệu suất, theo dõi click và chuyển đổi theo quyền truy cập.</p>
                 </div>
-                <button @click="openCreate" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5">
-                    <Plus :size="14" />
-                    Tạo Link
-                </button>
+                <div class="flex items-center gap-2">
+                    <button
+                        @click="refreshAllActiveProducts"
+                        class="af-btn-outline text-sm h-9 px-4 flex items-center gap-1.5"
+                        :disabled="syncingActiveProducts"
+                    >
+                        <Loader2 v-if="syncingActiveProducts" :size="14" class="animate-spin" />
+                        <RefreshCw v-else :size="14" />
+                        {{ syncingActiveProducts ? 'Đang đồng bộ...' : 'Đồng bộ link active' }}
+                    </button>
+                    <button @click="openCreate" class="af-btn-primary text-sm h-9 px-4 flex items-center gap-1.5">
+                        <Plus :size="14" />
+                        Tạo Link
+                    </button>
+                </div>
             </div>
 
             <div
@@ -479,6 +490,7 @@ const showEdit = ref(false);
 const showColumnsMenu = ref(false);
 const creating = ref(false);
 const editing = ref(false);
+const syncingActiveProducts = ref(false);
 const actionLoadingId = ref(null);
 const editId = ref(null);
 const currentAction = ref(null);
@@ -862,6 +874,40 @@ async function refreshProduct(link) {
     } finally {
         actionLoadingId.value = null;
         currentAction.value = null;
+    }
+}
+
+async function refreshAllActiveProducts() {
+    const confirmed = await confirmDialog({
+        variant: 'warning',
+        title: 'Đồng bộ toàn bộ link active?',
+        description: 'Hệ thống sẽ chạy scrape lại thông tin sản phẩm cho tất cả tracking link đang active trong phạm vi hiện tại.',
+        confirmText: 'Đồng bộ',
+        cancelText: 'Hủy',
+    });
+
+    if (!confirmed) {
+        return;
+    }
+
+    syncingActiveProducts.value = true;
+    try {
+        const response = await apiRequest(route('api.links.refresh-product-active'), {
+            method: 'POST',
+        });
+
+        const result = response.data || {};
+        toast.success(response.message || 'Đã đồng bộ thông tin sản phẩm cho các link active.');
+
+        if (Number(result.failed || 0) > 0) {
+            toast.warning(`Có ${result.failed} link lỗi khi đồng bộ. Vui lòng kiểm tra lại từng link.`);
+        }
+
+        router.reload({ only: ['links', 'summary'] });
+    } catch (error) {
+        toast.error(error.message || 'Không thể đồng bộ link active.');
+    } finally {
+        syncingActiveProducts.value = false;
     }
 }
 

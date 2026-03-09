@@ -24,9 +24,27 @@ class ContentStudioController extends Controller
             'type'     => 'text',
         ],
         [
+            'id'       => 'carousel_ad_copy',
+            'label'    => 'Carousel Ad Copy',
+            'platform' => 'facebook',
+            'type'     => 'text',
+        ],
+        [
             'id'       => 'tiktok_caption',
             'label'    => 'TikTok Caption',
             'platform' => 'tiktok',
+            'type'     => 'text',
+        ],
+        [
+            'id'       => 'shopee_title',
+            'label'    => 'Shopee Title',
+            'platform' => 'shopee',
+            'type'     => 'text',
+        ],
+        [
+            'id'       => 'seo_description',
+            'label'    => 'SEO Description',
+            'platform' => 'generic',
             'type'     => 'text',
         ],
         [
@@ -34,6 +52,30 @@ class ContentStudioController extends Controller
             'label'    => 'Hashtag Pack',
             'platform' => 'generic',
             'type'     => 'text',
+        ],
+        [
+            'id'       => 'fb_post_image',
+            'label'    => 'FB Ad Image',
+            'platform' => 'facebook',
+            'type'     => 'image',
+        ],
+        [
+            'id'       => 'short_video_ad',
+            'label'    => 'Short Video Ad',
+            'platform' => 'generic',
+            'type'     => 'video',
+        ],
+        [
+            'id'       => 'product_story_video',
+            'label'    => 'Product Story Video',
+            'platform' => 'generic',
+            'type'     => 'video',
+        ],
+        [
+            'id'       => 'ugc_review_video',
+            'label'    => 'UGC Review Video',
+            'platform' => 'tiktok',
+            'type'     => 'video',
         ],
     ];
 
@@ -80,12 +122,17 @@ class ContentStudioController extends Controller
             ->where('user_id', $user->id)
             ->where('status', 'enabled')
             ->get(['provider_key', 'default_model', 'label', 'capabilities'])
-            ->map(fn ($s) => [
-                'key'          => $s->provider_key,
-                'label'        => $s->label ?: AiSettingsService::PROVIDER_REGISTRY[$s->provider_key]['name'] ?? $s->provider_key,
-                'model'        => $s->default_model,
-                'capabilities' => $s->capabilities ?? [],
-            ])
+            ->map(function ($s) {
+                $registryInfo = AiSettingsService::PROVIDER_REGISTRY[$s->provider_key] ?? [];
+                
+                return [
+                    'key'           => $s->provider_key,
+                    'label'         => $s->label ?: ($registryInfo['name'] ?? $s->provider_key),
+                    'default_model' => $s->default_model ?: ($registryInfo['default_model'] ?? ''),
+                    'capabilities'  => $s->capabilities ?? ($registryInfo['capabilities'] ?? []),
+                    'models'        => $registryInfo['models'] ?? [],
+                ];
+            })
             ->values();
 
         return Inertia::render('AI/ContentStudio', [

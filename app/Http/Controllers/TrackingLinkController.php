@@ -179,4 +179,26 @@ class TrackingLinkController extends Controller
             ], 422);
         }
     }
+
+    public function refreshActiveProducts(Request $request): JsonResponse
+    {
+        try {
+            $result = $this->trackingLinkService->refreshActiveProducts($request->user());
+
+            return response()->json([
+                'ok' => true,
+                'message' => sprintf(
+                    'Đã đồng bộ thông tin sản phẩm cho %d/%d link active.',
+                    (int) $result['success'],
+                    (int) $result['total'],
+                ),
+                'data' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Failed to refresh active links: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
 }

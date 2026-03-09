@@ -90,6 +90,16 @@ class OpenAICompatibleClient implements AIProviderClient
         return false;
     }
 
+    public function supportsCapability(string $capability): bool
+    {
+        return in_array($capability, ['text', 'image'], true);
+    }
+
+    public function supportsNativeSystemPrompt(string $modality): bool
+    {
+        return true; // OpenAI compatible APIs typically support 'system' role.
+    }
+
     /**
      * @throws RuntimeException on provider failure or missing config
      */
@@ -103,15 +113,19 @@ class OpenAICompatibleClient implements AIProviderClient
 
         $maxTokens = (int) ($options['max_tokens'] ?? 2048);
 
+        $messages = [];
+        if (! empty($options['system_prompt'])) {
+            $messages[] = ['role' => 'system', 'content' => $options['system_prompt']];
+        }
+        $messages[] = ['role' => 'user', 'content' => $prompt];
+
         try {
             $response = Http::timeout(12)
                 ->retry(1, 500)
                 ->withToken($this->apiKey)
                 ->post("{$this->baseUrl}/chat/completions", [
                     'model'       => $this->model,
-                    'messages'    => [
-                        ['role' => 'user', 'content' => $prompt],
-                    ],
+                    'messages'    => $messages,
                     'max_tokens'  => $maxTokens,
                     'temperature' => (float) ($options['temperature'] ?? 0.9),
                 ])

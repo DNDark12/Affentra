@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\API\AiSettingController;
 use App\Http\Controllers\API\ContentGenerationController;
-use App\Http\Controllers\API\ImageUploadController;
+use App\Http\Controllers\API\MediaServeController;
 use App\Http\Controllers\API\ScraperController;
 use App\Http\Controllers\CampaignController;
 use App\Http\Controllers\ClickAnalyticsController;
@@ -49,6 +49,9 @@ Route::middleware(['auth'])->group(function () {
     */
     Route::prefix('links')->name('api.links.')->group(function () {
         Route::get('/', [TrackingLinkController::class, 'list'])->name('list');
+        Route::post('/refresh-product-active', [TrackingLinkController::class, 'refreshActiveProducts'])
+            ->name('refresh-product-active')
+            ->middleware('throttle:2,1');
         Route::get('/{trackingLink}', [TrackingLinkController::class, 'showJson'])->name('show');
         Route::post('/', [TrackingLinkController::class, 'store'])
             ->name('store')
@@ -254,12 +257,12 @@ Route::middleware(['auth'])->group(function () {
             ->name('statistics');
     });
 
-    Route::post('images/upload', [ImageUploadController::class, 'upload'])
+    Route::post('images/upload', [MediaServeController::class, 'upload'])
         ->name('api.images.upload')
         ->middleware('throttle:20,1');
 
-    Route::get('ai/images/{filename}', [ImageUploadController::class, 'serve'])
-        ->name('api.ai.image.serve')
+    Route::get('ai/media/{filename}', [MediaServeController::class, 'serve'])
+        ->name('api.ai.media.serve')
         ->where('filename', '[a-zA-Z0-9_.-]+');
 
     Route::get('content-generations/{id}', [ContentGenerationController::class, 'show'])

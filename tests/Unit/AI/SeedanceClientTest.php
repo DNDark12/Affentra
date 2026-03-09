@@ -63,6 +63,21 @@ class SeedanceClientTest extends TestCase
         $this->assertTrue($this->makeClient()->supportsAsyncMedia());
     }
 
+    public function test_model_fallback_on_invalid_name(): void
+    {
+        // If passed a Gemini model name to SeedanceClient, it should fallback to default
+        $client = new SeedanceClient('key', null, 'gemini-1.5-flash');
+        $this->assertEquals('doubao-seedance-2-0', $client->modelKey());
+    }
+
+    public function test_supports_capability(): void
+    {
+        $client = $this->makeClient();
+        $this->assertTrue($client->supportsCapability('video'));
+        $this->assertFalse($client->supportsCapability('text'));
+        $this->assertFalse($client->supportsCapability('image'));
+    }
+
     public function test_provider_key(): void
     {
         $this->assertEquals('seedance', $this->makeClient()->providerKey());
@@ -97,6 +112,27 @@ class SeedanceClientTest extends TestCase
             return str_contains($request->url(), '/generate')
                 && $request['prompt'] === 'Make a video about cats'
                 && $request['model'] === 'doubao-seedance-2-0';
+        });
+    }
+
+    public function test_generate_media_falls_back_on_invalid_model_override(): void
+    {
+        Http::fake([
+            'seedance2.app/api/v1/generate' => Http::response([
+                'data'  => ['video_id' => 'vid_fallback'],
+                'error' => null,
+            ], 200),
+        ]);
+
+        $client = $this->makeClient(); // default model is doubao-seedance-2-0
+        
+        // Passing a gpt-4o model as an override in options
+        $result = $client->generateMedia('prompt', 'video', ['model' => 'gpt-4o']);
+
+        $this->assertEquals('vid_fallback', $result->meta['task_id']);
+        
+        Http::assertSent(function ($request) {
+            return $request['model'] === 'doubao-seedance-2-0'; // Should NOT be gpt-4o
         });
     }
 

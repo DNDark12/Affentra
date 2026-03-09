@@ -37,7 +37,12 @@ class SeedanceClient implements AIProviderClient
     ) {
         $this->apiKey  = $apiKey ?? '';
         $this->baseUrl = rtrim($baseUrl ?: self::DEFAULT_BASE_URL, '/');
-        $this->model   = $model ?: 'doubao-seedance-2-0';
+        
+        // Ensure model is valid for Seedance, fallback to default if not
+        $this->model = $model ?: 'doubao-seedance-2-0';
+        if (! str_starts_with($this->model, 'doubao')) {
+            $this->model = 'doubao-seedance-2-0';
+        }
 
         if (empty($this->apiKey)) {
             throw new RuntimeException(
@@ -66,9 +71,14 @@ class SeedanceClient implements AIProviderClient
             throw new RuntimeException("Không hỗ trợ '{$type}'. Seedance chỉ hỗ trợ video.");
         }
 
+        $targetModel = $options['model'] ?? $this->model;
+        if (! str_starts_with($targetModel, 'doubao')) {
+            $targetModel = $this->model;
+        }
+
         $payload = [
             'prompt' => $prompt,
-            'model'  => $options['model'] ?? $this->model,
+            'model'  => $targetModel,
         ];
 
         // Optional params from Seedance API
@@ -77,6 +87,7 @@ class SeedanceClient implements AIProviderClient
         if (! empty($options['resolution']))     $payload['resolution']      = $options['resolution'];
         if (! empty($options['generation_type'])) $payload['generation_type'] = $options['generation_type'];
         if (! empty($options['image_url']))      $payload['image_url']       = $options['image_url'];
+        if (! empty($options['duration']))       $payload['duration']        = (int) $options['duration'];
 
         $response = Http::withHeaders([
             'Authorization' => "Bearer {$this->apiKey}",
@@ -190,5 +201,15 @@ class SeedanceClient implements AIProviderClient
     public function supportsAsyncMedia(): bool
     {
         return true;
+    }
+
+    public function supportsCapability(string $capability): bool
+    {
+        return $capability === 'video';
+    }
+
+    public function supportsNativeSystemPrompt(string $modality): bool
+    {
+        return false;
     }
 }

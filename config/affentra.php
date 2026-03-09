@@ -30,4 +30,6 @@ return [
     'link_statuses' => collect(LinkStatus::cases())
         ->mapWithKeys(fn ($e) => [$e->value => $e->label()])
         ->all(),
+
+    'ai_media_disk' => env('FILESYSTEM_AI_MEDIA_DISK', 'ai_media'),
 ];
