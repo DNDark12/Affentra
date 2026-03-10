@@ -81,6 +81,7 @@ class ProductData(BaseModel):
     price_min: int | None = None
     price_max: int | None = None
     image_url: str | None = None
+    images: list[str] = []
     sales: int | None = None
     rating_star: float | None = None
     commission_rate: float | None = None
