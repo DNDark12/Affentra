@@ -919,13 +919,53 @@ class ShopeeAffiliateScraper:
 
             logger.info(f"Product node keys: {list(node.keys())}")
 
+            # Extract main image
+            image_url = node.get("imageUrl", node.get("image_url", node.get("image")))
+
+            # Extract full image array
+            images_raw = node.get("images", node.get("image_list", node.get("image_urls", [])))
+            images_full = []
+
+            if isinstance(images_raw, str):
+                try:
+                    # sometimes stored as JSON string
+                    parsed = json.loads(images_raw)
+                    if isinstance(parsed, list):
+                        images_raw = parsed
+                    else:
+                        images_raw = [images_raw]
+                except:
+                    images_raw = [images_raw]
+
+            if isinstance(images_raw, list):
+                for img in images_raw:
+                    if not isinstance(img, str) or not img.strip():
+                        continue
+                    if not img.startswith('http'):
+                        images_full.append(f"https://down-vn.img.susercontent.com/file/{img.strip()}")
+                    else:
+                        images_full.append(img.strip())
+
+            # Ensure main image is included at the beginning
+            if image_url:
+                if not image_url.startswith('http'):
+                    image_url = f"https://down-vn.img.susercontent.com/file/{image_url.strip()}"
+
+                if image_url not in images_full:
+                    images_full.insert(0, image_url)
+
+            # Fallback if somehow still empty but we have an image
+            if not images_full and image_url:
+                images_full.append(image_url)
+
             return {
                 "item_id": str(node.get("itemId", node.get("item_id", item_id))),
                 "shop_id": str(node.get("shopId", node.get("shop_id", shop_id or ""))),
                 "item_name": node.get("productName", node.get("product_name", node.get("name"))),
                 "price_min": self._safe_int(node.get("priceMin", node.get("price_min", node.get("price")))),
                 "price_max": self._safe_int(node.get("priceMax", node.get("price_max"))),
-                "image_url": node.get("imageUrl", node.get("image_url", node.get("image"))),
+                "image_url": image_url,
+                "images": images_full,
                 "sales": self._safe_int(node.get("sales", node.get("sold", node.get("historical_sold")))),
                 "rating_star": self._safe_float(node.get("ratingStar", node.get("rating_star", node.get("item_rating")))),
             }

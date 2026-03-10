@@ -2023,6 +2023,11 @@ JSON;
             'conversion_status' => $this->firstValueByPaths($row, ['conversion_status']),
             'checkout_status' => $this->firstValueByPaths($row, ['checkout_status']),
             'cancel_reason' => $this->firstValueByPaths($order, ['cancel_reason']),
+            'image_url' => $this->normalizeShopeeImageUrl(
+                $this->firstValueByPaths($firstItem ?? [], ['image_url', 'imageUrl', 'img_url', 'imgUrl', 'thumb', 'thumbnail'])
+                ?? $this->firstValueByPaths($order, ['image_url', 'imageUrl', 'img_url', 'imgUrl', 'thumb', 'thumbnail'])
+                ?? $this->firstValueByPaths($row, ['image_url', 'imageUrl', 'img_url', 'imgUrl', 'thumb', 'thumbnail'])
+            ),
             'affiliate_item_statuses' => array_values(array_filter(array_unique($affiliateItemStatuses), static fn($value): bool => $value !== null && $value !== '')),
             'item_statuses' => array_values(array_filter(array_unique($itemStatuses), static fn($value): bool => $value !== null && $value !== '')),
             'fraud_statuses' => array_values(array_filter(array_unique($fraudStatuses), static fn($value): bool => $value !== null && $value !== '')),
@@ -2352,6 +2357,23 @@ JSON;
         }
 
         return null;
+    }
+
+    private function normalizeShopeeImageUrl(?string $url): ?string
+    {
+        if ($url === null || trim($url) === '') {
+            return null;
+        }
+
+        $url = trim($url);
+        // Ensure Shopee CDN images have an extension
+        if (str_contains($url, 'susercontent.com') && !preg_match('/\.(jpe?g|png|gif|webp)$/i', $url)) {
+            // Remove any trailing suffixes like _tn
+            $url = preg_replace('/_tn$/i', '', $url);
+            $url .= '.jpeg';
+        }
+
+        return $url;
     }
 
     /**

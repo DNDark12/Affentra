@@ -73,23 +73,16 @@ class ContentGenerationService
             // Fallback to preset default if nothing selected (backward compat)
             $requestedTypes = [$type]; 
         }
+        $sortedReqTypes = $requestedTypes;
+        sort($sortedReqTypes);
 
-        // 2. Identify the "Primary" output type
-        $primaryType = 'text';
-        if (in_array('video', $requestedTypes)) $primaryType = 'video';
-        elseif (in_array('image', $requestedTypes)) $primaryType = 'image';
-        elseif (in_array('text', $requestedTypes)) $primaryType = 'text';
-
-        // 3. Resolve per-user provider client for the PRIMARY type
-        $client = $this->aiSettings->resolveClientForUser($user, $primaryType, $providerKey, $modelName);
-
-        // 4. Fetch images for reference
+        // 2. Fetch images for reference
         $base64Images = [];
         if (!empty($imageUrls)) {
             $base64Images = $this->imageFetcher->fetchAsBase64($imageUrls);
         }
 
-        // 5. Build canonical attributes (sorted for stable hashing)
+        // 3. Build canonical attributes (sorted for stable hashing)
         $attributes = array_merge($options, [
             'platform'      => $platform,
             'tracking_url'  => route('redirect', $link->short_code),
@@ -100,35 +93,95 @@ class ContentGenerationService
         ]);
         ksort($attributes);
 
-        // 6. Build System Prompt & Context
+        // 4. System context needed for prompt and hash
+        $language = $payload['language'] ?? 'Vietnamese';
+        $policyFlags = [
+            'safety_no_absolute'  => (bool) ($payload['options']['safety_no_absolute'] ?? false),
+            'safety_no_medical'   => (bool) ($payload['options']['safety_no_medical'] ?? false),
+            'safety_no_sensitive' => (bool) ($payload['options']['safety_no_sensitive'] ?? false),
+        ];
         $sysContext = [
             'platform'     => $platform,
-            'language'     => $payload['language'] ?? 'Vietnamese',
-            'policy_flags' => [
-                'safety_no_absolute'  => (bool) ($payload['options']['safety_no_absolute'] ?? false),
-                'safety_no_medical'   => (bool) ($payload['options']['safety_no_medical'] ?? false),
-                'safety_no_sensitive' => (bool) ($payload['options']['safety_no_sensitive'] ?? false),
-            ],
+            'language'     => $language,
+            'policy_flags' => $policyFlags,
         ];
-        $systemPrompt = $this->systemPrompts->getSystemPrompt($primaryType, $sysContext);
-        $attributes['system_prompt'] = $systemPrompt;
 
-        $promptHash = hash('sha256', $templateId . ':' . json_encode($attributes) . ':' . implode(',', $requestedTypes));
+        // 5. Build Execution Plan
+        $executionPlan = [];
+        foreach ($sortedReqTypes as $modality) {
+            $client = null;
+            $supported = false;
+            $skippedReason = null;
+            $renderedPrompt = null;
+            $systemPrompt = null;
 
-        // 7. Quota check
+            try {
+                $client = $this->aiSettings->resolveClientForUser($user, $modality, $providerKey, $modelName);
+                $supported = true;
+            } catch (\Exception $e) {
+                $skippedReason = 'provider_not_supported';
+            }
+
+            if ($supported) {
+                try {
+                    $renderedPrompt = $this->registry->render($templateId, $attributes, $modality);
+                    $systemPrompt = $this->systemPrompts->getSystemPrompt($modality, $sysContext);
+                } catch (\Exception $e) {
+                    $supported = false;
+                    $skippedReason = 'template_mismatch';
+                    Log::warning("content_generation.resolve_prompt_failed", [
+                        'modality' => $modality,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            $executionPlan[$modality] = [
+                'requested'      => true,
+                'resolved'       => $renderedPrompt !== null,
+                'supported'      => $supported,
+                'skipped_reason' => $skippedReason,
+                'prompt'         => $renderedPrompt,
+                'system_prompt'  => $systemPrompt,
+                'client'         => $client,
+            ];
+        }
+
+        // 6. Define "Primary" type for database marker & Auto Mode fallback
+        if (isset($executionPlan['video']['supported']) && $executionPlan['video']['supported']) {
+            $primaryType = 'video';
+        } elseif (isset($executionPlan['image']['supported']) && $executionPlan['image']['supported']) {
+            $primaryType = 'image';
+        } elseif (isset($executionPlan['text']['supported']) && $executionPlan['text']['supported']) {
+            $primaryType = 'text';
+        } else {
+            $primaryType = $sortedReqTypes[0] ?? 'text'; // fallback if all fail
+        }
+
+        // 7. Calculate Hash from stable semantic inputs
+        $hashPayload = [
+            'template_id'       => $templateId,
+            'attributes'        => $attributes,
+            'requested_outputs' => $sortedReqTypes,
+            'language'          => $language,
+            'policy_flags'      => $policyFlags,
+        ];
+        $promptHash = hash('sha256', json_encode($hashPayload));
+
+        // 8. Quota check
         $this->enforceTokenQuota($user);
 
-        // 8. Dedup check
+        // 9. Dedup check
         $fromCache     = false;
         $cachedPayload = null;
 
         if (! $forceNewSeed) {
-            $cacheKey      = "ai:gen:dedup:{$templateId}:{$promptHash}";
+            $cacheKey      = "ai:gen:dedup:{$promptHash}";
             $cachedPayload = Cache::get($cacheKey);
             $fromCache     = $cachedPayload !== null;
         }
 
-        // 9. Create generation row
+        // 10. Create generation row
         $generation = ContentGeneration::create([
             'tracking_link_id'   => $link->id,
             'user_id'            => $user->id,
@@ -137,13 +190,13 @@ class ContentGenerationService
             'platform'           => $platform,
             'status'             => 'running',
             'prompt_template_id' => $templateId,
-            'prompt_attributes'  => $attributes,
+            'prompt_attributes'  => $attributes, // Clean, no system_prompt
             'prompt_hash'        => $promptHash,
             'force_new_seed'     => $forceNewSeed,
             'from_cache'         => $fromCache,
         ]);
 
-        // 10. Serve from cache or execute
+        // 11. Serve from cache or execute
         if ($fromCache && $cachedPayload !== null) {
             $generation->update([
                 'status'         => 'succeeded',
@@ -154,83 +207,87 @@ class ContentGenerationService
             return $generation->refresh();
         }
 
-        // 11. Execute PRIMARY generation
-        $renderedPrompt = $this->registry->render($templateId, $attributes);
+        // 12. Execution Loop
+        $totalTokens = 0;
+        $isAsyncVideo = false;
+        $asyncTaskData = [];
 
-        // Capability-aware prompt prepending for providers without native system prompt support
-        if (! $client->supportsNativeSystemPrompt($primaryType)) {
-            Log::info("ai.generation_fallback_prepend_sys_prompt", [
-                'provider' => $client->providerKey(),
-                'modality' => $primaryType,
-            ]);
-            $renderedPrompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$renderedPrompt}";
+        foreach ($executionPlan as $modality => $plan) {
+            if (!$plan['supported'] || !$plan['resolved']) {
+                Log::info("content_generation.skipped_{$modality}", [
+                    'id'     => $generation->id,
+                    'reason' => $plan['skipped_reason']
+                ]);
+                continue;
+            }
+
+            $currentClient    = $plan['client'];
+            $currentPrompt    = $plan['prompt'];
+            $currentSysPrompt = $plan['system_prompt'];
+
+            // Prep prompt if provider lacks native system prompt
+            if (! $currentClient->supportsNativeSystemPrompt($modality)) {
+                $currentPrompt = "[SYSTEM INSTRUCTION]\n{$currentSysPrompt}\n\n[USER BRIEF]\n{$currentPrompt}";
+            }
+
+            // Async Video
+            if ($modality === 'video' && $currentClient->supportsAsyncMedia()) {
+                try {
+                    $result = $currentClient->generateMedia($currentPrompt, 'video', $attributes);
+                    $isAsyncVideo = true;
+                    $asyncTaskData = [
+                        'status'           => 'queued',
+                        'provider_task_id' => $result->meta['task_id'] ?? null,
+                        'provider_status'  => 'queued',
+                        'ai_provider'      => $currentClient->providerKey(),
+                        'ai_model'         => $currentClient->modelKey(),
+                    ];
+                } catch (\Exception $e) {
+                    Log::error("content_generation.async_video_failed", ['id' => $generation->id, 'error' => $e->getMessage()]);
+                }
+                continue;
+            }
+
+            // Sync Execution
+            try {
+                if ($modality === 'text') {
+                    $runner = new TextGenerationRunner($currentClient);
+                    $generation = $runner->run($generation, $modality, $currentPrompt, $currentSysPrompt);
+                } else {
+                    $runner = new MediaGenerationRunner($currentClient, $this->persistAction);
+                    $generation = $runner->run($generation, $modality, $currentPrompt, $currentSysPrompt);
+                }
+                
+                // Aggregate Usage (best-effort)
+                if (isset($generation->tokens_completion) && $generation->tokens_completion > 0) {
+                     $totalTokens += ($generation->tokens_prompt ?? 0) + $generation->tokens_completion;
+                }
+            } catch (\Exception $e) {
+                Log::error("content_generation.sync_{$modality}_failed", ['id' => $generation->id, 'error' => $e->getMessage()]);
+            }
         }
 
-        // -- Async Video Path (Primary) --
-        if ($primaryType === 'video' && $client->supportsAsyncMedia()) {
-            $result = $client->generateMedia($renderedPrompt, 'video', $attributes);
-
-            $generation->update([
-                'status'           => 'queued',
-                'provider_task_id' => $result->meta['task_id'] ?? null,
-                'provider_status'  => 'queued',
-                'ai_provider'      => $client->providerKey(),
-                'ai_model'         => $client->modelKey(),
-            ]);
-
+        // 13. Async finalize
+        if ($isAsyncVideo) {
+            $generation->update($asyncTaskData);
             PollSeedanceTaskJob::dispatch($generation->id)->delay(now()->addSeconds(10));
             $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
             return $generation->refresh();
         }
 
-        // -- Sync Path (Primary: Text or Image) --
-        if ($primaryType === 'text') {
-            $runner = new TextGenerationRunner($client, $this->registry);
-            $generation = $runner->run($generation, $systemPrompt);
-        } else {
-            // Primary is Image (or sync Video if ever supported)
-            $runner = new MediaGenerationRunner($client, $this->registry, $this->persistAction);
-            $generation = $runner->run($generation, $systemPrompt);
+        // 14. Final Cache & Track status
+        if ($generation->status === 'running') {
+             // If execution loop finishes without updating status from runners
+             // It means nothing was successfully generated.
+             $generation->update(['status' => 'failed', 'error_message' => 'All modalities failed or skipped']);
         }
 
-        // 12. Execute SECONDARY generations (Enrichment)
-        foreach (['text', 'image', 'video'] as $secType) {
-            if ($secType === $primaryType) continue; // Already done
-            if (!in_array($secType, $requestedTypes)) continue; // Not requested
-
-            if ($generation->status !== 'succeeded' && $generation->status !== 'queued') continue;
-
-            try {
-                $secClient       = $this->aiSettings->resolveClientForUser($user, $secType, $providerKey, $modelName);
-                $secSystemPrompt = $this->systemPrompts->getSystemPrompt($secType, $sysContext);
-                
-                if ($secType === 'text') {
-                    $secRunner = new TextGenerationRunner($secClient, $this->registry);
-                    $generation = $secRunner->run($generation, $secSystemPrompt);
-                } else {
-                    $secRunner = new MediaGenerationRunner($secClient, $this->registry, $this->persistAction);
-                    $generation = $secRunner->runMediaEnrichment($generation, $secType, $secSystemPrompt);
-                }
-            } catch (\Exception $e) {
-                Log::warning("content_generation.secondary_{$secType}_failed", [
-                    'id' => $generation->id,
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-
-        // 7. Warm dedup cache on success
         if ($generation->status === 'succeeded' && ! $forceNewSeed) {
-            Cache::put(
-                "ai:gen:dedup:{$templateId}:{$promptHash}",
-                $generation->output_payload,
-                self::DEDUP_CACHE_TTL
-            );
+            Cache::put("ai:gen:dedup:{$promptHash}", $generation->output_payload, self::DEDUP_CACHE_TTL);
         }
 
-        // 8. Track token usage in Redis
-        if ($generation->tokens_completion > 0) {
-            $this->trackTokenUsage($user, $generation->tokens_prompt + $generation->tokens_completion);
+        if ($totalTokens > 0) {
+            $this->trackTokenUsage($user, $totalTokens);
         }
 
         $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);

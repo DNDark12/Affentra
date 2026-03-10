@@ -144,11 +144,12 @@ class TrackingLinkService
         $chart = DailyStat::query()
             ->where('tracking_link_id', $link->id)
             ->where('date', '>=', now()->subDays(14)->toDateString())
-            ->select(['date', 'clicks', 'orders', 'commission'])
-            ->orderBy('date')
+            ->selectRaw('DATE(date) as date_val, SUM(clicks) as clicks, SUM(orders) as orders, SUM(commission) as commission')
+            ->groupBy('date_val')
+            ->orderBy('date_val')
             ->get()
             ->map(static fn ($point): array => [
-                'date' => $point->date instanceof CarbonInterface ? $point->date->toDateString() : (string) $point->date,
+                'date' => $point->date_val,
                 'clicks' => (int) $point->clicks,
                 'orders' => (int) $point->orders,
                 'commission' => round((float) $point->commission, 2),

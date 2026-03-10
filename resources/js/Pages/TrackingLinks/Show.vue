@@ -67,8 +67,21 @@
 
             <div class="grid grid-cols-3 gap-4">
                 <div class="af-surface p-4 col-span-2">
-                    <h2 class="text-base font-semibold mb-3" style="color: var(--text-primary)">Thông tin Link</h2>
-                    <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div class="flex items-start gap-4 mb-4">
+                        <div class="flex-shrink-0 w-16 h-16 rounded-md border flex items-center justify-center overflow-hidden bg-[var(--surface-2)]" style="border-color: var(--border)">
+                            <img v-if="trackingLink.product_image_urls?.length" :src="trackingLink.product_image_urls[0]" class="w-full h-full object-cover" alt="Product thumbnail" />
+                            <Link2 v-else :size="24" style="color: var(--text-muted)" />
+                        </div>
+                        <div class="flex flex-col justify-center min-h-[64px]">
+                            <h2 class="text-base font-semibold" style="color: var(--text-primary)">
+                                {{ trackingLink.product_name || 'Thông tin Link' }}
+                            </h2>
+                            <p v-if="trackingLink.product_name" class="text-sm mt-0.5" style="color: var(--text-muted)">
+                                {{ trackingLink.product_price || (trackingLink.product_price_value ? fmtCurrency(trackingLink.product_price_value) : '--') }}
+                            </p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 text-sm pt-4" style="border-top: 1px solid var(--border)">
                         <div>
                             <p class="text-xs mb-1" style="color: var(--text-muted)">Track URL</p>
                             <p class="font-mono break-all" style="color: var(--color-primary-500)">{{ trackingLink.track_url }}</p>

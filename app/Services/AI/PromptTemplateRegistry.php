@@ -96,7 +96,7 @@ class PromptTemplateRegistry
         /**
          * TEXT: Carousel ad copy
          */
-        $this->register('carousel_ad_copy', 'Carousel ad copy (Facebook)', ['text', 'image'], function (array $attrs): string {
+        $this->register('carousel_ad_copy', 'Carousel ad copy (Facebook)', ['text'], function (array $attrs): string {
             $product    = $this->stringAttr($attrs, 'product_title', 'product');
             $price      = $this->stringAttr($attrs, 'product_price');
             $tone       = $this->stringAttr($attrs, 'tone', 'friendly');
@@ -295,18 +295,37 @@ class PromptTemplateRegistry
         return $this->templates[$templateId];
     }
 
-    public function render(string $templateId, array $attributes): string
+    public function render(string $templateId, array $attributes, ?string $modality = null): string
     {
-        if (! isset($this->templates[$templateId])) {
-            throw new InvalidArgumentException("Unknown prompt template: {$templateId}");
-        }
-
         $customPrompt = $this->stringAttr($attributes, 'custom_prompt');
         if ($customPrompt !== '') {
             return $customPrompt;
         }
 
-        return ($this->templates[$templateId]['renderer'])($attributes);
+        $template = $this->get($templateId);
+        $resolvedModality = $modality ?? $template['default_type'];
+
+        // 1. Try specialized template first (e.g., fb_post_image)
+        $specializedId = "{$templateId}_{$resolvedModality}";
+        if (isset($this->templates[$specializedId])) {
+            return ($this->templates[$specializedId]['renderer'])($attributes);
+        }
+
+        // 2. Try primary template if its metadata strictly supports the modality
+        if (in_array($resolvedModality, $template['types'], true)) {
+            return ($template['renderer'])($attributes);
+        }
+
+        // 3. Modality-specific fallback builders for cross-modality (Text -> Image/Video)
+        if ($resolvedModality === 'image') {
+            return $this->buildFallbackImagePrompt($attributes);
+        }
+
+        if ($resolvedModality === 'video') {
+            return $this->buildFallbackVideoPrompt($attributes);
+        }
+
+        throw new InvalidArgumentException("Template [{$templateId}] does not support modality [{$resolvedModality}] and no fallback exists.");
     }
 
     public function supports(string $templateId, string $type): bool
@@ -396,32 +415,6 @@ class PromptTemplateRegistry
     }
 
     /**
-     * @return list<string>
-     */
-    private function safetyRules(array $attrs, bool $forText): array
-    {
-        $rules = [];
-
-        if ($forText) {
-            $rules[] = '- Nếu đầu vào không cung cấp, không bịa thông số, giá, ưu đãi, review, chứng nhận hoặc cam kết.';
-        }
-
-        if ($this->boolAttr($attrs, 'safety_no_absolute')) {
-            $rules[] = '- Không dùng claim tuyệt đối như: nhất, 100%, trị dứt điểm, cam kết chắc chắn.';
-        }
-
-        if ($this->boolAttr($attrs, 'safety_no_medical')) {
-            $rules[] = '- Tránh claim y tế/dược hoặc nội dung có thể vi phạm chính sách quảng cáo.';
-        }
-
-        if ($this->boolAttr($attrs, 'safety_no_sensitive')) {
-            $rules[] = '- Tránh nội dung nhạy cảm, gây sốc, phân biệt đối xử hoặc kích động.';
-        }
-
-        return $rules;
-    }
-
-    /**
      * @param  list<string> $videoStructure
      * @param  list<string> $extraDirection
      */
@@ -477,5 +470,54 @@ class PromptTemplateRegistry
             '',
             "Format: {$aspectRatio}, optimized for short-form social video.",
         ]);
+    }
+
+    /**
+     * Fallback high-quality visual brief builder for requesting image output from a text preset.
+     */
+    private function buildFallbackImagePrompt(array $attrs): string
+    {
+        $product      = $this->stringAttr($attrs, 'product_title', 'product');
+        $price        = $this->stringAttr($attrs, 'product_price');
+        $usp          = $this->stringAttr($attrs, 'usp');
+        $tone         = $this->stringAttr($attrs, 'tone', 'commercial, premium');
+        $audience     = $this->stringAttr($attrs, 'audience', 'general consumers');
+        $goal         = $this->stringAttr($attrs, 'goal', 'conversion');
+        $headline     = $this->stringAttr($attrs, 'headline');
+        $offers       = $this->stringAttr($attrs, 'offers');
+        $expiration   = $this->stringAttr($attrs, 'expiration');
+        $aspectRatio  = $this->stringAttr($attrs, 'aspect_ratio', '1:1');
+        $visualStyle  = $this->stringAttr($attrs, 'visual_style', 'High-quality studio commercial photography');
+
+        return $this->joinLines([
+            "Create a high-converting social ad image for the product \"{$product}\"" . $this->priceHint($price) . ".",
+            "Campaign goal: {$goal}.",
+            "Target audience: {$audience}.",
+            "Overall tone: {$tone}.",
+            "Visual style: {$visualStyle}.",
+            $usp !== '' ? "Core message/USP: {$usp}." : '',
+            $offers !== '' ? "Current Promotions: {$offers}." : '',
+            $expiration !== '' ? "Deadline/Urgency: {$expiration}." : '',
+            '',
+            'Composition requirements:',
+            '- One clear hero product as the main subject.',
+            '- Clean, premium layout with strong visual hierarchy.',
+            '- Studio-quality lighting and sharp focus.',
+            '- Background should support the product and fit the commercial tone.',
+            '- Leave clean negative space for textual overlays.',
+            '',
+            'Text handling:',
+            $headline !== '' ? "- Allowed headline text: {$headline}" : '- Minimal or no embedded text.',
+            '',
+            "Format: {$aspectRatio}, optimized for social media ads.",
+        ]);
+    }
+
+    /**
+     * Fallback video brief builder for requesting video output from a text preset.
+     */
+    private function buildFallbackVideoPrompt(array $attrs): string
+    {
+        return $this->buildShortVideoPrompt($attrs, 'High-energy commercial realism');
     }
 }

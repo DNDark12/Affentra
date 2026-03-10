@@ -16,106 +16,35 @@ class MediaGenerationRunner
 {
     public function __construct(
         private readonly AIProviderClient $client,
-        private readonly PromptTemplateRegistry $registry,
         private readonly \App\Actions\AI\PersistGeneratedMediaAction $persistAction,
     ) {}
 
     /**
      * Run the media generation.
      */
-    public function run(ContentGeneration $generation, ?string $systemPrompt = null): ContentGeneration
-    {
-        $templateId = $generation->prompt_template_id;
-        $attributes = $generation->prompt_attributes ?: [];
-        $type       = $generation->type; // 'image' or 'video'
-
-        try {
-            // Render the prompt
-            $prompt = $this->registry->render($templateId, $attributes);
-
-            $options = $attributes;
-            $options['system_prompt'] = $systemPrompt;
-
-            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt($type)) {
-                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
-            }
-
-            // Execute via provider client
-            $result = $this->client->generateMedia($prompt, $type, $options);
-
-            // Update generation record
-            $generation->update([
-                'status'            => 'succeeded',
-                'output_payload'    => $result->toPayload(),
-                'tokens_prompt'     => $result->tokensPrompt,
-                'tokens_completion' => $result->tokensCompletion,
-                'ai_provider'       => $result->provider,
-                'ai_model'          => $result->model,
-            ]);
-
-            // Persist locally
-            $this->persistAction->execute($generation, [
-                'prompt_tokens'     => $result->tokensPrompt,
-                'completion_tokens' => $result->tokensCompletion,
-            ]);
-
-        } catch (Exception $e) {
-            Log::error('ai.media_generation_failed', [
-                'generation_id' => $generation->id,
-                'error'         => $e->getMessage(),
-                'template'      => $templateId,
-            ]);
-
-            $generation->update([
-                'status'        => 'failed',
-                'error_message' => $e->getMessage(),
-            ]);
-        }
-
-        return $generation;
-    }
-
-    /**
-     * Run media generation and append to existing text generation output.
-     */
-    public function runMediaEnrichment(
+    public function run(
         ContentGeneration $generation,
-        string $type,
+        string $modality,
+        string $renderedPrompt,
         ?string $systemPrompt = null
     ): ContentGeneration {
-        $templateId = $generation->prompt_template_id;
-        $attributes = $generation->prompt_attributes ?: [];
-
         try {
-            $mediaTemplateId = "{$templateId}_{$type}";
-            if ($this->registry->supports($mediaTemplateId, $type)) {
-                $prompt = $this->registry->render($mediaTemplateId, $attributes);
-            } else {
-                // Fallback to a generic basic prompt if a specialized media prompt was not registered
-                $productTitle = $attributes['product_title'] ?? 'sản phẩm';
-                $prompt = "Tạo một hình ảnh/media đẹp mắt minh hoạ cho sản phẩm: {$productTitle}";
-            }
-
-            $options = $attributes;
+            $options = $generation->prompt_attributes ?: [];
             $options['system_prompt'] = $systemPrompt;
 
-            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt($type)) {
-                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
-            }
-
             // Execute via provider client
-            $result = $this->client->generateMedia($prompt, $type, $options);
+            $result = $this->client->generateMedia($renderedPrompt, $modality, $options);
 
+            // Append generated media to the 'media' array in output_payload
             $currentOutput = $generation->output_payload ?: [];
             $mediaResult = $result->toPayload();
             
-            // Append generated media to the 'media' array in output_payload
             $existingMedia = $currentOutput['media'] ?? [];
             if (isset($mediaResult['media']) && is_array($mediaResult['media'])) {
                 $existingMedia = array_merge($existingMedia, $mediaResult['media']);
             } elseif (isset($mediaResult['url'])) {
                 $existingMedia[] = [
-                    'type' => $type,
+                    'type' => $modality,
                     'url'  => $mediaResult['url'],
                     'provider' => $result->provider,
                 ];
@@ -123,24 +52,33 @@ class MediaGenerationRunner
 
             $currentOutput['media'] = $existingMedia;
 
-            // Update generation record with additive usage
+            // Update generation record
             $generation->update([
+                'status'            => 'succeeded',
                 'output_payload'    => $currentOutput,
                 'tokens_prompt'     => ($generation->tokens_prompt ?? 0) + ($result->tokensPrompt ?? 0),
                 'tokens_completion' => ($generation->tokens_completion ?? 0) + ($result->tokensCompletion ?? 0),
-                // We keep the primary text provider/model for the record or we could track multiple
+                'ai_provider'       => $result->provider, // Only updates if we are treating this as primary
+                'ai_model'          => $result->model,
             ]);
 
             // Persist locally
-            $this->persistAction->execute($generation);
+            $this->persistAction->execute($generation, [
+                'prompt_tokens'     => $result->tokensPrompt ?? 0,
+                'completion_tokens' => $result->tokensCompletion ?? 0,
+            ]);
 
         } catch (Exception $e) {
-            Log::error('ai.media_enrichment_failed', [
+            Log::error('ai.media_generation_failed', [
                 'generation_id' => $generation->id,
                 'error'         => $e->getMessage(),
-                'type'          => $type,
+                'modality'      => $modality,
             ]);
-            // Don't fail the generation, just log it
+
+            $generation->update([
+                'status'        => 'failed',
+                'error_message' => $e->getMessage(),
+            ]);
         }
 
         return $generation;

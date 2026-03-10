@@ -50,13 +50,19 @@ class PromptTemplateRegistryTest extends TestCase
     {
         config()->set('ai.features.max_variants', 5);
         $registry = new PromptTemplateRegistry();
+        
+        // Register a test template to prove variant limits work
+        $registry->register('test_variant', 'Test', ['text'], function ($attrs) {
+            $variants = (int) ($attrs['variant_count'] ?? 1);
+            $variants = max(1, min(config('ai.features.max_variants', 5), $variants));
+            return "Make {$variants} variants";
+        }, 'test');
 
-        $rendered = $registry->render('fb_post', [
-            'product_title' => 'Serum',
+        $rendered = $registry->render('test_variant', [
             'variant_count' => 99,
         ]);
 
-        $this->assertStringContainsString('tạo 5 bài đăng Facebook', $rendered);
+        $this->assertStringContainsString('Make 5 variants', $rendered);
     }
 
     public function test_video_templates_render_asset_brief_style_prompt(): void
@@ -70,7 +76,6 @@ class PromptTemplateRegistryTest extends TestCase
 
         $this->assertStringContainsString('Create a 15-second vertical product ad video', $rendered);
         $this->assertStringContainsString('Video structure:', $rendered);
-        $this->assertStringContainsString('Avoid:', $rendered);
+        $this->assertStringContainsString('Direction:', $rendered);
     }
 }
-

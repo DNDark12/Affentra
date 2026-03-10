@@ -11,7 +11,7 @@ use InvalidArgumentException;
  * 
  * Separation of concerns:
  * - PromptTemplateRegistry handles the Subject/Asset Brief.
- * - SystemPromptRegistry handles the Persona/Rules/Safety/Safety/Constraints.
+ * - SystemPromptRegistry handles the Persona/Rules/Safety/Constraints.
  */
 class SystemPromptRegistry
 {
@@ -47,8 +47,8 @@ class SystemPromptRegistry
     {
         return match ($modality) {
             'text'  => "Role: You are a professional affiliate marketing content specialist. Your goal is to write high-converting, engaging, and persuasive copy.",
-            'image' => "Role: You are an expert AI image prompt engineer and visual designer. Your goal is to translate a product brief into a high-quality, realistic, and commercially viable visual asset.",
-            'video' => "Role: You are an expert short-form video director and motion designer. Your goal is to define a high-energy, visually stunning, and logically paced video sequence based on a product brief.",
+            'image' => "Task: Generate high-quality commercial visual assets from the provided brief.\nPrioritize realism, composition clarity, and product visibility.",
+            'video' => "Task: Generate short-form commercial video directions from the provided brief.\nPrioritize scene clarity, pacing, continuity, and strong CTA closure.",
             default => throw new InvalidArgumentException("Unsupported modality: [{$modality}]"),
         };
     }

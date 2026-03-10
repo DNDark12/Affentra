@@ -189,10 +189,10 @@ class ProductScraperService
             $images = [];
             if (!empty($item['images'])) {
                 foreach (array_slice($item['images'], 0, 5) as $hash) {
-                    $images[] = "https://down-vn.img.susercontent.com/file/{$hash}";
+                    $images[] = $this->normalizeShopeeImageUrl("https://down-vn.img.susercontent.com/file/{$hash}");
                 }
             } elseif (!empty($item['image'])) {
-                $images[] = "https://down-vn.img.susercontent.com/file/{$item['image']}";
+                $images[] = $this->normalizeShopeeImageUrl("https://down-vn.img.susercontent.com/file/{$item['image']}");
             }
 
             $description = $item['description'] ?? null;
@@ -328,8 +328,14 @@ class ProductScraperService
             $priceValue = isset($scraped['price_min']) ? (float) $scraped['price_min'] : null;
             $images = [];
             if (! empty($scraped['image_url'])) {
-                $images[] = $scraped['image_url'];
+                $images[] = $this->normalizeShopeeImageUrl($scraped['image_url']);
             }
+            if (! empty($scraped['images']) && is_array($scraped['images'])) {
+                foreach (array_slice($scraped['images'], 0, 5) as $img) {
+                    $images[] = $this->normalizeShopeeImageUrl($img);
+                }
+            }
+            $images = array_values(array_unique($images));
 
             $data = [
                 'title'         => $scraped['item_name'],
@@ -757,23 +763,36 @@ class ProductScraperService
         $images = [];
 
         if (is_string($product['image_url'] ?? null) && trim($product['image_url']) !== '') {
-            $images[] = trim((string) $product['image_url']);
+            $images[] = $this->normalizeShopeeImageUrl(trim((string) $product['image_url']));
         }
 
         if (is_string($product['imageUrl'] ?? null) && trim($product['imageUrl']) !== '') {
-            $images[] = trim((string) $product['imageUrl']);
+            $images[] = $this->normalizeShopeeImageUrl(trim((string) $product['imageUrl']));
         }
 
         $list = $product['images'] ?? $product['image_urls'] ?? null;
         if (is_array($list)) {
             foreach ($list as $value) {
                 if (is_string($value) && trim($value) !== '') {
-                    $images[] = trim($value);
+                    $images[] = $this->normalizeShopeeImageUrl(trim($value));
                 }
             }
         }
 
         return array_values(array_unique($images));
+    }
+
+    private function normalizeShopeeImageUrl(string $url): string
+    {
+        $url = trim($url);
+        // Ensure Shopee CDN images have an extension
+        if (str_contains($url, 'susercontent.com') && !preg_match('/\.(jpe?g|png|gif|webp)$/i', $url)) {
+            // Remove any trailing suffixes like _tn
+            $url = preg_replace('/_tn$/i', '', $url);
+            $url .= '.jpeg';
+        }
+
+        return $url;
     }
 
     private function normalizeShopeePrice(mixed $raw): ?float

@@ -18,8 +18,7 @@ use RuntimeException;
 class TextGenerationRunner
 {
     public function __construct(
-        private readonly AIProviderClient      $client,
-        private readonly PromptTemplateRegistry $registry,
+        private readonly AIProviderClient $client,
     ) {}
 
     /**
@@ -27,15 +26,13 @@ class TextGenerationRunner
      *
      * Updates the ContentGeneration row in-place and returns it.
      */
-    public function run(ContentGeneration $generation, ?string $systemPrompt = null): ContentGeneration
-    {
+    public function run(
+        ContentGeneration $generation,
+        string $modality,
+        string $renderedPrompt,
+        ?string $systemPrompt = null
+    ): ContentGeneration {
         try {
-            // 1. Render prompt from template registry
-            $prompt = $this->registry->render(
-                $generation->prompt_template_id,
-                $generation->prompt_attributes ?? [],
-            );
-
             $options = [
                 'max_tokens'    => 2048,
                 'temperature'   => 0.9,
@@ -43,22 +40,24 @@ class TextGenerationRunner
                 'system_prompt' => $systemPrompt,
             ];
 
-            // 2. Fallback for non-native system prompt support
-            if ($systemPrompt && ! $this->client->supportsNativeSystemPrompt('text')) {
-                $prompt = "[SYSTEM INSTRUCTION]\n{$systemPrompt}\n\n[USER BRIEF]\n{$prompt}";
-            }
+            // 1. Call AI provider
+            $result = $this->client->generateText($renderedPrompt, $options);
 
-            // 3. Call AI provider
-            $result = $this->client->generateText($prompt, $options);
+            // 2. Append to existing or new payload
+            $currentOutput = $generation->output_payload ?: [];
+            $textResult    = $result->toPayload();
+
+            // Merge everything (text, suggestions, tokens, etc.)
+            $newOutput = array_merge($currentOutput, $textResult);
 
             // 3. Persist successful result
             $generation->update([
                 'status'            => 'succeeded',
-                'output_payload'    => $result->toPayload(),
+                'output_payload'    => $newOutput,
                 'ai_provider'       => $result->provider,
                 'ai_model'          => $result->model,
-                'tokens_prompt'     => $result->tokensPrompt,
-                'tokens_completion' => $result->tokensCompletion,
+                'tokens_prompt'     => ($generation->tokens_prompt ?? 0) + $result->tokensPrompt,
+                'tokens_completion' => ($generation->tokens_completion ?? 0) + $result->tokensCompletion,
             ]);
 
         } catch (RuntimeException $e) {
@@ -66,7 +65,6 @@ class TextGenerationRunner
                 'generation_id' => $generation->id,
                 'error_class'   => $e::class,
                 'message'       => $e->getMessage(),
-                // Intentionally NOT logging prompt_attributes to avoid PII leakage
             ]);
 
             $generation->update([

@@ -222,10 +222,17 @@ class OfferService
             }
         }
 
+        $fallbackUrl = $validated['offer_link'];
+        if ($connection->platform === 'shopee') {
+            $itemId = $validated['item_id'];
+            $shopId = isset($validated['shop_id']) && $validated['shop_id'] !== null ? $validated['shop_id'] : '-';
+            $fallbackUrl = "https://shopee.vn/product/{$shopId}/{$itemId}";
+        }
+
         $trackingLink = $this->trackingLinkService->create($actor, [
             'campaign_id'     => $validated['campaign_id'] ?? null,
             'platform_connection_id' => $connection->id,
-            'destination_url' => $shortLink ?? $validated['offer_link'],
+            'destination_url' => $shortLink ?? $fallbackUrl,
             'sub_id'          => $subId,
             'platform'        => $connection->platform,
             'source'          => 'offer',

@@ -31,13 +31,14 @@ class MediaStorageCleanupTest extends TestCase
         $generation = ContentGeneration::create([
             'user_id' => $user->id,
             'tracking_link_id' => $link->id,
+            'platform' => 'shopee',
             'type' => 'image',
             'status' => 'succeeded',
             'output_payload' => [
                 'media' => [
                     [
                         'type' => 'image',
-                        'base64' => 'dGVzdCBjb250ZW50', // base64 for "test content"
+                        'base64' => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', // 1x1 PNG
                     ]
                 ]
             ]
@@ -74,6 +75,7 @@ class MediaStorageCleanupTest extends TestCase
         $generation = ContentGeneration::create([
             'user_id' => $user->id,
             'tracking_link_id' => $link->id,
+            'platform' => 'shopee',
             'type' => 'image',
             'status' => 'succeeded',
             'output_payload' => [
@@ -96,5 +98,4 @@ class MediaStorageCleanupTest extends TestCase
         $this->assertArrayHasKey('base64', $payload['media'][0]);
         $this->assertEquals('dGVzdCBjb250ZW50', $payload['media'][0]['base64']);
     }
-
 }

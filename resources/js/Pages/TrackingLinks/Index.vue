@@ -152,16 +152,25 @@
                             class="hover:bg-[var(--surface-2)] transition-colors"
                         >
                             <td v-if="hasColumn('link')" class="px-4 py-3">
-                                <div class="flex flex-col gap-0.5">
-                                    <button @click="openDetail(link)" class="font-mono text-xs font-semibold text-left" style="color: var(--color-primary-500)">
-                                        go.affentra/{{ link.short_code }}
-                                    </button>
-                                    <span class="text-xs truncate max-w-[320px]" style="color: var(--text-muted)" :title="link.destination_url">
-                                        {{ link.destination_url }}
-                                    </span>
-                                    <span v-if="link.platform_connection?.label || link.shop_label" class="text-[11px] truncate max-w-[320px]" style="color: var(--text-secondary)">
-                                        Shop: {{ link.platform_connection?.label || link.shop_label }}
-                                    </span>
+                                <div class="flex items-start gap-3">
+                                    <div class="flex-shrink-0 w-10 h-10 rounded-md border flex items-center justify-center overflow-hidden bg-[var(--surface-2)]" style="border-color: var(--border)">
+                                        <img v-if="link.product_image_urls?.length" :src="link.product_image_urls[0]" class="w-full h-full object-cover" alt="Product thumbnail" />
+                                        <Link2 v-else :size="16" style="color: var(--text-muted)" />
+                                    </div>
+                                    <div class="flex flex-col gap-0.5">
+                                        <button @click="openDetail(link)" class="font-mono text-[13px] font-semibold text-left mb-0.5 hover:underline transition-colors" style="color: var(--color-primary-500)">
+                                            go.affentra/{{ link.short_code }}
+                                        </button>
+                                        <span v-if="link.product_name" class="text-xs font-medium truncate max-w-[280px]" style="color: var(--text-primary)" :title="link.product_name">
+                                            {{ link.product_name }}
+                                        </span>
+                                        <span class="text-xs truncate max-w-[280px]" style="color: var(--text-muted)" :title="link.destination_url">
+                                            {{ link.destination_url }}
+                                        </span>
+                                        <span v-if="link.platform_connection?.label || link.shop_label" class="text-[11px] truncate max-w-[280px]" style="color: var(--text-secondary)">
+                                            Shop: {{ link.platform_connection?.label || link.shop_label }}
+                                        </span>
+                                    </div>
                                 </div>
                             </td>
 
