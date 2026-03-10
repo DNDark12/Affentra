@@ -325,7 +325,7 @@ class ProductScraperService
             }
 
             // Normalize to standard scrape result format
-            $priceValue = isset($scraped['price_min']) ? (float) $scraped['price_min'] : null;
+            $priceValue = isset($scraped['price_min']) ? (float) $scraped['price_min'] / 100000 : null;
             $images = [];
             if (! empty($scraped['image_url'])) {
                 $images[] = $this->normalizeShopeeImageUrl($scraped['image_url']);

@@ -27,7 +27,7 @@ class UpdateConnectionRequest extends FormRequest
             'sync_mode'  => ['sometimes', 'required', 'string', Rule::in(['manual', 'scheduled'])],
             'sync_interval' => ['nullable', 'string', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled'), Rule::in(['15m', '1h', '3h', '8h', 'daily'])],
             'sync_time' => ['nullable', 'string', 'date_format:H:i', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled' && $this->input('sync_interval') === 'daily')],
-            'status'     => ['sometimes', 'required', 'string', Rule::in(['active', 'inactive', 'error', 'disabled', 'expired'])],
+            'status'     => ['sometimes', 'required', 'string', Rule::in(['active', 'inactive', 'error', 'disabled', 'expired', 'needs_revalidation'])],
         ];
     }
 

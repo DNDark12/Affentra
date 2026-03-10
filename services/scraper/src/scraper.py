@@ -463,7 +463,8 @@ class ShopeeAffiliateScraper:
                     )
                     if data:
                         data["source"] = "api_intercept"
-                        logger.info(f"[{ctx_id}] Got product via API intercept: {data.get('item_name', 'N/A')[:50]}")
+                        item_name = data.get('item_name') or 'N/A'
+                        logger.info(f"[{ctx_id}] Got product via API intercept: {str(item_name)[:50]}")
                         return data
                     else:
                         logger.warning(f"[{ctx_id}] API data intercepted but parser returned None")
@@ -479,7 +480,8 @@ class ShopeeAffiliateScraper:
                 data = self._parse_affiliate_page(html, item_id, shop_id)
                 if data:
                     data["source"] = "dom_parse"
-                    logger.info(f"[{ctx_id}] Got product via DOM parse: {data.get('item_name', 'N/A')[:50]}")
+                    item_name = data.get('item_name') or 'N/A'
+                    logger.info(f"[{ctx_id}] Got product via DOM parse: {str(item_name)[:50]}")
                     return data
 
                 logger.warning(f"[{ctx_id}] Could not extract product data for {item_id}")
@@ -917,6 +919,13 @@ class ShopeeAffiliateScraper:
                 logger.warning("Found nodes but none matched item_id")
                 return None
 
+            # Look deeper if the node is an affiliate wrapper
+            if "batch_item_for_item_card_full" in node and isinstance(node["batch_item_for_item_card_full"], dict):
+                inner_node = node["batch_item_for_item_card_full"]
+                if "item" in inner_node and isinstance(inner_node["item"], dict):
+                    inner_node = inner_node["item"]
+                node = inner_node
+                
             logger.info(f"Product node keys: {list(node.keys())}")
 
             # Extract main image
