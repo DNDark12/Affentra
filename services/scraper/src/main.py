@@ -86,6 +86,7 @@ class ProductData(BaseModel):
     rating_star: float | None = None
     commission_rate: float | None = None
     source: str | None = None
+    refreshed_cookie: str | None = None
 
 
 class ApiResponse(BaseModel):

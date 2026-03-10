@@ -157,6 +157,159 @@ def normalize_params(raw: dict[str, object] | None) -> dict[str, str]:
 
 
 # ==============================================================
+# Shopee Anti-Bot: Static Headers & Cookie Classification
+# ==============================================================
+
+# Cookies Shopee dùng để validate session và fingerprint.
+# Tất cả endpoints của cùng 1 user dùng chung 1 bộ cookie này.
+ESSENTIAL_COOKIE_NAMES: frozenset[str] = frozenset({
+    # Core auth — ít thay đổi
+    "SPC_F",          # Device fingerprint token (permanent)
+    "SPC_CLIENTID",   # Client identifier
+    "SPC_U",          # User ID (plain text)
+    "SPC_EC",         # Encrypted session credential
+    "SPC_ST",         # Short-term session token
+    # Token refresh pair — rotate theo thời gian
+    "SPC_T_ID",
+    "SPC_T_IV",
+    "SPC_R_T_ID",
+    "SPC_R_T_IV",
+    "SPC_SI",         # Session identifier
+    # CSRF
+    "csrftoken",
+    # Fingerprint / anti-bot validation
+    "ds",                    # Device session hash
+    "SC_DFP",               # Device fingerprint
+    "shopee_webUnique_ccd", # Linked to af-ac-enc-sz-token header
+    # Misc session
+    "language",
+    "shopee_token",
+})
+
+# Headers tĩnh — giống nhau cho mọi request đến affiliate.shopee.vn
+SHOPEE_STATIC_HEADERS: dict[str, str] = {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5",
+    "affiliate-program-type": "1",
+    "priority": "u=1, i",
+    "sec-ch-ua": '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "user-agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/145.0.0.0 Safari/537.36"
+    ),
+    "x-sz-sdk-version": "1.12.21",
+}
+
+# Referer mặc định theo loại endpoint
+_REFERER_MAP: dict[str, str] = {
+    "dashboard":    "https://affiliate.shopee.vn/dashboard",
+    "campaign":     "https://affiliate.shopee.vn/campaign/campaign_list",
+    "report":       "https://affiliate.shopee.vn/report/conversion_report",
+    "click_report": "https://affiliate.shopee.vn/report/click_report",
+    "billing":      "https://affiliate.shopee.vn/payment/billing",
+    "payout":       "https://affiliate.shopee.vn/payment/payout_record",
+    "invoice":      "https://affiliate.shopee.vn/payment/service_fee_invoice",
+    "brand_offer":  "https://affiliate.shopee.vn/offer/brand_offer",
+    "shop/list":    "https://affiliate.shopee.vn/offer/brand_offer",  # API get shop list -> referer brand_offer
+    "product_offer":"https://affiliate.shopee.vn/offer/product_offer",
+    "offer":        "https://affiliate.shopee.vn/offer/product_offer", # Fallback offer
+}
+
+
+def _infer_referer(url: str, caller_headers: dict | None = None) -> str:
+    """Chọn Referer phù hợp dựa vào path của URL request hoặc caller header."""
+    # Ưu tiên lấy Referer do client truyền
+    if caller_headers:
+        for k, v in caller_headers.items():
+            if k.lower() == "referer":
+                return str(v)
+
+    # Đoán referer từ URL
+    for key, referer in _REFERER_MAP.items():
+        if key in url:
+            return referer
+    return "https://affiliate.shopee.vn/"
+
+
+def build_shopee_headers(
+    url: str,
+    cookie_raw: str,
+    extra: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """
+    Tạo headers đầy đủ cho một request đến affiliate.shopee.vn.
+
+    Merges:
+      1. Static headers (user-agent, sec-*, affiliate-program-type, ...)
+      2. Caller extra headers (priority!)
+      3. Referer tự động theo URL path or caller Referer
+      4. Cookie header từ cookie_raw
+    """
+    headers = dict(SHOPEE_STATIC_HEADERS)
+
+    # Áp dụng extra đè lên static (VD: errortoast, x-sz-sdk-version, x-sap-*)
+    if extra:
+        for k, v in extra.items():
+            if k and v:
+                headers[k.lower()] = str(v)
+
+    # Tạo lại Referer (lấy từ extra nếu có, hoặc suy ra từ URL)
+    headers["referer"] = _infer_referer(url, extra)
+
+    # Shopee hay check thứ tự hash cookie. Khung lớn thì mới lọc để tránh 'Too Large Http Header'
+    if cookie_raw:
+        if len(cookie_raw) > 8000:
+            essential = parse_cookie_string_to_essential(cookie_raw)
+            if essential:
+                headers["cookie"] = "; ".join(f"{k}={v}" for k, v in essential.items())
+        else:
+            headers["cookie"] = cookie_raw
+
+    return headers
+
+
+def parse_cookie_string_to_essential(raw: str) -> dict[str, str]:
+    """
+    Parse raw cookie string và chỉ giữ lại essential cookies.
+    Trả về dict {name: value} (order-preserving).
+    """
+    result: dict[str, str] = {}
+    if not raw:
+        return result
+    for segment in raw.split(";"):
+        segment = segment.strip()
+        if "=" not in segment:
+            continue
+        name, value = segment.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        if name in ESSENTIAL_COOKIE_NAMES or name.startswith("SPC_"):
+            result[name] = value.strip()
+    return result
+
+
+def collect_refreshed_cookie(original: str, resp_headers: dict[str, str]) -> str | None:
+    """
+    Merge Set-Cookie headers từ response vào original cookie.
+    Chỉ trả về chuỗi cookie mới nếu có thay đổi, None nếu không.
+    Kết quả chỉ chứa essential cookies để tránh header quá lớn.
+    """
+    merged, _, changed = merge_set_cookies(original, resp_headers)
+    if not changed:
+        return None
+    # Lọc chỉ giữ essential cookies trong output
+    essential = parse_cookie_string_to_essential(merged)
+    return "; ".join(f"{k}={v}" for k, v in essential.items()) if essential else None
+
+
+# ==============================================================
 # Response Classifier (Multi-Signal)
 # ==============================================================
 
@@ -418,13 +571,20 @@ class ShopeeAffiliateScraper:
                 # Inject user cookies before navigating
                 await self._set_cookies(page, cookies)
 
-                # Intercept API responses to capture product data directly
-                api_data = {}
+                # Intercept API responses to capture product data + track cookie refreshes
+                api_data: dict = {}
+                refreshed_cookie: str | None = None
 
                 async def handle_response(response):
                     """Capture affiliate API responses as they happen."""
+                    nonlocal refreshed_cookie
                     try:
                         resp_url = response.url
+                        # Track Set-Cookie for session refresh
+                        rc = collect_refreshed_cookie(cookies, dict(response.headers))
+                        if rc:
+                            refreshed_cookie = rc
+
                         # Prioritize the product-specific endpoint
                         if "/api/v3/offer/product" in resp_url and "list" not in resp_url:
                             if response.status == 200:
@@ -463,6 +623,9 @@ class ShopeeAffiliateScraper:
                     )
                     if data:
                         data["source"] = "api_intercept"
+                        if refreshed_cookie:
+                            data["refreshed_cookie"] = refreshed_cookie
+                            logger.info(f"[{ctx_id}] Cookie refreshed during scrape")
                         item_name = data.get('item_name') or 'N/A'
                         logger.info(f"[{ctx_id}] Got product via API intercept: {str(item_name)[:50]}")
                         return data
@@ -531,15 +694,22 @@ class ShopeeAffiliateScraper:
                 page = await context.new_page()
                 await self._set_cookies(page, cookies)
 
-                # Intercept search API response
-                search_results = {}
+                # Intercept search API response + track cookie refreshes
+                search_results: dict = {}
+                refreshed_cookie: str | None = None
 
                 async def handle_response(response):
+                    nonlocal refreshed_cookie
                     try:
                         resp_url = response.url
+                        # Track Set-Cookie for session refresh
+                        rc = collect_refreshed_cookie(cookies, dict(response.headers))
+                        if rc:
+                            refreshed_cookie = rc
+
                         if "api/v3" in resp_url:
                             logger.info(f"[{ctx_id}] Search API intercepted: {resp_url}")
-                        
+
                         if "/api/v3/offer/product/list" in resp_url:
                             if response.status == 200:
                                 body = await response.json()
@@ -566,23 +736,18 @@ class ShopeeAffiliateScraper:
                 await page.wait_for_timeout(5000)
 
                 if search_results.get("data"):
-                    return self._parse_search_results(search_results["data"])
+                    results = self._parse_search_results(search_results["data"])
+                    if refreshed_cookie:
+                        logger.info(f"[{ctx_id}] Cookie refreshed during search")
+                        for r in results:
+                            r["refreshed_cookie"] = refreshed_cookie
+                    return results
 
                 # Fallback: parse DOM for search results
                 html = await page.content()
                 if self._is_login_page(html):
                     logger.warning(f"[{ctx_id}] Cookies expired — search redirected to login")
                     return []
-
-                # Debug: check if products are embedded in the HTML
-                if "productName" in html or "priceMin" in html:
-                    logger.info(f"[{ctx_id}] Found product data embedded in HTML! Need to extract from DOM.")
-                    match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});', html)
-                    if match:
-                        logger.info(f"[{ctx_id}] Found window.__INITIAL_STATE__")
-                    match2 = re.search(r'window\.__NUXT__\s*=\s*(\{.*?\});', html)
-                    if match2:
-                        logger.info(f"[{ctx_id}] Found window.__NUXT__")
 
                 logger.warning(f"[{ctx_id}] No search results captured via API or DOM matched")
                 return []
@@ -644,13 +809,18 @@ class ShopeeAffiliateScraper:
         ctx_id = uuid.uuid4().hex[:8]
         timeout_val = timeout_ms or (settings.proxy_total_timeout * 1000)
 
-        # Normalize headers — strip hop-by-hop and accept-encoding, preserve rest
-        normalized = normalize_headers(headers)
         normalized_params = normalize_params(params)
 
-        # Inject cookies as header (Option A: header-only, works for any browser source)
-        if cookie_raw:
-            normalized["cookie"] = cookie_raw
+        # Build full Shopee headers: static baseline + referer + essential cookies + caller extras
+        caller_extra = normalize_headers(headers)
+        caller_extra.pop("cookie", None)
+        normalized = build_shopee_headers(url, cookie_raw, extra=caller_extra)
+
+        # CRITICAL FIX for GQL/POST endpoints: WAF rejects missing/wrong content-type
+        if method.upper() == "POST" and "content-type" not in normalized:
+            normalized["content-type"] = "application/json; charset=UTF-8"
+        elif "content-type" in normalized and "json" not in normalized["content-type"].lower() and method.upper() == "POST":
+             normalized["content-type"] = "application/json; charset=UTF-8"
 
         async with self._semaphore:
             context = None
@@ -801,39 +971,20 @@ class ShopeeAffiliateScraper:
     async def _set_cookies(page: Page, cookie_string: str):
         """
         Parse a raw cookie string and inject into the browser page.
-        Filters out massive tracking blobs to prevent HTTP 400 Header Too Large.
+        Keeps all auth + fingerprint cookies Shopee needs for session validation.
+        Drops only pure analytics blobs to stay under header size limits.
         """
-        unique_cookies = {}
-        for pair in cookie_string.split(";"):
-            pair = pair.strip()
-            if "=" not in pair:
-                continue
-            name, _, value = pair.partition("=")
-            name = name.strip()
-            value = value.strip()
-            if not name:
-                continue
-                
-            # STRICT WHITELIST: Only Shopee essential auth/session cookies
-            # This prevents 40KB+ payloads causing HTTP 400 "Request Header or Cookie Too Large"
-            if not (name.startswith("SPC_") or name in ["REC_T_ID", "shopee_token", "csrftoken", "language"]):
-                continue
-                
-            unique_cookies[name] = value
+        unique_cookies = parse_cookie_string_to_essential(cookie_string)
 
-        cookies = []
-        for name, value in unique_cookies.items():
-            cookies.append({
-                "name": name,
-                "value": value,
-                "domain": ".shopee.vn",
-                "path": "/",
-            })
+        cookies = [
+            {"name": name, "value": value, "domain": ".shopee.vn", "path": "/"}
+            for name, value in unique_cookies.items()
+        ]
 
         if cookies:
             context = page.context
             await context.add_cookies(cookies)
-            logger.info(f"Injected {len(cookies)} filtered cookies into browser context")
+            logger.info(f"Injected {len(cookies)} essential cookies into browser context")
 
     # ==============================================================
     # Parsers
