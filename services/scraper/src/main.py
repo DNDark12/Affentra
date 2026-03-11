@@ -133,6 +133,8 @@ class ProxyRequest(BaseModel):
     body: dict[str, Any] | None = None
     cookies: str = ""           # Raw cookie header string
     timeout_ms: int | None = None
+    use_browser_fetch: bool = False
+    browser_url: str | None = None
 
 
 class ProxyResponse(BaseModel):
@@ -340,6 +342,8 @@ async def proxy_request(
         body=body.body,
         cookie_raw=body.cookies,
         timeout_ms=body.timeout_ms,
+        use_browser_fetch=body.use_browser_fetch,
+        browser_url=body.browser_url,
     )
 
     return ProxyResponse(**result.to_dict())

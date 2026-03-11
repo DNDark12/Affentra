@@ -25,6 +25,26 @@ from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
+
+def parse_raw_cookies(raw_cookies: str, domain: str) -> list:
+    """
+    Parse a raw cookie string into a list of dictionaries as expected by Playwright.
+    """
+    if not raw_cookies:
+        return []
+
+    cookies = []
+    for item in raw_cookies.split(';'):
+        if '=' in item:
+            name, value = item.strip().split('=', 1)
+            cookies.append({
+                "name": name.strip(),
+                "value": value.strip(),
+                "domain": domain,
+                "path": "/"
+            })
+    return cookies
+
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Page, BrowserContext
 
@@ -503,6 +523,7 @@ class ShopeeAffiliateScraper:
 
     def __init__(self):
         self._semaphore = asyncio.Semaphore(settings.max_browser_contexts)
+        self.shopee_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     async def start(self):
         """Launch Camoufox browser (call once at app startup)."""
@@ -769,47 +790,28 @@ class ShopeeAffiliateScraper:
         method: str,
         headers: dict[str, object] | None,
         params: dict[str, object] | None,
-        body: dict | None,
+        body: dict | str | None,
         cookie_raw: str,
         timeout_ms: int | None = None,
+        use_browser_fetch: bool = False,
+        browser_url: str | None = None,
     ) -> ProxyResult:
         """
-        Proxy an HTTP request through Camoufox, inheriting Firefox TLS fingerprint.
-
-        Cookies are passed as a raw Cookie: header string (Option A — header-only).
-        No jar injection — single HTTP call per proxy request.
-
-        Redirect handling: manually follows up to 3 hops, validating each URL
-        against validate_proxy_url() to prevent SSRF via redirect.
-
-        Logs cookie_hash (sha256[:12]) for correlation — never raw cookie values.
+        Proxy HTTP request through Camoufox.
+        Dùng cờ use_browser_fetch = True để giả lập Browser Evaluate Fetch.
         """
         global _browser
         if _browser is None:
-            return ProxyResult(
-                status=503,
-                error="Browser not initialized",
-                error_type=ErrorType.NETWORK,
-                ok=False,
-            )
+            return ProxyResult(status=503, error="Browser not initialized", error_type=ErrorType.NETWORK, ok=False)
 
-        # Validate initial URL
         try:
             validate_proxy_url(url)
         except ValueError as e:
-            return ProxyResult(
-                status=400,
-                error=f"SSRF validation failed: {e}",
-                error_type=ErrorType.UNKNOWN,
-                ok=False,
-            )
+            return ProxyResult(status=400, error=f"SSRF validation failed: {e}", error_type=ErrorType.UNKNOWN, ok=False)
 
-        # Log cookie hash for correlation (never raw value)
         cookie_hash = hashlib.sha256(cookie_raw.encode()).hexdigest()[:12] if cookie_raw else "empty"
         ctx_id = uuid.uuid4().hex[:8]
-        timeout_val = timeout_ms or (settings.proxy_total_timeout * 1000)
-
-        normalized_params = normalize_params(params)
+        timeout_val = float(timeout_ms) if timeout_ms else float(getattr(settings, 'proxy_total_timeout', 30)) * 1000.0
 
         # Build full Shopee headers: static baseline + referer + essential cookies + caller extras
         caller_extra = normalize_headers(headers)
@@ -822,43 +824,127 @@ class ShopeeAffiliateScraper:
         elif "content-type" in normalized and "json" not in normalized["content-type"].lower() and method.upper() == "POST":
              normalized["content-type"] = "application/json; charset=UTF-8"
 
+        # === DOM JS FETCH EXECUTION FOR ANTI-BOT STRICT API ===
+        if use_browser_fetch and browser_url:
+            logger.info(f"[{ctx_id}] Injecting JS Fetch on Context: {browser_url} for API {url}")
+            context = None
+            page = None
+            try:
+                # 1. Reset Context và thiết lập Cookie gốc
+                cookie_list = parse_raw_cookies(cookie_raw, ".shopee.vn")
+                context = await _browser.new_context(user_agent=self.shopee_user_agent)
+                context.set_default_timeout(timeout_val)
+                await context.add_cookies(cookie_list)
+                
+                # 2. Điều hướng vào Subpage bíệt danh của Shopee
+                page = await context.new_page()
+                await page.goto(browser_url, wait_until="networkidle", timeout=timeout_val)
+                
+                # 3. Compile JS Inject
+                body_js = "undefined"
+                if body is not None:
+                    if isinstance(body, str):
+                        body_js = json.dumps(body)
+                    else:
+                        body_js = json.dumps(body)
+
+                js_fetch_code = f"""
+                async () => {{
+                    try {{
+                        const queryUrl = new URL('{url}');
+                        const params = {json.dumps(params or {})};
+                        Object.keys(params).forEach(k => queryUrl.searchParams.append(k, params[k]));
+
+                        const reqInit = {{
+                            method: '{method}',
+                            headers: {json.dumps(normalized or {})},
+                            body: {body_js}
+                        }};
+                        
+                        // Xóa các headers tĩnh dư thừa để trình duyệt tự điền tự nhiên nhât
+                        ['User-Agent','user-agent','Cookie','cookie','Host','Origin','Referer'].forEach(h => delete reqInit.headers[h]);
+
+                        const response = await fetch(queryUrl.toString(), reqInit);
+                        const text = await response.text();
+                        return {{ status: response.status, ok: response.ok, text: text, headers: Object.fromEntries(response.headers.entries()) }};
+                    }} catch (err) {{ return {{ error: err.toString(), ok: false }}; }}
+                }}
+                """
+                
+                res = await page.evaluate(js_fetch_code)
+                refreshed_raw = await collect_refreshed_cookie(context, cookie_raw)
+                
+                if res.get("error"): 
+                    return ProxyResult(status=500, ok=False, error=res["error"], error_type=ErrorType.SCRIPT)
+
+                html_text = res.get("text", "")
+                is_json = "{" in html_text or "[" in html_text
+
+                return ProxyResult(
+                    status=res.get("status", 200), 
+                    headers=res.get("headers", {}), 
+                    json=json.loads(html_text) if is_json and html_text else None, 
+                    text=html_text if not is_json else None, 
+                    ok=res.get("ok", True), 
+                    refreshed_cookie=refreshed_raw
+                )
+            except Exception as e:
+                logger.error(f"[{ctx_id}] JS Fetch failed: {e}")
+                return ProxyResult(status=500, ok=False, error=str(e), error_type=ErrorType.SCRIPT)
+            finally:
+                if page: await page.close()
+                if context: await context.close()
+
+        connect_timeout = float(getattr(settings, 'proxy_connect_timeout', 10)) * 1000.0
+
         async with self._semaphore:
             context = None
+            page = None
             try:
-                logger.info(
-                    f"[{ctx_id}] proxy_request: method={method} url={url} "
-                    f"cookie_hash={cookie_hash}"
-                )
-                context = await _browser.new_context()
+                cookie_list = parse_raw_cookies(cookie_raw, ".shopee.vn")
+                # Fallback to pure GET request if we only need raw HTML and JS isn't required
+                # But actually here it's proxy_request, so we use Camoufox page.request
+                context = await _browser.new_context(user_agent=self.shopee_user_agent)
+                context.set_default_timeout(timeout_val)
+                # Not using context.add_cookies here since we send it in header.
+                
                 req_ctx = context.request
-
-                # Manual redirect loop — validate each hop against SSRF guard
+                
                 current_url = url
                 current_method = method.upper()
-                max_redirects = 3
-                hops = 0
-
+                redirect_count = 0
+                max_redirects = 5
+                post_data = None
+                
                 while True:
                     if current_method == "POST":
+                        # Cực kỳ quan trọng: Nếu caller (Laravel) gửi sang một string thì GIỮ NGUYÊN (ví dụ raw JSON có \n, khoảng trắng)
+                        # vì WAF Shopee tính chữ ký hash nguyên bản chuỗi đó (x-sap-sec). Dùng json.dumps() sẽ thu gọn chuỗi
+                        # dẫn đến Failed x-sap-sec Authentication (403 block).
+                        if isinstance(body, str):
+                            post_data = body
+                        else:
+                            post_data = json.dumps(body) if body else None
+
                         resp = await req_ctx.post(
                             current_url,
                             headers=normalized,
-                            params=normalized_params,
-                            data=json.dumps(body) if body else None,
-                            max_redirects=0,  # We handle redirects manually
+                            params=normalize_params(params),
+                            data=post_data,
+                            max_redirects=0,
                             timeout=timeout_val,
                         )
                     else:
                         resp = await req_ctx.get(
                             current_url,
                             headers=normalized,
-                            params=normalized_params,
-                            max_redirects=0,  # We handle redirects manually
+                            params=normalize_params(params),
+                            max_redirects=0,
                             timeout=timeout_val,
                         )
 
                     # Handle redirect hops
-                    if resp.status in (301, 302, 303, 307, 308) and hops < max_redirects:
+                    if resp.status in (301, 302, 303, 307, 308) and redirect_count < max_redirects:
                         location = resp.headers.get("location", "")
                         if not location:
                             logger.warning(f"[{ctx_id}] Redirect with no Location header at hop {hops}")

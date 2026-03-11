@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace App\Jobs\Sync;
 
 use App\Jobs\Sync\SyncPaymentDataJob;
+use App\Jobs\Sync\SyncPlatformConnectionJob;
+use App\Jobs\Sync\SyncShopeeCampaignsForConnectionJob;
 use App\Models\PlatformConnection;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -64,14 +68,15 @@ class DispatchScheduledSyncsJob implements ShouldQueue
         ]);
 
         foreach ($eligibleConnections as $connection) {
-            SyncPlatformConnectionJob::dispatch(
-                connectionId: $connection->id,
-                type: 'auto',
-                userId: $connection->user_id,
-            );
-
-            // Also schedule payment sync (Finance)
-            SyncPaymentDataJob::dispatch($connection);
+            Bus::chain([
+                new SyncShopeeCampaignsForConnectionJob($connection->id),
+                new SyncPaymentDataJob($connection),
+                new SyncPlatformConnectionJob(
+                    connectionId: $connection->id,
+                    type: 'auto',
+                    userId: $connection->user_id,
+                ),
+            ])->dispatch();
         }
     }
 }

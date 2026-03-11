@@ -373,8 +373,10 @@ class ShopeeIntegration extends BaseIntegration
         string $referer,
         string $method = 'GET',
         array $queryParams = [],
-        array $postBody = [],
+        array|string $postBody = [],
         string $profile = '',
+        bool $useBrowserFetch = false,
+        ?string $browserUrl = null,
     ): array {
         $scraperUrl = config('services.scraper.url', 'http://scraper:8080');
         $scraperToken = config('services.scraper.token', '');
@@ -393,13 +395,24 @@ class ShopeeIntegration extends BaseIntegration
             'profile'       => $profile ?: 'default',
         ]);
 
+        $bodyData = null;
+        if ($method === 'POST') {
+            if (is_array($postBody) && empty($postBody)) {
+                $bodyData = new \stdClass();
+            } else {
+                $bodyData = $postBody;
+            }
+        }
+
         $payload = [
             'url'     => $endpoint,
             'method'  => $method,
             'headers' => empty($headers) ? new \stdClass() : $headers,
             'params'  => empty($queryParams) ? new \stdClass() : $queryParams,
-            'body'    => $method === 'POST' ? (empty($postBody) ? new \stdClass() : $postBody) : null,
+            'body'    => $bodyData,
             'cookies' => $cookieRaw,
+            'use_browser_fetch' => $useBrowserFetch,
+            'browser_url' => $browserUrl,
         ];
 
         $response = Http::withHeaders(['X-Internal-Token' => $scraperToken])
@@ -1121,13 +1134,15 @@ JSON;
         // Campaigns endpoint is a POST with a raw JSON body — pass as postBody
         // proxyToPythonScraper() handles auth/bot/rate-limit classification and throws
         $dto = $this->proxyToPythonScraper(
-            $connection,
-            self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList',
-            self::GQL_CAMPAIGN_REFERER,
-            'POST',
-            [],
-            json_decode($requestBodyRaw, true) ?? [],
-            'campaign_list',
+            connection: $connection,
+            endpoint: self::GQL_ENDPOINT . '?q=affiliateCampaignDetailList',
+            referer: self::GQL_CAMPAIGN_REFERER,
+            method: 'POST',
+            queryParams: [],
+            postBody: $requestBodyRaw,
+            profile: 'campaign_list',
+            useBrowserFetch: true,
+            browserUrl: self::GQL_CAMPAIGN_REFERER,
         );
 
         $payload = $dto['json'];
@@ -1260,17 +1275,19 @@ JSON;
         while ($page <= $maxPages) {
             // proxyToPythonScraper() handles error classification and throws on failure
             $dto = $this->proxyToPythonScraper(
-                $connection,
-                self::COOKIE_REPORT_ENDPOINT,
-                self::COOKIE_CONVERSION_REFERER,
-                'GET',
-                [
+                connection: $connection,
+                endpoint: self::COOKIE_REPORT_ENDPOINT,
+                referer: self::COOKIE_CONVERSION_REFERER,
+                method: 'GET',
+                queryParams: [
                     'page_size'      => $pageSize,
                     'page_num'       => $page,
                     'purchase_time_s' => $since->timestamp,
                     'purchase_time_e' => $until->timestamp,
                     'version'        => 1,
                 ],
+                useBrowserFetch: true,
+                browserUrl: self::COOKIE_CONVERSION_REFERER,
             );
 
             $payload = $dto['json'];
@@ -1317,17 +1334,19 @@ JSON;
         while ($page <= $maxPages) {
             // proxyToPythonScraper() handles auth/bot/rate-limit classification and throws
             $dto = $this->proxyToPythonScraper(
-                $connection,
-                self::COOKIE_CLICK_REPORT_ENDPOINT,
-                self::COOKIE_CLICK_REPORT_REFERER,
-                'GET',
-                [
+                connection: $connection,
+                endpoint: self::COOKIE_CLICK_REPORT_ENDPOINT,
+                referer: self::COOKIE_CLICK_REPORT_REFERER,
+                method: 'GET',
+                queryParams: [
                     'page_size'   => $pageSize,
                     'page_num'    => $page,
                     'click_time_s' => $since->timestamp,
                     'click_time_e' => $until->timestamp,
                     'version'     => 1,
                 ],
+                useBrowserFetch: true,
+                browserUrl: self::COOKIE_CLICK_REPORT_REFERER,
             );
 
             $payload = $dto['json'];
@@ -3160,27 +3179,26 @@ JSON;
         $maxPages = 50;
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::COOKIE_BILLING_REFERER);
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->get(self::COOKIE_BILLING_LIST_ENDPOINT, [
-                    'order_completed_start_time' => $since->timestamp,
-                    'order_completed_end_time' => $until->timestamp,
-                    'settlement_cycle' => 4,
-                    'page_num' => $page,
-                    'page_size' => $pageSize,
-                ]);
+            $queryParams = [
+                'order_completed_start_time' => $since->timestamp,
+                'order_completed_end_time' => $until->timestamp,
+                'settlement_cycle' => 4,
+                'page_num' => $page,
+                'page_size' => $pageSize,
+            ];
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-            }
+            $dto = $this->proxyToPythonScraper(
+                connection: $connection,
+                endpoint: self::COOKIE_BILLING_LIST_ENDPOINT,
+                referer: self::COOKIE_BILLING_REFERER,
+                method: 'GET',
+                queryParams: $queryParams,
+                profile: 'billing',
+                useBrowserFetch: true,
+                browserUrl: self::COOKIE_BILLING_REFERER,
+            );
 
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee billing list API error: HTTP {$response->status()}");
-            }
-
-            $payload = $response->json();
+            $payload = $dto['json'];
             if (! is_array($payload)) {
                 throw new RuntimeException('Shopee billing list API returned invalid payload.');
             }
@@ -3281,29 +3299,30 @@ JSON;
         $maxPages = 50;
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_PAYOUT_REFERER);
-            $headers['Content-Type'] = 'application/json; charset=UTF-8';
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->post(self::GQL_ENDPOINT . '?q=getPayoutList', [
-                    'operationName' => 'getPaymentPayoutBillingList',
-                    'query' => $query,
-                    'variables' => [
-                        'pageNum' => $page,
-                        'pageSize' => $pageSize,
-                    ],
-                ]);
+            $variables = [
+                'pageNum' => $page,
+                'pageSize' => $pageSize,
+            ];
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-            }
+            $payloadData = [
+                'operationName' => 'getPaymentPayoutBillingList',
+                'query' => $query,
+                'variables' => $variables,
+            ];
 
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee payout list API error: HTTP {$response->status()}");
-            }
+            $dto = $this->proxyToPythonScraper(
+                connection: $connection,
+                endpoint: self::GQL_ENDPOINT . '?q=getPayoutList',
+                referer: self::GQL_PAYMENT_PAYOUT_REFERER,
+                method: 'POST',
+                queryParams: [],
+                postBody: json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                profile: 'payout_record',
+                useBrowserFetch: true,
+                browserUrl: self::GQL_PAYMENT_PAYOUT_REFERER,
+            );
 
-            $payload = $response->json();
+            $payload = $dto['json'];
             if (! is_array($payload)) {
                 throw new RuntimeException('Shopee payout list API returned invalid payload.');
             }
@@ -3327,10 +3346,14 @@ JSON;
                 'data.getPayoutList',
                 'data.getPaymentPayoutList',
             ]);
+
+            // Bỏ throw Exception, chuyển sang log warning và return mảng rỗng để không bị đứt process
             if (! is_array($root)) {
-                throw new RuntimeException(
-                    'Shopee payout response missing data. Hãy lấy lại cURL từ trang payout_record và cập nhật kết nối.'
-                );
+                Log::warning('Shopee payout response missing data. Có thể do query format của Shopee thay đổi hoặc danh sách trống.', [
+                    'connection_id' => $connection->id,
+                    'payload' => $payload
+                ]);
+                return $rows;
             }
 
             $list = $this->firstValueByPaths($payload, [
@@ -3428,33 +3451,36 @@ JSON;
         $maxPages = 50;
 
         while ($page <= $maxPages) {
-            $headers = $this->buildCookieHeaders($connection, self::GQL_PAYMENT_SERVICE_FEE_REFERER);
-            $headers['Content-Type'] = 'application/json; charset=UTF-8';
+            $variables = [
+                'pageNum' => $page,
+                'pageSize' => $pageSize,
+                'serviceFeeInvoiceFilter' => [
+                    'paymentCompletePeriodStartTime' => $since->timestamp,
+                    'paymentCompletePeriodEndTime' => $until->timestamp,
+                ],
+            ];
 
-            $response = Http::withHeaders($headers)
-                ->timeout(30)
-                ->post(self::GQL_ENDPOINT . '?q=getPaymentSummaryBillFeeInvoiceList', [
-                    'operationName' => 'GetPaymentSummaryBillFeeInvoiceListQuery',
-                    'query' => $query,
-                    'variables' => [
-                        'pageNum' => $page,
-                        'pageSize' => $pageSize,
-                        'serviceFeeInvoiceFilter' => [],
-                    ],
-                ]);
+            $payloadData = [
+                'operationName' => 'GetPaymentSummaryBillFeeInvoiceListQuery',
+                'query' => $query,
+                'variables' => $variables,
+            ];
 
-            if (in_array($response->status(), [401, 403], true)) {
-                $this->markCookieAuthFailure($connection, "Cookie authentication failed (HTTP {$response->status()}).");
-                throw new RuntimeException("Cookie authentication failed (HTTP {$response->status()}).");
-            }
+            $dto = $this->proxyToPythonScraper(
+                connection: $connection,
+                endpoint: self::GQL_ENDPOINT . '?q=getPaymentSummaryBillFeeInvoiceList',
+                referer: self::GQL_PAYMENT_SERVICE_FEE_REFERER,
+                method: 'POST',
+                queryParams: [],
+                postBody: json_encode($payloadData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                profile: 'service_fee_invoice',
+                useBrowserFetch: true,
+                browserUrl: self::GQL_PAYMENT_SERVICE_FEE_REFERER,
+            );
 
-            if (! $response->successful()) {
-                throw new RuntimeException("Shopee bill fee invoice list API error: HTTP {$response->status()}");
-            }
-
-            $payload = $response->json();
+            $payload = $dto['json'];
             if (! is_array($payload)) {
-                throw new RuntimeException('Shopee bill fee invoice list API returned invalid payload.');
+                throw new RuntimeException('Shopee service fee list API returned invalid payload.');
             }
 
             if (! empty($payload['errors']) && is_array($payload['errors'])) {
