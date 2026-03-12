@@ -101,6 +101,15 @@ Route::middleware(['auth'])->group(function () {
     */
     Route::prefix('partners')->name('api.partners.')->group(function () {
         Route::post('/', [PartnerController::class, 'store'])->name('store');
+        
+        // Partner Detail 360 Endpoints
+        Route::get('/{partner}/summary', [\App\Http\Controllers\PartnerDetailApiController::class, 'summary'])->name('detail.summary');
+        Route::get('/{partner}/trend', [\App\Http\Controllers\PartnerDetailApiController::class, 'trend'])->name('detail.trend');
+        Route::get('/{partner}/connections', [\App\Http\Controllers\PartnerDetailApiController::class, 'connections'])->name('detail.connections');
+        Route::get('/{partner}/tracking-links', [\App\Http\Controllers\PartnerDetailApiController::class, 'trackingLinks'])->name('detail.tracking-links');
+        Route::get('/{partner}/orders', [\App\Http\Controllers\PartnerDetailApiController::class, 'orders'])->name('detail.orders');
+        Route::get('/{partner}/billings', [\App\Http\Controllers\PartnerDetailApiController::class, 'billings'])->name('detail.billings');
+        Route::get('/{partner}/payouts', [\App\Http\Controllers\PartnerDetailApiController::class, 'payouts'])->name('detail.payouts');
     });
 
     /*
@@ -222,9 +231,20 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/', [PayoutBatchController::class, 'store'])
             ->name('store')
             ->middleware('throttle:20,1');
+        Route::get('/{payoutBatch}', [PayoutBatchController::class, 'showJson'])
+            ->name('show');
         Route::post('/{payoutBatch}/finalize', [PayoutBatchController::class, 'finalize'])
             ->name('finalize')
             ->middleware('throttle:20,1');
+        Route::get('/{payoutBatch}/export', [PayoutBatchController::class, 'export'])
+            ->name('export')
+            ->middleware('throttle:10,1');
+        Route::delete('/{payoutBatch}', [PayoutBatchController::class, 'destroy'])
+            ->name('destroy')
+            ->middleware('throttle:20,1');
+        Route::delete('/{payoutBatch}/payouts/{payout}', [PayoutBatchController::class, 'removePayout'])
+            ->name('remove-payout')
+            ->middleware('throttle:30,1');
     });
 
     /*

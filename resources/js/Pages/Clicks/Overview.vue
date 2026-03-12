@@ -13,16 +13,40 @@
                 <ClicksSubnav />
             </div>
 
-            <div class="flex items-center gap-2 flex-wrap text-[12px]">
-                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                    From: {{ filters.date_from || '-' }}
-                </span>
-                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                    To: {{ filters.date_to || '-' }}
-                </span>
-                <span class="px-3 py-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                    Campaign: {{ filters.campaign_id || 'All' }}
-                </span>
+            <div class="flex flex-wrap items-end gap-3 bg-zinc-50 dark:bg-zinc-800/20 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <div class="flex flex-col gap-1 w-[160px]">
+                    <label class="text-[10px] uppercase font-bold text-zinc-500 dark:text-zinc-400">Date From</label>
+                    <input
+                        type="date"
+                        v-model="filterDateFrom"
+                        @change="applyFilter"
+                        @click="$event.target.showPicker()"
+                        class="h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[13px] px-3"
+                    />
+                </div>
+                <div class="flex flex-col gap-1 w-[160px]">
+                    <label class="text-[10px] uppercase font-bold text-zinc-500 dark:text-zinc-400">Date To</label>
+                    <input
+                        type="date"
+                        v-model="filterDateTo"
+                        @change="applyFilter"
+                        @click="$event.target.showPicker()"
+                        class="h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[13px] px-3"
+                    />
+                </div>
+                <div class="flex flex-col gap-1 w-[200px]">
+                    <label class="text-[10px] uppercase font-bold text-zinc-500 dark:text-zinc-400">Campaign</label>
+                    <select
+                        v-model="filterCampaign"
+                        @change="applyFilter"
+                        class="h-10 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[13px] px-3"
+                    >
+                        <option value="">All Campaigns</option>
+                        <option v-for="c in filterOptions?.campaigns || []" :key="c.id" :value="c.id">
+                            {{ c.name }}
+                        </option>
+                    </select>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -161,7 +185,30 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    filterOptions: {
+        type: Object,
+        default: () => ({
+            campaigns: []
+        }),
+    }
 })
+
+import { router } from '@inertiajs/vue3'
+import { ref } from 'vue'
+
+const filterDateFrom = ref(props.filters?.date_from || '')
+const filterDateTo = ref(props.filters?.date_to || '')
+const filterCampaign = ref(props.filters?.campaign_id || '')
+
+function applyFilter() {
+    const next = new URLSearchParams()
+    
+    if (filterDateFrom.value) next.set('date_from', filterDateFrom.value)
+    if (filterDateTo.value) next.set('date_to', filterDateTo.value)
+    if (filterCampaign.value) next.set('campaign_id', filterCampaign.value)
+    
+    router.get(`/clicks?${next.toString()}`)
+}
 
 function number(value) {
     return Number(value || 0).toLocaleString()

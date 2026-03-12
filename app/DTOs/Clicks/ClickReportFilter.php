@@ -17,11 +17,23 @@ readonly class ClickReportFilter
         public ?string $refererDomain = null,
         public ?bool $isBot = null,
         public ?string $searchQuery = null,
+        public ?array $utmSources = null,
+        public ?array $utmCampaigns = null,
+        public ?array $devices = null,
+        public string $groupBy = 'date',
         public string $sort = 'created_at',
         public string $direction = 'desc',
         public int $page = 1,
         public int $perPage = 20,
     ) {}
+
+    /**
+     * @return array<string>
+     */
+    public static function getAllowedGroupBys(): array
+    {
+        return ['date', 'tracking_link_id', 'utm_source', 'utm_campaign', 'device_type'];
+    }
 
     /**
      * @param array<string, mixed> $validated
@@ -37,6 +49,12 @@ readonly class ClickReportFilter
             refererDomain: $validated['referer_domain'] ?? null,
             isBot: isset($validated['is_bot']) ? (bool) $validated['is_bot'] : null,
             searchQuery: $validated['q'] ?? null,
+            utmSources: isset($validated['utm_sources']) && is_array($validated['utm_sources']) ? $validated['utm_sources'] : null,
+            utmCampaigns: isset($validated['utm_campaigns']) && is_array($validated['utm_campaigns']) ? $validated['utm_campaigns'] : null,
+            devices: isset($validated['devices']) && is_array($validated['devices']) ? $validated['devices'] : null,
+            groupBy: isset($validated['group_by']) && in_array($validated['group_by'], self::getAllowedGroupBys(), true) 
+                ? $validated['group_by'] 
+                : 'date',
             sort: $validated['sort'] ?? 'created_at',
             direction: $validated['direction'] ?? 'desc',
             page: isset($validated['page']) ? (int) $validated['page'] : 1,

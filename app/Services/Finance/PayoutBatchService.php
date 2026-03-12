@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Finance;
 
+use App\Enums\PayoutBatchStatus;
 use App\Models\AffiliatePayout;
 use App\Models\PayoutBatch;
 use App\Models\User;
+use App\Services\Audit\AuditLogger;
 use App\Services\Scope\ScopeResolver;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
@@ -19,6 +21,7 @@ class PayoutBatchService
 {
     public function __construct(
         private readonly ScopeResolver $scopeResolver,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     /**
@@ -63,8 +66,20 @@ class PayoutBatchService
                 ->whereIn('id', $normalizedIds)
                 ->update([
                     'payout_batch_id' => $batch->id,
-                    'updated_at' => now(),
+                    'updated_at'      => now(),
                 ]);
+
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'payout_batch.created',
+                target: $batch,
+                newState: [
+                    'batch_no'     => $batch->batch_no,
+                    'payout_count' => count($normalizedIds),
+                    'total_amount' => (float) $batch->total_amount,
+                    'payout_ids'   => $normalizedIds,
+                ],
+            );
 
             return $batch->fresh(['creator', 'finalizer']) ?? $batch;
         });
@@ -86,7 +101,7 @@ class PayoutBatchService
 
             $this->assertBatchVisible($actor, $lockedBatch);
 
-            if ($lockedBatch->status !== 'draft') {
+            if ($lockedBatch->status !== PayoutBatchStatus::Draft) {
                 throw new ConflictHttpException('Batch đã được chốt hoặc xuất trước đó.');
             }
 
@@ -98,14 +113,179 @@ class PayoutBatchService
                 ->first();
 
             $lockedBatch->update([
-                'status' => 'finalized',
+                'status'       => PayoutBatchStatus::Finalized,
                 'finalized_at' => now(),
                 'finalized_by' => $actor->id,
                 'total_amount' => (float) ($totals?->total_amount ?? 0),
                 'payout_count' => (int) ($totals?->payout_count ?? 0),
             ]);
 
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'payout_batch.finalized',
+                target: $lockedBatch,
+                previousState: ['status' => 'draft'],
+                newState: [
+                    'status'       => 'finalized',
+                    'total_amount' => (float) ($totals?->total_amount ?? 0),
+                    'payout_count' => (int) ($totals?->payout_count ?? 0),
+                ],
+            );
+
             return $lockedBatch->fresh(['creator', 'finalizer']) ?? $lockedBatch;
+        });
+    }
+
+    /**
+     * Transition a finalized batch to exported status.
+     */
+    public function markExported(User $actor, PayoutBatch $batch): PayoutBatch
+    {
+        $this->assertCanManage($actor);
+        $this->assertBatchVisible($actor, $batch);
+
+        return DB::transaction(function () use ($actor, $batch): PayoutBatch {
+            $lockedBatch = PayoutBatch::query()
+                ->whereKey($batch->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedBatch) {
+                throw new NotFoundHttpException('Not found.');
+            }
+
+            if (! $lockedBatch->status->canExport()) {
+                throw new ConflictHttpException('Chỉ có thể xuất batch đã chốt.');
+            }
+
+            // Only transition on first export (idempotent on re-export)
+            if ($lockedBatch->status === PayoutBatchStatus::Finalized) {
+                $lockedBatch->update([
+                    'status'      => PayoutBatchStatus::Exported,
+                    'exported_at' => now(),
+                    'exported_by' => $actor->id,
+                ]);
+
+                $this->auditLogger->log(
+                    actor: $actor,
+                    action: 'payout_batch.exported',
+                    target: $lockedBatch,
+                    previousState: ['status' => 'finalized'],
+                    newState: ['status' => 'exported'],
+                );
+            } else {
+                // Re-export: log but don't change status
+                $this->auditLogger->log(
+                    actor: $actor,
+                    action: 'payout_batch.re_exported',
+                    target: $lockedBatch,
+                    newState: ['status' => 'exported'],
+                );
+            }
+
+            return $lockedBatch->fresh() ?? $lockedBatch;
+        });
+    }
+
+    /**
+     * Delete a draft batch and release all associated payouts.
+     */
+    public function destroy(User $actor, PayoutBatch $batch): void
+    {
+        $this->assertCanManage($actor);
+        $this->assertBatchVisible($actor, $batch);
+
+        DB::transaction(function () use ($actor, $batch): void {
+            $lockedBatch = PayoutBatch::query()
+                ->whereKey($batch->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedBatch) {
+                throw new NotFoundHttpException('Not found.');
+            }
+
+            if (! $lockedBatch->status->canDelete()) {
+                throw new ConflictHttpException('Chỉ có thể xóa batch đang ở trạng thái nháp.');
+            }
+
+            // Release all payouts from this batch
+            AffiliatePayout::query()
+                ->where('payout_batch_id', $lockedBatch->id)
+                ->update(['payout_batch_id' => null, 'updated_at' => now()]);
+
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'payout_batch.deleted',
+                target: $lockedBatch,
+                previousState: [
+                    'batch_no'     => $lockedBatch->batch_no,
+                    'payout_count' => $lockedBatch->payout_count,
+                    'total_amount' => (float) $lockedBatch->total_amount,
+                ],
+                newState: null,
+            );
+
+            $lockedBatch->delete();
+        });
+    }
+
+    /**
+     * Remove a single payout from a draft batch and recalculate totals.
+     */
+    public function removePayout(User $actor, PayoutBatch $batch, AffiliatePayout $payout): PayoutBatch
+    {
+        $this->assertCanManage($actor);
+        $this->assertBatchVisible($actor, $batch);
+
+        return DB::transaction(function () use ($actor, $batch, $payout): PayoutBatch {
+            $lockedBatch = PayoutBatch::query()
+                ->whereKey($batch->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedBatch) {
+                throw new NotFoundHttpException('Not found.');
+            }
+
+            if (! $lockedBatch->status->canDelete()) {
+                throw new ConflictHttpException('Chỉ có thể chỉnh sửa batch đang ở trạng thái nháp.');
+            }
+
+            if ((int) $payout->payout_batch_id !== $lockedBatch->id) {
+                throw new NotFoundHttpException('Payout không thuộc batch này.');
+            }
+
+            // Lock and release the payout
+            AffiliatePayout::query()
+                ->whereKey($payout->id)
+                ->lockForUpdate()
+                ->update(['payout_batch_id' => null, 'updated_at' => now()]);
+
+            // Recalculate totals
+            $totals = AffiliatePayout::query()
+                ->where('payout_batch_id', $lockedBatch->id)
+                ->selectRaw('COALESCE(SUM(amount), 0) as total_amount')
+                ->selectRaw('COUNT(*) as payout_count')
+                ->first();
+
+            $lockedBatch->update([
+                'total_amount' => (float) ($totals?->total_amount ?? 0),
+                'payout_count' => (int) ($totals?->payout_count ?? 0),
+            ]);
+
+            $this->auditLogger->log(
+                actor: $actor,
+                action: 'payout_batch.payout_removed',
+                target: $lockedBatch,
+                previousState: ['payout_id' => $payout->payout_id, 'amount' => (float) $payout->amount],
+                newState: [
+                    'payout_count' => (int) ($totals?->payout_count ?? 0),
+                    'total_amount' => (float) ($totals?->total_amount ?? 0),
+                ],
+            );
+
+            return $lockedBatch->fresh() ?? $lockedBatch;
         });
     }
 
@@ -161,7 +341,7 @@ class PayoutBatchService
             ->get();
 
         return [
-            'batch' => $batch->loadMissing(['creator:id,name,email', 'finalizer:id,name,email']),
+            'batch'   => $batch->loadMissing(['creator:id,name,email', 'finalizer:id,name,email']),
             'payouts' => $payouts,
         ];
     }
@@ -237,12 +417,12 @@ class PayoutBatchService
 
             try {
                 return PayoutBatch::query()->create([
-                    'batch_no' => $batchNo,
-                    'status' => 'draft',
+                    'batch_no'     => $batchNo,
+                    'status'       => PayoutBatchStatus::Draft,
                     'total_amount' => round((float) $payouts->sum('amount'), 2),
                     'payout_count' => $payouts->count(),
-                    'note' => $note,
-                    'created_by' => $actor->id,
+                    'note'         => $note,
+                    'created_by'   => $actor->id,
                 ]);
             } catch (QueryException $exception) {
                 // Retry on unique collision only.

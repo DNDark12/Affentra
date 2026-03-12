@@ -109,8 +109,7 @@ class ClickAnalyticsRepository
 
     public function getReportData(ClickReportFilter $filter, User $actor): LengthAwarePaginator
     {
-        $query = Click::query()
-            ->with(['trackingLink.campaign']);
+        $query = Click::query();
 
         $this->scopeClickQueryByActor($query, $actor);
 
@@ -123,31 +122,68 @@ class ClickAnalyticsRepository
         if ($filter->trackingLinkId) {
             $query->where('tracking_link_id', $filter->trackingLinkId);
         }
-        if ($filter->campaignId) {
-            $query->whereHas('trackingLink', function ($q) use ($filter): void {
-                $q->where('campaign_id', $filter->campaignId);
-            });
+        if ($filter->utmSources) {
+            $query->whereIn('utm_source', $filter->utmSources);
         }
-        if ($filter->deviceType) {
-            $query->where('device_type', $filter->deviceType);
+        if ($filter->utmCampaigns) {
+            $query->whereIn('utm_campaign', $filter->utmCampaigns);
         }
-        if ($filter->refererDomain) {
-            $query->where('referer_domain', $filter->refererDomain);
+        if ($filter->devices) {
+            $query->whereIn('device_type', $filter->devices);
         }
         if ($filter->isBot !== null) {
             $query->where('is_bot', $filter->isBot);
         }
         if ($filter->searchQuery) {
             $query->where(function ($q) use ($filter): void {
-                $q->where('id', 'like', "%{$filter->searchQuery}%")
-                    ->orWhere('ip', 'like', "%{$filter->searchQuery}%")
-                    ->orWhere('sub_id', 'like', "%{$filter->searchQuery}%")
-                    ->orWhere('referer', 'like', "%{$filter->searchQuery}%");
+                $q->where('utm_source', 'like', "%{$filter->searchQuery}%")
+                  ->orWhere('utm_campaign', 'like', "%{$filter->searchQuery}%");
             });
         }
 
-        $allowedSorts = ['created_at', 'id', 'ip', 'sub_id', 'device_type', 'referer_domain'];
-        $sort = in_array($filter->sort, $allowedSorts, true) ? $filter->sort : 'created_at';
+        // Map allowed group_by values to actual SQL selection and grouping logic
+        $groupMap = [
+            'date' => [
+                'select' => 'DATE(created_at) as grouped_by',
+                'group'  => 'DATE(created_at)'
+            ],
+            'tracking_link_id' => [
+                'select' => 'tracking_link_id as grouped_by',
+                'group'  => 'tracking_link_id',
+                'with'   => ['trackingLink.campaign'] // Needs eager load mapping manually in UI/Resource
+            ],
+            'utm_source' => [
+                'select' => 'COALESCE(utm_source, "Unknown") as grouped_by',
+                'group'  => 'utm_source'
+            ],
+            'utm_campaign' => [
+                'select' => 'COALESCE(utm_campaign, "Unknown") as grouped_by',
+                'group'  => 'utm_campaign'
+            ],
+            'device_type' => [
+                'select' => 'COALESCE(device_type, "Unknown") as grouped_by',
+                'group'  => 'device_type'
+            ],
+        ];
+
+        $groupConfig = $groupMap[$filter->groupBy] ?? $groupMap['date'];
+
+        $query->selectRaw("
+            {$groupConfig['select']},
+            COUNT(*) as total_clicks,
+            SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bot_clicks,
+            COUNT(DISTINCT ip) as unique_ips
+        ");
+
+        $query->groupByRaw($groupConfig['group']);
+
+        if (isset($groupConfig['with'])) {
+            $query->with($groupConfig['with']);
+        }
+
+        // Note: Sort fields from filter must map to the grouped aggregation aliases or specific group column
+        $allowedSorts = ['grouped_by', 'total_clicks', 'bot_clicks', 'unique_ips'];
+        $sort = in_array($filter->sort, $allowedSorts, true) ? $filter->sort : 'total_clicks';
         $direction = strtolower($filter->direction) === 'asc' ? 'asc' : 'desc';
 
         return $query->orderBy($sort, $direction)

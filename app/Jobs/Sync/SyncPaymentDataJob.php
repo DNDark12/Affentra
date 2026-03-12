@@ -122,6 +122,11 @@ class SyncPaymentDataJob implements ShouldQueue
                 $warnings[] = 'Billing: '.$billingError->getMessage();
             }
 
+            // Delay before next browser-fetch call to avoid Shopee rate detection
+            if ($billingFetched) {
+                sleep(3);
+            }
+
             // 2. Fetch & Upsert Payouts (optional when only 1 cURL profile is available)
             try {
                 $payouts = $adapter->fetchPayouts($this->platformConnection, $since, $until);
@@ -141,6 +146,11 @@ class SyncPaymentDataJob implements ShouldQueue
 
             if ($payouts !== []) {
                 $payoutsCount = $paymentService->upsertPayoutsFromApi($this->platformConnection, $payouts);
+            }
+
+            // Delay before service fee fetch to avoid Shopee rate detection
+            if ($payoutFetched || !empty($warnings)) {
+                sleep(2);
             }
 
             // 3. Fetch service-fee invoices (optional)

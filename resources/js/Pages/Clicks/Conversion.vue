@@ -13,30 +13,33 @@
                 <ClicksSubnav />
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
-                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Orders (page)</div>
-                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
-                        {{ number(conversion.items.length) }}
-                    </div>
+            <div class="flex flex-wrap items-end gap-3 bg-zinc-50 dark:bg-zinc-800/20 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                <div class="flex flex-col gap-1 w-[160px]">
+                    <label class="text-[10px] uppercase font-bold text-zinc-500 dark:text-zinc-400">UTM Source</label>
+                    <select
+                        v-model="filterSource"
+                        @change="applyFilter"
+                        class="h-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[12px] px-2 py-0"
+                    >
+                        <option value="">All Sources</option>
+                        <option v-for="source in filterOptions.utm_sources" :key="source" :value="source">
+                            {{ source }}
+                        </option>
+                    </select>
                 </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
-                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Approved (page)</div>
-                    <div class="text-[22px] font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                        {{ number(approvedCount) }}
-                    </div>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
-                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Order Amount (page)</div>
-                    <div class="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 mt-1">
-                        {{ money(totalOrderAmount) }}
-                    </div>
-                </div>
-                <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 p-4">
-                    <div class="text-[11px] text-zinc-500 dark:text-zinc-400">Commission (page)</div>
-                    <div class="text-[22px] font-bold text-indigo-600 dark:text-indigo-400 mt-1">
-                        {{ money(totalCommission) }}
-                    </div>
+
+                <div class="flex flex-col gap-1 w-[160px]">
+                    <label class="text-[10px] uppercase font-bold text-zinc-500 dark:text-zinc-400">Campaign</label>
+                    <select
+                        v-model="filterCampaign"
+                        @change="applyFilter"
+                        class="h-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-[12px] px-2 py-0"
+                    >
+                        <option value="">All Campaigns</option>
+                        <option v-for="campaign in filterOptions.utm_campaigns" :key="campaign" :value="campaign">
+                            {{ campaign }}
+                        </option>
+                    </select>
                 </div>
             </div>
 
@@ -148,7 +151,41 @@ const props = defineProps({
         type: Object,
         default: () => ({}),
     },
+    filterOptions: {
+        type: Object,
+        default: () => ({
+            utm_sources: [],
+            utm_campaigns: [],
+            devices: [],
+        })
+    }
 })
+
+import { ref } from 'vue'
+import { router } from '@inertiajs/vue3'
+
+const filterSource = ref(props.filters?.utm_sources?.[0] || '')
+const filterCampaign = ref(props.filters?.utm_campaigns?.[0] || '')
+
+function applyFilter() {
+    const next = new URLSearchParams()
+    Object.entries(props.filters || {}).forEach(([key, value]) => {
+        if (!['page', 'utm_sources', 'utm_campaigns'].includes(key)) {
+            if (value !== null && value !== undefined && `${value}` !== '') {
+                next.set(key, `${value}`)
+            }
+        }
+    })
+    
+    if (filterSource.value) {
+        next.set('utm_sources[0]', filterSource.value)
+    }
+    if (filterCampaign.value) {
+        next.set('utm_campaigns[0]', filterCampaign.value)
+    }
+    
+    router.get(`/analytics/clicks/conversion?${next.toString()}`)
+}
 
 const approvedCount = computed(() => props.conversion.items.filter((row) => (row.status || '').toLowerCase() === 'approved').length)
 const totalOrderAmount = computed(() => props.conversion.items.reduce((sum, row) => sum + Number(row.order_amount || 0), 0))
@@ -182,11 +219,21 @@ function statusClass(status) {
 function pageUrl(page) {
     const next = new URLSearchParams()
     Object.entries(props.filters || {}).forEach(([key, value]) => {
-        if (value !== null && value !== undefined && `${value}` !== '') {
-            next.set(key, `${value}`)
+        if (!['page', 'utm_sources', 'utm_campaigns'].includes(key)) {
+            if (value !== null && value !== undefined && `${value}` !== '') {
+                next.set(key, `${value}`)
+            }
         }
     })
+    
+    if (filterSource.value) {
+        next.set('utm_sources[0]', filterSource.value)
+    }
+    if (filterCampaign.value) {
+        next.set('utm_campaigns[0]', filterCampaign.value)
+    }
+    
     next.set('page', `${Math.max(1, Number(page || 1))}`)
-    return `/clicks/conversion?${next.toString()}`
+    return `/analytics/clicks/conversion?${next.toString()}`
 }
 </script>

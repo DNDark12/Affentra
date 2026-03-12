@@ -332,7 +332,7 @@ async def proxy_request(
             error_type="rate_limited",
         )
 
-    logger.info(f"Proxy request: method={body.method} url={body.url}")
+    logger.info(f"Proxy request: method={body.method} url={body.url} use_browser_fetch={body.use_browser_fetch} browser_url={body.browser_url} body_type={type(body.body).__name__}")
 
     result = await scraper.proxy_request(
         url=body.url,

@@ -11,6 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Str;
 
 class RecordClickJob implements ShouldQueue
 {
@@ -110,16 +111,44 @@ class RecordClickJob implements ShouldQueue
         $plainText = $ip . '|' . ltrim(substr($ua, 0, 150)); // Avoid huge UA poisoning
         $fingerprintHash = hash_hmac('sha256', $plainText, config('app.key'));
         
+        // UTM Normalization & Sanitization
+        $rawUtmSource   = $this->clickData['utm_source'] ?? null;
+        $rawUtmMedium   = $this->clickData['utm_medium'] ?? null;
+        $rawUtmCampaign = $this->clickData['utm_campaign'] ?? null;
+        $rawUtmTerm     = $this->clickData['utm_term'] ?? null;
+        $rawUtmContent  = $this->clickData['utm_content'] ?? null;
+
+        // Clean values for physical column indexing
+        $cleanUtmSource   = empty(trim((string)$rawUtmSource)) ? null : Str::lower(trim((string)$rawUtmSource));
+        $cleanUtmMedium   = empty(trim((string)$rawUtmMedium)) ? null : Str::lower(trim((string)$rawUtmMedium));
+        $cleanUtmCampaign = empty(trim((string)$rawUtmCampaign)) ? null : trim((string)$rawUtmCampaign); // Preserve case for campaign
+        
+        // Store everything in source meta for audit/raw access
+        $sourceMeta = [
+            'utm_source'   => $rawUtmSource,
+            'utm_medium'   => $rawUtmMedium,
+            'utm_campaign' => $rawUtmCampaign,
+            'utm_term'     => $rawUtmTerm,
+            'utm_content'  => $rawUtmContent,
+        ];
+
+        // Filter out nulls to save space in JSON
+        $sourceMeta = array_filter($sourceMeta, fn($val) => $val !== null && $val !== '');
+        
         $enrichedData = array_merge($this->clickData, [
             'owner_id' => $ownerId,
             'leader_id' => $leaderId,
             'partner_user_id' => $partnerUserId,
+            'utm_source' => $cleanUtmSource,
+            'utm_medium' => $cleanUtmMedium,
+            'utm_campaign' => $cleanUtmCampaign,
             'fingerprint_hash' => $fingerprintHash,
             'hash_version' => 1,
             'is_bot' => $isBot,
             'bot_reason' => $botReason,
             'device_type' => $deviceType,
             'referer_domain' => $refererDomain,
+            'source_meta' => empty($sourceMeta) ? null : json_encode($sourceMeta),
         ]);
 
         $clickRepository->insertClick($enrichedData);

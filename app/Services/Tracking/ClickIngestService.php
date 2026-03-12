@@ -31,6 +31,13 @@ class ClickIngestService
             return null;
         }
 
+        // Fetch UTMs from Request. Default to empty strings if not present.
+        $utmSource   = $request->query('utm_source');
+        $utmMedium   = $request->query('utm_medium');
+        $utmCampaign = $request->query('utm_campaign');
+        $utmTerm     = $request->query('utm_term');
+        $utmContent  = $request->query('utm_content');
+
         // Dispatch click recording to queue — redirect responds immediately
         RecordClickJob::dispatch(
             [
@@ -39,6 +46,11 @@ class ClickIngestService
                 'ip'               => $request->ip(),
                 'user_agent'       => mb_substr((string) $request->userAgent(), 0, 1000),
                 'referer'          => mb_substr((string) $request->header('Referer', ''), 0, 2048),
+                'utm_source'       => is_string($utmSource) ? $utmSource : null,
+                'utm_medium'       => is_string($utmMedium) ? $utmMedium : null,
+                'utm_campaign'     => is_string($utmCampaign) ? $utmCampaign : null,
+                'utm_term'         => is_string($utmTerm) ? $utmTerm : null,
+                'utm_content'      => is_string($utmContent) ? $utmContent : null,
             ],
             $link->id,
         );

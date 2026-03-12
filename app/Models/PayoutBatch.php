@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\PayoutBatchStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,6 +25,8 @@ class PayoutBatch extends Model
         'note',
         'finalized_at',
         'finalized_by',
+        'exported_at',
+        'exported_by',
         'created_by',
     ];
 
@@ -33,9 +36,11 @@ class PayoutBatch extends Model
     protected function casts(): array
     {
         return [
+            'status'       => PayoutBatchStatus::class,
             'total_amount' => 'decimal:2',
             'payout_count' => 'integer',
             'finalized_at' => 'datetime',
+            'exported_at'  => 'datetime',
         ];
     }
 
@@ -52,5 +57,10 @@ class PayoutBatch extends Model
     public function finalizer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'finalized_by');
+    }
+
+    public function exporter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'exported_by');
     }
 }

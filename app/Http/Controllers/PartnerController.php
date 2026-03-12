@@ -73,12 +73,7 @@ class PartnerController extends Controller
 
         return Inertia::render('Partners/Show', [
             'partner' => $payload['partner'],
-            'overview' => $payload['overview'],
-            'financeSummary' => $payload['finance_summary'],
-            'recentOrders' => $payload['recent_orders'],
-            'recentBillings' => $payload['recent_billings'],
-            'recentPayouts' => $payload['recent_payouts'],
-            'activity' => $payload['activity'],
+            'connections_meta' => $payload['connections_meta'] ?? null,
         ]);
     }
 }

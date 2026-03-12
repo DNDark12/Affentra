@@ -18,6 +18,26 @@ class ClickReportItemResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        // If it's a grouped query result, we return the aggregated fields
+        if (isset($this->grouped_by)) {
+            return [
+                'grouped_by' => $this->grouped_by,
+                'total_clicks' => (int) $this->total_clicks,
+                'bot_clicks' => (int) $this->bot_clicks,
+                'unique_ips' => (int) $this->unique_ips,
+                // Include tracking link details purely for tracking_link_id grouped queries
+                'tracking_link' => $this->relationLoaded('trackingLink') && $this->trackingLink ? [
+                    'id' => (int) $this->trackingLink->id,
+                    'short_code' => $this->trackingLink->short_code,
+                    'sub_id' => $this->trackingLink->sub_id,
+                    'campaign' => $this->trackingLink->campaign ? [
+                        'id' => (int) $this->trackingLink->campaign->id,
+                        'name' => $this->trackingLink->campaign->name,
+                    ] : null,
+                ] : null,
+            ];
+        }
+
         return [
             'id' => (int) $this->id,
             'tracking_link_id' => $this->tracking_link_id !== null ? (int) $this->tracking_link_id : null,

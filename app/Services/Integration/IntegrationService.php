@@ -460,10 +460,10 @@ class IntegrationService
             ]);
 
             SyncShopeeCampaignsForConnectionJob::dispatch(
-                connectionId: $connection->id, 
-                triggerType: 'campaign_sync', 
+                connectionId: $connection->id,
+                triggerType: 'campaign_sync',
                 syncRunId: $campaignSyncRun->id
-            );
+            )->delay(now()->addSeconds(5));
         }
 
         $this->auditLogger->log(

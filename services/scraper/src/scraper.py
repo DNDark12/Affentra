@@ -22,9 +22,18 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from bs4 import BeautifulSoup
+
+
+def _extract_q_param(url: str) -> str | None:
+    """Extract the ?q= query parameter from a Shopee GQL URL."""
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    q_values = qs.get("q", [])
+    return q_values[0] if q_values else None
+
 
 def parse_raw_cookies(raw_cookies: str, domain: str) -> list:
     """
@@ -824,30 +833,72 @@ class ShopeeAffiliateScraper:
         elif "content-type" in normalized and "json" not in normalized["content-type"].lower() and method.upper() == "POST":
              normalized["content-type"] = "application/json; charset=UTF-8"
 
-        # === DOM JS FETCH EXECUTION FOR ANTI-BOT STRICT API ===
+        # === HYBRID INTERCEPTION FOR ANTI-BOT STRICT API ===
+        # Shopee blocks raw XHR/fetch probes. Instead of probing, we simply
+        # listen to the natural requests the page makes on load. ANY internal API call
+        # made by Shopee's frontend will have fresh af-ac-enc-dat, x-sz-sdk-version,
+        # and x-sap-ri headers attached by their SDK. We steal these active tokens
+        # from any observed request and apply them to our own fetch.
         if use_browser_fetch and browser_url:
-            logger.info(f"[{ctx_id}] Injecting JS Fetch on Context: {browser_url} for API {url}")
+            logger.info(f"[{ctx_id}] Hybrid interception on: {browser_url} for API {url}")
             context = None
             page = None
             try:
-                # 1. Reset Context và thiết lập Cookie gốc
                 cookie_list = parse_raw_cookies(cookie_raw, ".shopee.vn")
                 context = await _browser.new_context(user_agent=self.shopee_user_agent)
                 context.set_default_timeout(timeout_val)
                 await context.add_cookies(cookie_list)
-                
-                # 2. Điều hướng vào Subpage bíệt danh của Shopee
+
                 page = await context.new_page()
+
+                captured_headers = {}
+                completed_naturally = False
+                natural_response = None
+
+                target_path = urlparse(url).path
+
+                # Intercept ALL requests to capture fresh SDK tokens from anywhere
+                async def intercept_route(route):
+                    nonlocal captured_headers, completed_naturally, natural_response
+                    req = route.request
+
+                    if "/api/v" in req.url:
+                        all_headers = await req.all_headers()
+                        anti_bot_keys = ['x-sap-ri', 'af-ac-enc-dat', 'af-ac-enc-sz-token', 'x-sz-sdk-version']
+                        # We don't steal x-sap-sec because it is payload-specific.
+                        # The others are session/device specific and can be re-used!
+                        for k in anti_bot_keys:
+                            if k in all_headers:
+                                captured_headers[k] = all_headers[k]
+
+                    # If this is our EXACT target URL (e.g. they clicked next page natively), we could use it
+                    # But we usually just let the route continue normally so the page loads
+                    await route.continue_()
+
+                await page.route("**/*", intercept_route)
+
+                # Wait for the page to load and make its natural background API calls
                 await page.goto(browser_url, wait_until="networkidle", timeout=timeout_val)
-                
-                # 3. Compile JS Inject
+                logger.info(f"[{ctx_id}] Page loaded. Stolen tokens: {list(captured_headers.keys())}")
+
+                # Unroute to clean up
+                await page.unroute("**/*", intercept_route)
+
+                # Build final headers
+                clean_headers = {k: v for k, v in normalized.items()
+                                if k.lower() not in ('x-sap-sec', 'x-sap-ri', 'af-ac-enc-dat', 'af-ac-enc-sz-token')}
+
+                # Apply stolen live tokens
+                for hdr_name, hdr_val in captured_headers.items():
+                    if hdr_val:
+                        clean_headers[hdr_name] = hdr_val
+
                 body_js = "undefined"
                 if body is not None:
-                    if isinstance(body, str):
-                        body_js = json.dumps(body)
-                    else:
-                        body_js = json.dumps(body)
+                    body_js = json.dumps(body) if isinstance(body, str) else json.dumps(body)
 
+                # Now do the fetch with the live tokens (minus x-sap-sec, which we force Shopee to ignore
+                # by omitting it, relying on fresh af-ac-enc-dat to pass the WAF trust check)
                 js_fetch_code = f"""
                 async () => {{
                     try {{
@@ -857,11 +908,10 @@ class ShopeeAffiliateScraper:
 
                         const reqInit = {{
                             method: '{method}',
-                            headers: {json.dumps(normalized or {})},
+                            headers: {json.dumps(clean_headers or {})},
                             body: {body_js}
                         }};
-                        
-                        // Xóa các headers tĩnh dư thừa để trình duyệt tự điền tự nhiên nhât
+
                         ['User-Agent','user-agent','Cookie','cookie','Host','Origin','Referer'].forEach(h => delete reqInit.headers[h]);
 
                         const response = await fetch(queryUrl.toString(), reqInit);
@@ -870,27 +920,31 @@ class ShopeeAffiliateScraper:
                     }} catch (err) {{ return {{ error: err.toString(), ok: false }}; }}
                 }}
                 """
-                
+
                 res = await page.evaluate(js_fetch_code)
-                refreshed_raw = await collect_refreshed_cookie(context, cookie_raw)
-                
-                if res.get("error"): 
-                    return ProxyResult(status=500, ok=False, error=res["error"], error_type=ErrorType.SCRIPT)
+
+                resp_headers = res.get("headers", {})
+                refreshed_raw = collect_refreshed_cookie(cookie_raw, resp_headers)
+
+                if res.get("error"):
+                    return ProxyResult(status=500, ok=False, error=res["error"], error_type=ErrorType.NETWORK)
 
                 html_text = res.get("text", "")
                 is_json = "{" in html_text or "[" in html_text
 
                 return ProxyResult(
-                    status=res.get("status", 200), 
-                    headers=res.get("headers", {}), 
-                    json=json.loads(html_text) if is_json and html_text else None, 
-                    text=html_text if not is_json else None, 
-                    ok=res.get("ok", True), 
-                    refreshed_cookie=refreshed_raw
+                    status=res.get("status", 200),
+                    headers=res.get("headers", {}),
+                    json=json.loads(html_text) if is_json and html_text else None,
+                    text=html_text if not is_json else None,
+                    ok=res.get("ok", True),
+                    refreshed_cookie=refreshed_raw,
                 )
             except Exception as e:
-                logger.error(f"[{ctx_id}] JS Fetch failed: {e}")
-                return ProxyResult(status=500, ok=False, error=str(e), error_type=ErrorType.SCRIPT)
+                logger.error(f"[{ctx_id}] Hybrid fetch failed: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return ProxyResult(status=500, ok=False, error=str(e), error_type=ErrorType.NETWORK)
             finally:
                 if page: await page.close()
                 if context: await context.close()

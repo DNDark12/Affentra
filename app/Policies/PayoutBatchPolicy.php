@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\PayoutBatchStatus;
 use App\Models\PayoutBatch;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
@@ -43,30 +44,59 @@ class PayoutBatchPolicy
     }
 
     /**
-     * Finalize action — delegates to update check.
+     * Finalize action — delegates to access check.
      */
     public function finalize(User $user, PayoutBatch $batch): bool
     {
         return $this->canAccessBatch($user, $batch);
     }
 
+    /**
+     * Export is allowed once the batch is finalized or exported.
+     */
+    public function export(User $user, PayoutBatch $batch): bool
+    {
+        if ($user->isPartner()) {
+            return false;
+        }
+
+        if (! ($batch->status instanceof PayoutBatchStatus)) {
+            return false;
+        }
+
+        return $batch->status->canExport() && $this->canAccessBatch($user, $batch);
+    }
+
+    /**
+     * Only draft batches can be deleted.
+     */
     public function delete(User $user, PayoutBatch $batch): bool
     {
+        if ($user->isPartner()) {
+            return false;
+        }
+
         return $this->canAccessBatch($user, $batch);
     }
 
     /**
      * PayoutBatch uses `created_by` instead of `user_id`.
      * Batch access is scoped via ScopeResolver in the service layer (assertBatchVisible).
-     * Policy acts as a secondary guard for Route Model Binding.
+     * Policy acts as a Route Model Binding guard (fast fail before service layer).
      *
-     * TODO: Expand checks to match ScopeResolver logic for full parity.
+     * Multi-tenant isolation: two Owner accounts in separate trees must NOT cross-access
+     * each other's batches. Owners are restricted to batches they personally created.
+     * Leaders are restricted to batches created by themselves or their descendant users.
      */
     private function canAccessBatch(User $user, PayoutBatch $batch): bool
     {
-        // System owner can access all batches
+        if ($user->isPartner()) {
+            return false;
+        }
+
+        // Owner can only access batches they themselves created (tenant isolation)
         if ($user->isOwner()) {
-            return true;
+            return (int) $batch->created_by === $user->id;
         }
 
         // Creator can always access their own batch
@@ -79,7 +109,6 @@ class PayoutBatchPolicy
             return in_array($batch->created_by, $user->getDescendantIds(), true);
         }
 
-        // Partner cannot access batches (enforced by service layer too)
         return false;
     }
 }

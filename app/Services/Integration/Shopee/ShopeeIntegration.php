@@ -384,6 +384,17 @@ class ShopeeIntegration extends BaseIntegration
         $headers = $this->buildCookieHeaders($connection, $referer);
         $cookieRaw = $this->extractCookieRaw($connection);
 
+        // Strip per-request crypto tokens when using browser fetch — they're stale
+        // from stored cURLs. Browser fetch will either intercept Shopee's own response
+        // (which has fresh tokens) or fall back to fetch() without these.
+        if ($useBrowserFetch) {
+            unset(
+                $headers['x-sap-sec'],
+                $headers['x-sap-ri'],
+                $headers['af-ac-enc-dat'],
+            );
+        }
+
         // Log cookie hash for correlation — never raw value
         $cookieHash = $cookieRaw !== '' ? substr(hash('sha256', $cookieRaw), 0, 12) : 'empty';
 
@@ -399,20 +410,29 @@ class ShopeeIntegration extends BaseIntegration
         if ($method === 'POST') {
             if (is_array($postBody) && empty($postBody)) {
                 $bodyData = new \stdClass();
+            } elseif (is_string($postBody)) {
+                // IMPORTANT: Pydantic on Python side expects a dict for `body`.
+                // If we pass a string here, the resulting JSON payload has a string
+                // nested inside, which can break Pydantic validation and cause it
+                // to silently drop subsequent fields like `use_browser_fetch`.
+                $decoded = json_decode($postBody, true);
+                $bodyData = (json_last_error() === JSON_ERROR_NONE && is_array($decoded))
+                    ? $decoded
+                    : $postBody;
             } else {
                 $bodyData = $postBody;
             }
         }
 
         $payload = [
-            'url'     => $endpoint,
-            'method'  => $method,
-            'headers' => empty($headers) ? new \stdClass() : $headers,
-            'params'  => empty($queryParams) ? new \stdClass() : $queryParams,
-            'body'    => $bodyData,
-            'cookies' => $cookieRaw,
+            'url'               => $endpoint,
+            'method'            => $method,
+            'headers'           => empty($headers) ? new \stdClass() : $headers,
+            'params'            => empty($queryParams) ? new \stdClass() : $queryParams,
+            'body'              => $bodyData,
+            'cookies'           => $cookieRaw,
             'use_browser_fetch' => $useBrowserFetch,
-            'browser_url' => $browserUrl,
+            'browser_url'       => $browserUrl,
         ];
 
         $response = Http::withHeaders(['X-Internal-Token' => $scraperToken])
