@@ -40,6 +40,7 @@
 
 /* ─── CSS Variables (light / dark) ───────────────────────────────────────── */
 :root {
+    color-scheme: light;
     --app-bg:       #FAFAFA;
     --surface-1:    #FFFFFF;
     --surface-2:    #F4F4F5;
@@ -63,6 +64,7 @@
 }
 
 .dark {
+    color-scheme: dark;
     --app-bg:       #09090B;
     --surface-1:    #18181B;
     --surface-2:    #27272A;
@@ -88,6 +90,45 @@
 /* ─── Base ────────────────────────────────────────────────────────────────── */
 html { font-family: var(--font-sans); }
 body { background-color: var(--app-bg); color: var(--text-primary); }
+
+/* ─── Native Select Theme Normalization ───────────────────────────────────── */
+select {
+    color: var(--text-primary);
+    background-color: var(--surface-1);
+    color-scheme: inherit;
+}
+
+select option,
+select optgroup {
+    color: var(--text-primary);
+    background-color: var(--surface-1);
+}
+
+.dark select {
+    color: var(--text-primary);
+    background-color: var(--surface-2) !important;
+    border-color: var(--border);
+    color-scheme: dark;
+}
+
+.dark select:focus,
+.dark select:focus-visible {
+    color: var(--text-primary);
+    background-color: var(--surface-2) !important;
+}
+
+.dark select option,
+.dark select optgroup {
+    color: var(--text-primary) !important;
+    background-color: var(--surface-1) !important;
+}
+
+.dark select option:checked,
+.dark select option:hover,
+.dark select option:focus {
+    color: var(--text-primary) !important;
+    background: var(--surface-2) linear-gradient(0deg, var(--surface-2), var(--surface-2)) !important;
+}
 
 /* ─── Scrollbar (Dark-mode aware) ─────────────────────────────────────────── */
 /* WebKit browsers (Chrome, Safari, Edge) */
@@ -348,6 +389,55 @@ body { background-color: var(--app-bg); color: var(--text-primary); }
 .ts-dropdown .active {
     background: var(--surface-2);
     color: var(--text-primary);
+}
+
+/* Hard override Tom Select defaults (tom-select.css sets white background). */
+.ts-dropdown,
+.ts-control,
+.ts-control input {
+    color: var(--text-primary) !important;
+}
+
+.ts-control,
+.ts-wrapper.single.input-active .ts-control {
+    background: var(--surface-1) !important;
+    border-color: var(--border) !important;
+}
+
+.dark .ts-control,
+.dark .ts-wrapper.single.input-active .ts-control {
+    background: var(--surface-2) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border) !important;
+}
+
+.ts-dropdown {
+    background: var(--surface-1) !important;
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.dark .ts-dropdown {
+    background: var(--surface-1) !important;
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.ts-dropdown .option,
+.ts-dropdown .optgroup-header,
+.ts-dropdown .no-results,
+.ts-dropdown .create {
+    color: var(--text-primary) !important;
+}
+
+.ts-dropdown .optgroup-header {
+    background: var(--surface-1) !important;
+}
+
+.ts-dropdown .active,
+.ts-dropdown [data-selectable].option.active {
+    background: var(--surface-2) !important;
+    color: var(--text-primary) !important;
 }
 
 /* Search inputs with left icon */

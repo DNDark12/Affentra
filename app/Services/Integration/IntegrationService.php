@@ -687,20 +687,15 @@ class IntegrationService
 
         if ($connection->method === 'portal_export') {
             $capabilities = [
-                'supportsAutoSync' => false,
+                'supportsAutoSync'       => false,
                 'supportsOfferDiscovery' => false,
-                'supportsShortLink' => false,
-                'supportsSubId' => true,
-            ];
-        } elseif ($connection->method === 'cookie') {
-            $capabilities = [
-                'supportsAutoSync' => true,
-                'supportsOfferDiscovery' => true,
-                'supportsShortLink' => false,
-                'supportsSubId' => true,
+                'supportsShortLink'      => false,
+                'supportsSubId'          => true,
             ];
         } else {
-            $adapter = IntegrationFactory::make($connection->platform);
+            // For open_api, cookie, and future methods: delegate to the adapter.
+            // Each adapter defines its own capability set; do NOT override here.
+            $adapter      = IntegrationFactory::make($connection->platform);
             $capabilities = $adapter->capabilities()->toArray();
         }
 

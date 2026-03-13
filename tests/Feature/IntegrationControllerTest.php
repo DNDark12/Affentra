@@ -55,8 +55,9 @@ class IntegrationControllerTest extends TestCase
 
         $user = User::factory()->create();
         $conn = PlatformConnection::factory()->create([
-            'user_id' => $user->id,
-            'status'  => 'active'
+            'user_id'  => $user->id,
+            'platform' => 'shopee', // Explicitly shopee so Shopee-specific job assertions hold
+            'status'   => 'active'
         ]);
 
         $response = $this->actingAs($user)->postJson("/api/integrations/{$conn->id}/sync");
@@ -96,7 +97,7 @@ class IntegrationControllerTest extends TestCase
         $user = User::factory()->create(['role' => 'owner']);
 
         $response = $this->actingAs($user)->postJson('/api/integrations', [
-            'platform'   => 'lazada',
+            'platform'   => 'tiktok', // 'tiktok' is not a supported platform
             'method'     => 'open_api',
             'app_id'     => 'test_app',
             'app_secret' => 'test_secret',

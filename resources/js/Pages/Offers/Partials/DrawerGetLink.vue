@@ -53,7 +53,7 @@
                             
                             <div class="flex flex-col gap-2">
                                 <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chiến dịch (Campaign)</label>
-                                <select v-model="form.campaign_id" class="h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full">
+                                <select v-model="form.campaign_id" class="h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-[var(--surface-1)] text-[var(--text-primary)] text-sm focus:ring-1 focus:ring-indigo-500 w-full">
                                     <option value="">-- Tiền xử lý (Mặc định) --</option>
                                     <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.name }}</option>
                                 </select>

@@ -8,6 +8,7 @@ use App\Jobs\Sync\SyncPaymentDataJob;
 use App\Jobs\Sync\SyncPlatformConnectionJob;
 use App\Jobs\Sync\SyncShopeeCampaignsForConnectionJob;
 use App\Models\PlatformConnection;
+use App\Models\SyncRun;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -68,15 +69,27 @@ class DispatchScheduledSyncsJob implements ShouldQueue
         ]);
 
         foreach ($eligibleConnections as $connection) {
-            Bus::chain([
-                new SyncShopeeCampaignsForConnectionJob($connection->id),
-                new SyncPaymentDataJob($connection),
-                new SyncPlatformConnectionJob(
+            if ($connection->platform === 'shopee') {
+                // Shopee: chain campaign + payment sync BEFORE the main conversion sync
+                // to ensure finance data is available for reconciliation.
+                Bus::chain([
+                    new SyncShopeeCampaignsForConnectionJob($connection->id),
+                    new SyncPaymentDataJob($connection),
+                    new SyncPlatformConnectionJob(
+                        connectionId: $connection->id,
+                        type: 'auto',
+                        userId: $connection->user_id,
+                    ),
+                ])->dispatch();
+            } else {
+                // Other platforms: dispatch only the conversion/click sync.
+                // Payment sync and campaign sync are Shopee-specific.
+                SyncPlatformConnectionJob::dispatch(
                     connectionId: $connection->id,
                     type: 'auto',
                     userId: $connection->user_id,
-                ),
-            ])->dispatch();
+                );
+            }
         }
     }
 }

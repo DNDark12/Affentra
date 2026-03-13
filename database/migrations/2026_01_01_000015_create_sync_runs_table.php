@@ -16,8 +16,9 @@ return new class extends Migration
             $table->foreignId('platform_connection_id')->nullable()->constrained('platform_connections')->cascadeOnDelete();
             $table->string('integration', 50)->index();
 
-            // Type: import (CSV), auto (scheduled), manual (user-triggered)
-            $table->enum('type', ['import', 'auto', 'manual'])->default('import');
+            // Type: import (CSV), auto (scheduled), manual (user-triggered),
+            // payment_sync (finance data), campaign_sync (Shopee campaign data)
+            $table->enum('type', ['import', 'auto', 'manual', 'payment_sync', 'campaign_sync'])->default('import');
 
             // Extended status taxonomy for ops debugging
             $table->string('status', 30)->default('pending')->index();

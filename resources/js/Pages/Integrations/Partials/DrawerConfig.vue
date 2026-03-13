@@ -44,7 +44,7 @@
                             <div class="flex flex-col gap-2">
                                 <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chọn Nền Tảng <span class="text-red-500">*</span></label>
                                 <div class="relative">
-                                    <select v-model="form.platform" class="w-full h-11 pl-4 pr-10 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm appearance-none focus:ring-1 focus:ring-indigo-500 z-10" :disabled="!!editConnection">
+                                    <select v-model="form.platform" class="w-full h-11 pl-4 pr-10 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-[var(--text-primary)] text-sm appearance-none focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-transparent dark:focus:bg-zinc-900 z-10" :disabled="!!editConnection">
                                         <option value="" disabled>--- Chọn nền tảng ---</option>
                                         <option v-for="plat in platforms" :key="plat.id" :value="plat.id">{{ plat.name }}</option>
                                     </select>
@@ -167,7 +167,7 @@
                                 <!-- Mode -->
                                 <div class="flex flex-col gap-2">
                                     <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chế độ đồng bộ</label>
-                                    <select v-model="form.sync_mode" class="h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm">
+                                    <select v-model="form.sync_mode" class="h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-[var(--text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-transparent dark:focus:bg-zinc-900">
                                         <option value="scheduled">Scheduled (Tự động)</option>
                                         <option value="manual">Manual (Kích hoạt thủ công)</option>
                                     </select>
@@ -177,7 +177,7 @@
                                 <div v-if="form.sync_mode === 'scheduled'" class="flex flex-col gap-2">
                                     <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Chu kỳ đồng bộ</label>
                                     <div class="flex items-center gap-2">
-                                        <select v-model="form.sync_interval" class="flex-1 h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm">
+                                        <select v-model="form.sync_interval" class="flex-1 h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-[var(--text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-transparent dark:focus:bg-zinc-900">
                                             <option value="15m">15 phút</option>
                                             <option value="1h">1 tiếng</option>
                                             <option value="3h">3 tiếng</option>
@@ -201,7 +201,7 @@
                                 <!-- Status Force -->
                                 <div class="flex flex-col gap-2">
                                     <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">Trạng thái kết nối</label>
-                                    <select v-model="form.status" class="h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm">
+                                    <select v-model="form.status" class="h-10 pl-3 pr-8 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent dark:bg-zinc-900 text-[var(--text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-transparent dark:focus:bg-zinc-900">
                                         <option value="active">Đang hoạt động</option>
                                         <option value="inactive">Tạm dừng</option>
                                         <option value="error">Báo Lỗi</option>

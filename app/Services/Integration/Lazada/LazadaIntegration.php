@@ -431,18 +431,22 @@ class LazadaIntegration extends BaseIntegration
         $approvedAt = $this->parseTimestamp($row['approved_at'] ?? $row['approve_time'] ?? null);
 
         return [
-            'platform'          => 'lazada',
-            'external_order_id' => $externalOrderId,
-            'status'            => $orderStatus->value,
-            'order_amount'      => (float) ($row['order_amount'] ?? $row['sale_amount'] ?? $row['gmv'] ?? 0),
-            'commission'        => (float) ($row['commission'] ?? $row['commission_amount'] ?? $row['earning'] ?? 0),
-            'sub_id'            => (string) ($row['sub_id'] ?? $row['sub_id_1'] ?? $row['custom_tracking_id'] ?? ''),
-            'product_name'      => (string) ($row['product_name'] ?? $row['item_name'] ?? ''),
-            'product_id'        => (string) ($row['item_id'] ?? $row['product_id'] ?? $row['sku_id'] ?? ''),
-            'ordered_at'        => $orderedAt,
-            'approved_at'       => $approvedAt,
-            'source'            => 'lazada_dashboard',
-            'source_meta'       => [
+            'platform'           => 'lazada',
+            'external_order_id'  => $externalOrderId,
+            // OrderService requires order_code as the upsert key (platform + order_code is unique).
+            // For Lazada affiliate, the order_id doubles as the canonical order code.
+            'order_code'         => $externalOrderId,
+            'legacy_order_code'  => (string) ($row['order_id'] ?? $row['orderId'] ?? $row['id'] ?? ''),
+            'status'             => $orderStatus->value,
+            'order_amount'       => (float) ($row['order_amount'] ?? $row['sale_amount'] ?? $row['gmv'] ?? 0),
+            'commission'         => (float) ($row['commission'] ?? $row['commission_amount'] ?? $row['earning'] ?? 0),
+            'sub_id'             => (string) ($row['sub_id'] ?? $row['sub_id_1'] ?? $row['custom_tracking_id'] ?? ''),
+            'product_name'       => (string) ($row['product_name'] ?? $row['item_name'] ?? ''),
+            'product_id'         => (string) ($row['item_id'] ?? $row['product_id'] ?? $row['sku_id'] ?? ''),
+            'ordered_at'         => $orderedAt,
+            'approved_at'        => $approvedAt,
+            'source'             => 'lazada_dashboard',
+            'source_meta'        => [
                 'raw_status'  => $rawStatus,
                 'raw_payload' => $row,
             ],
