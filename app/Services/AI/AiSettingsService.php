@@ -48,8 +48,9 @@ class AiSettingsService
                 ['id' => 'gemini-3.1-flash-image-preview', 'name' => 'Gemini 3.1 Flash Image (Preview)', 'capabilities' => ['image']],
                 ['id' => 'gemini-2.5-pro',                'name' => 'Gemini 2.5 Pro (Stable)',       'capabilities' => ['text', 'image', 'video']],
                 ['id' => 'gemini-2.5-flash',              'name' => 'Gemini 2.5 Flash (Stable)',     'capabilities' => ['text', 'image', 'video']],
-                ['id' => 'gemini-1.5-pro',                'name' => 'Gemini 1.5 Pro',               'capabilities' => ['text', 'image', 'video']],
-                ['id' => 'gemini-1.5-flash',              'name' => 'Gemini 1.5 Flash',             'capabilities' => ['text', 'image', 'video']],
+                // --- Veo Video Models ---
+                ['id' => 'veo-3.1-generate-001',          'name' => 'Veo 3.1 (Video - Paid Preview)',      'capabilities' => ['video']],
+                ['id' => 'veo-3.1-fast-generate-001',     'name' => 'Veo 3.1 Fast (Video - Paid Preview)', 'capabilities' => ['video']],
             ]
         ],
         'openai' => [
@@ -61,17 +62,14 @@ class AiSettingsService
                 ['id' => 'gpt-5.4',            'name' => 'GPT-5.4 (Frontier)',    'capabilities' => ['text', 'image', 'video']],
                 ['id' => 'gpt-5.4-pro',        'name' => 'GPT-5.4 Pro',           'capabilities' => ['text', 'image', 'video']],
                 ['id' => 'gpt-5-mini',         'name' => 'GPT-5 Mini',            'capabilities' => ['text', 'image', 'video']],
-                ['id' => 'gpt-5.3-codex',      'name' => 'GPT-5.3 Codex (Agentic)', 'capabilities' => ['text']],
-                ['id' => 'gpt-4.1',            'name' => 'GPT-4.1 (Stable)',      'capabilities' => ['text', 'image', 'video']],
                 ['id' => 'gpt-4o',             'name' => 'GPT-4o',                'capabilities' => ['text', 'image', 'video']],
                 ['id' => 'gpt-4o-mini',        'name' => 'GPT-4o Mini',           'capabilities' => ['text', 'image', 'video']],
-                ['id' => 'o1-preview',         'name' => 'OpenAI o1 Preview',    'capabilities' => ['text']],
                 ['id' => 'gpt-image-1.5',      'name' => 'GPT Image 1.5 (DALL-E Next)', 'capabilities' => ['image']],
             ]
         ],
         'self_hosted' => [
             'name'              => 'Self-Hosted / OpenAI Compatible',
-            'capabilities'      => ['text'],
+            'capabilities'      => ['text', 'image', 'video'],
             'has_base_url'      => true,
             'default_model'     => '',
             'models' => [] // User manually enters for self-hosted
@@ -90,7 +88,7 @@ class AiSettingsService
         ],
         'seedance' => [
             'name'              => 'Seedance (Video AI)',
-            'capabilities'      => ['video', 'image'],
+            'capabilities'      => ['image', 'video'],
             'has_base_url'      => true,
             'default_base_url'  => 'https://seedance2.app/api/v1',
             'default_model'     => 'doubao-seedance-2-0',

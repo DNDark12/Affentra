@@ -7,10 +7,13 @@ namespace App\Services\AI;
 use InvalidArgumentException;
 
 /**
- * Code-based registry of prompt templates.
+ * Structured Brief Prompt Template Registry
  *
- * Each template is a callable that receives $attributes and returns a
- * fully-rendered string ready to be sent to the LLM/media provider.
+ * Each template uses a structured framework:
+ *   CONTEXT → OBJECTIVE → TARGET AUDIENCE → CONSTRAINTS → OUTPUT FORMAT
+ *
+ * This replaces the old flat attribute-list approach with a framework
+ * that gives AI models clear priority signals and structured reasoning.
  */
 class PromptTemplateRegistry
 {
@@ -26,8 +29,10 @@ class PromptTemplateRegistry
 
     private function registerBuiltinTemplates(): void
     {
+        // ─── TEXT TEMPLATES ────────────────────────────────────────────────────
+
         /**
-         * TEXT: Facebook post
+         * Facebook Post — organic / boosted
          */
         $this->register('fb_post', 'Facebook post (short/long)', ['text'], function (array $attrs): string {
             $product    = $this->stringAttr($attrs, 'product_title', 'product');
@@ -36,65 +41,103 @@ class PromptTemplateRegistry
             $goal       = $this->stringAttr($attrs, 'goal', 'traffic');
             $audience   = $this->stringAttr($attrs, 'audience', 'general audience');
             $link       = $this->stringAttr($attrs, 'tracking_url');
-            $ctaText    = $this->stringAttr($attrs, 'cta_text');
             $usp        = $this->stringAttr($attrs, 'usp');
             $offers     = $this->stringAttr($attrs, 'offers');
             $expiration = $this->stringAttr($attrs, 'expiration');
+            $policy     = $this->stringAttr($attrs, 'policy');
             $length     = $this->stringAttr($attrs, 'length', 'medium');
+            $framework  = $this->selectPersuasionFramework($goal);
+            $imgRef     = $this->imageReferenceBlock($attrs, 'text');
 
             return $this->joinLines([
-                "Product Description Context:",
-                '- Product Name: "' . $product . '"' . $this->priceHint($price),
-                $usp !== '' ? '- Unique Selling Points (USP): ' . $usp : '',
-                $offers !== '' ? '- Current Promotions/Offers: ' . $offers : '',
-                $expiration !== '' ? '- Urgent Expiration/Deal ends: ' . $expiration : '',
-                '- Goal: ' . $goal,
-                '- Target Audience: ' . $audience,
-                '- Tone of Voice: ' . $this->toneGuide($tone, 'text'),
-                '- Content Length: ' . $this->lengthGuide($length),
-                $link !== '' ? '- CTA Link: ' . $link : '',
-                $ctaText !== '' ? '- CTA Phrase: ' . $ctaText : '',
+                '## CONTEXT',
+                "Sản phẩm: \"{$product}\"" . $this->priceHint($price),
+                $usp !== '' ? "Điểm bán hàng độc đáo (USP): {$usp}" : '',
+                $offers !== '' ? "Khuyến mãi đang chạy: {$offers}" : '',
+                $expiration !== '' ? "Hạn chót/Khẩn cấp: {$expiration}" : '',
+                $policy !== '' ? "Chính sách: {$policy}" : '',
+                $imgRef,
                 '',
-                'Content Requirements:',
-                '- Start with a strong, scroll-stopping hook.',
-                '- Highlight 1-3 clear benefits.',
-                '- End with a compelling call to action' . ($ctaText !== '' ? " using: \"{$ctaText}\"" : '') . '.',
-                '- Maintain a natural, organic social media post feel.',
+                '## OBJECTIVE',
+                "Mục tiêu chiến dịch: {$goal}",
+                "Persuasion Framework: {$framework}",
+                '',
+                '## TARGET AUDIENCE',
+                "Đối tượng: {$audience}",
+                "Tone of Voice: {$this->toneGuide($tone)}",
+                '',
+                '## CONSTRAINTS',
+                "Độ dài: {$this->lengthGuide($length)}",
+                $link !== '' ? "CTA link (bắt buộc đặt ở cuối): {$link}" : '',
+                '',
+                '## OUTPUT FORMAT',
+                'Cấu trúc mỗi variant:',
+                '',
+                '**HOOK** (Dòng đầu tiên — phải xuất hiện trước "Xem thêm"):',
+                '- Dùng pattern interrupt: câu hỏi gây tò mò, con số cụ thể, hoặc tuyên bố gây sốc.',
+                '- Mục tiêu: khiến người đọc PHẢI bấm "Xem thêm".',
+                '',
+                '**BODY** (Phần thân bài):',
+                "- Áp dụng framework {$framework}.",
+                '- Nêu 1-3 lợi ích cụ thể, kèm bằng chứng.',
+                '- Dùng ngôn ngữ tự nhiên, chân thực — như đang chia sẻ với bạn bè.',
+                '- Ngắt dòng giữa các ý (mỗi ý 2-3 dòng, rồi xuống hàng).',
+                '',
+                '**CTA** (Kết bài):',
+                '- Hành động cụ thể, rõ ràng.',
+                $link !== '' ? '- Kèm link tracking ở cuối cùng.' : '',
             ]);
         }, 'facebook');
 
         /**
-         * TEXT: TikTok caption
+         * TikTok Caption
          */
         $this->register('tiktok_caption', 'TikTok caption + hook', ['text'], function (array $attrs): string {
             $product    = $this->stringAttr($attrs, 'product_title', 'product');
             $price      = $this->stringAttr($attrs, 'product_price');
             $tone       = $this->stringAttr($attrs, 'tone', 'hype');
             $link       = $this->stringAttr($attrs, 'tracking_url');
-            $ctaText    = $this->stringAttr($attrs, 'cta_text');
             $usp        = $this->stringAttr($attrs, 'usp');
             $offers     = $this->stringAttr($attrs, 'offers');
             $expiration = $this->stringAttr($attrs, 'expiration');
+            $imgRef     = $this->imageReferenceBlock($attrs, 'text');
 
             return $this->joinLines([
-                "Create a TikTok caption for product \"{$product}\"" . $this->priceHint($price) . '.',
-                $usp !== '' ? '- Key Highlights/USP: ' . $usp : '',
-                $offers !== '' ? '- Limited Time Offers: ' . $offers : '',
-                $expiration !== '' ? '- Deadline/Urgency: ' . $expiration : '',
-                '- Tone: ' . $this->toneGuide($tone, 'text'),
-                $link !== '' ? '- CTA Link: ' . $link : '',
-                $ctaText !== '' ? '- CTA Phrase: ' . $ctaText : '',
+                '## CONTEXT',
+                "Sản phẩm: \"{$product}\"" . $this->priceHint($price),
+                $usp !== '' ? "USP: {$usp}" : '',
+                $offers !== '' ? "Deal đang chạy: {$offers}" : '',
+                $expiration !== '' ? "Deadline: {$expiration}" : '',
+                $imgRef,
                 '',
-                'Requirements:',
-                '- Capture attention in the first 3 words.',
-                '- High energy, fast-paced language.',
-                '- Clear call to action' . ($ctaText !== '' ? " using: \"{$ctaText}\"" : '') . '.',
-                '- Include 5-8 relevant trending hashtags.',
+                '## OBJECTIVE',
+                'Tạo TikTok caption tối ưu cho engagement + click-through.',
+                "Tone: {$this->toneGuide($tone)}",
+                '',
+                '## CONSTRAINTS',
+                '- Tổng caption: 80-150 ký tự (không tính hashtags).',
+                '- Hashtag: đúng 5 hashtag (2 broad + 2 niche + 1 trending). KHÔNG dùng #fyp #foryou.',
+                $link !== '' ? "- CTA link: {$link}" : '',
+                '',
+                '## OUTPUT FORMAT',
+                'Cấu trúc caption:',
+                '',
+                '**HOOK** (3 từ đầu tiên — quyết định sống còn):',
+                '- Phải gây shock, tò mò, hoặc FOMO ngay lập tức.',
+                '- Pattern: "POV: ...", "Đừng mua ... nếu chưa xem", "Cái này thay đổi ...".',
+                '',
+                '**BODY** (1-2 câu ngắn):',
+                '- Viết ngôi thứ nhất (tôi/mình). Creator voice, không brand voice.',
+                '- Kèm emoji nhưng không quá 3.',
+                '',
+                '**TAIL**:',
+                '- Comment bait: câu hỏi hoặc "tag ai đó...".',
+                '- Hashtags trên dòng riêng.',
             ]);
         }, 'tiktok');
 
         /**
-         * TEXT: Carousel ad copy
+         * Carousel Ad Copy
          */
         $this->register('carousel_ad_copy', 'Carousel ad copy (Facebook)', ['text'], function (array $attrs): string {
             $product    = $this->stringAttr($attrs, 'product_title', 'product');
@@ -107,45 +150,79 @@ class PromptTemplateRegistry
             $expiration = $this->stringAttr($attrs, 'expiration');
             $link       = $this->stringAttr($attrs, 'tracking_url');
             $ctaText    = $this->stringAttr($attrs, 'cta_text', 'Shop now');
+            $imgRef     = $this->imageReferenceBlock($attrs, 'text');
 
             return $this->joinLines([
-                "Create a Facebook Carousel Ad copy for \"{$product}\"" . $this->priceHint($price) . '.',
-                '- Campaign Goal: ' . $goal,
-                '- Target Audience: ' . $audience,
-                '- Tone: ' . $this->toneGuide($tone, 'text'),
-                $usp !== '' ? '- USP: ' . $usp : '',
-                $offers !== '' ? '- Exclusive Offers: ' . $offers : '',
-                $expiration !== '' ? '- Validity/Expiration: ' . $expiration : '',
-                $link !== '' ? '- CTA Link: ' . $link : '',
+                '## CONTEXT',
+                "Sản phẩm: \"{$product}\"" . $this->priceHint($price),
+                $usp !== '' ? "USP: {$usp}" : '',
+                $offers !== '' ? "Khuyến mãi: {$offers}" : '',
+                $expiration !== '' ? "Hạn: {$expiration}" : '',
+                $imgRef,
                 '',
-                'Ad Structure:',
-                'Primary Text: [Compelling intro text]',
-                'Card Headlines: [3 distinct card headlines]',
-                'CTA Button: [Standard CTA text]',
+                '## OBJECTIVE',
+                "Tạo Facebook Carousel Ad copy. Mục tiêu: {$goal}.",
+                "Audience: {$audience}. Tone: {$this->toneGuide($tone)}.",
+                '',
+                '## CONSTRAINTS',
+                '- Primary Text: tối đa 125 ký tự (above-the-fold).',
+                '- Mỗi Card Headline: tối đa 40 ký tự.',
+                '- Card Description: tối đa 20 ký tự.',
+                $link !== '' ? "- CTA link: {$link}" : '',
+                '',
+                '## OUTPUT FORMAT',
+                'Mỗi variant theo cấu trúc:',
+                '',
+                '**Primary Text**: [Hook + value proposition dưới 125 ký tự]',
+                '',
+                '**Card 1 Headline**: [Lợi ích chính — thu hút click đầu tiên]',
+                '**Card 2 Headline**: [Social proof hoặc tính năng nổi bật]',
+                '**Card 3 Headline**: [Urgency/scarcity hoặc ưu đãi]',
+                '',
+                'Persuasion Arc: Card 1 (Curiosity) → Card 2 (Proof) → Card 3 (Action).',
             ]);
         }, 'facebook');
 
         /**
-         * TEXT: Shopee title
+         * Shopee Product Title
          */
         $this->register('shopee_title', 'Shopee optimized product title', ['text'], function (array $attrs): string {
             $product  = $this->stringAttr($attrs, 'product_title', 'product');
             $price    = $this->stringAttr($attrs, 'product_price');
             $usp      = $this->stringAttr($attrs, 'usp');
             $offers   = $this->stringAttr($attrs, 'offers');
-            $ctaText  = $this->stringAttr($attrs, 'cta_text');
+            $imgRef   = $this->imageReferenceBlock($attrs, 'text');
 
             return $this->joinLines([
-                "Create a Shopee optimized title for \"{$product}\"" . $this->priceHint($price) . '.',
-                $usp !== '' ? '- Leverage USP: ' . $usp : '',
-                $offers !== '' ? '- Mention Promotions: ' . $offers : '',
-                $ctaText !== '' ? '- Preferred CTA style keywords: ' . $ctaText : '',
-                '- Requirement: 55-120 characters, include high-volume keywords, no spammy symbols.',
+                '## CONTEXT',
+                "Sản phẩm gốc: \"{$product}\"" . $this->priceHint($price),
+                $usp !== '' ? "USP: {$usp}" : '',
+                $offers !== '' ? "Khuyến mãi: {$offers}" : '',
+                $imgRef,
+                '',
+                '## OBJECTIVE',
+                'Tạo tiêu đề Shopee tối ưu SEO — mục tiêu: top 10 kết quả tìm kiếm.',
+                '',
+                '## CONSTRAINTS',
+                '- Độ dài: 55-120 ký tự (Shopee cắt ở 120).',
+                '- 40 ký tự đầu: PHẢI chứa keyword quan trọng nhất.',
+                '- KHÔNG dùng ký tự đặc biệt (★, ♥, 🔥) — Shopee phạt/bỏ qua.',
+                '- KHÔNG lặp keyword — thuật toán coi là spam.',
+                '- Ngôn ngữ tự nhiên, đọc được, không nhồi keyword.',
+                '',
+                '## OUTPUT FORMAT',
+                'Title Formula: [Thương hiệu] + [Loại SP] + [Đặc điểm chính] + [Chất liệu/Công dụng] + [USP]',
+                '',
+                'Ví dụ format tốt:',
+                '- "Serum Vitamin C 20% XYZ - Sáng Da Mờ Thâm - Chiết Xuất Chanh Tươi 30ml"',
+                '- "Áo Thun Cotton 100% ABC - Thoáng Mát - Form Oversize Unisex"',
+                '',
+                'Mỗi variant là 1 dòng title duy nhất, không giải thích.',
             ]);
         }, 'shopee');
 
         /**
-         * TEXT: SEO description
+         * SEO Meta/Product Description
          */
         $this->register('seo_description', 'SEO meta/product description', ['text'], function (array $attrs): string {
             $product  = $this->stringAttr($attrs, 'product_title', 'product');
@@ -154,18 +231,36 @@ class PromptTemplateRegistry
             $usp      = $this->stringAttr($attrs, 'usp');
             $tone     = $this->stringAttr($attrs, 'tone', 'professional');
             $audience = $this->stringAttr($attrs, 'audience', 'online shoppers');
+            $imgRef   = $this->imageReferenceBlock($attrs, 'text');
 
             return $this->joinLines([
-                "Create an SEO/Meta description for \"{$product}\"" . $this->priceHint($price) . '.',
-                $headline !== '' ? '- Focus on headline: ' . $headline : '',
-                $usp !== '' ? '- Strategic USP focus: ' . $usp : '',
-                '- Target Audience: ' . $audience,
-                '- Length: 120-170 characters.',
+                '## CONTEXT',
+                "Sản phẩm: \"{$product}\"" . $this->priceHint($price),
+                $headline !== '' ? "Focus keyword/headline: {$headline}" : '',
+                $usp !== '' ? "USP: {$usp}" : '',
+                $imgRef,
+                '',
+                '## OBJECTIVE',
+                'Tạo SEO meta description tối ưu cho Google SERP CTR và AI Search (GEO).',
+                "Target audience: {$audience}. Tone: {$this->toneGuide($tone)}.",
+                '',
+                '## CONSTRAINTS',
+                '- Độ dài: 120-160 ký tự (Google hiển thị tối đa 160).',
+                '- PHẢI chứa primary keyword trong 60 ký tự đầu.',
+                '- Kết thúc bằng trigger word tăng CTR: "Xem ngay", "Tìm hiểu thêm", "Mua với giá tốt nhất".',
+                '',
+                '## OUTPUT FORMAT',
+                'Cấu trúc meta description:',
+                '[Keyword-rich opening] + [Core benefit/USP] + [CTR trigger word]',
+                '',
+                'GEO Optimization: Viết THÊM 1 câu Q&A format dưới mỗi meta description:',
+                'Q: [Câu hỏi mà người mua thường search]',
+                'A: [Câu trả lời ngắn gọn, có entity/fact cụ thể — để AI search có thể trích dẫn]',
             ]);
         }, 'generic');
 
         /**
-         * TEXT: Hashtag pack
+         * Hashtags Pack
          */
         $this->register('hashtags_pack', 'Hashtags pack', ['text'], function (array $attrs): string {
             $product  = $this->stringAttr($attrs, 'product_title', 'product');
@@ -173,20 +268,32 @@ class PromptTemplateRegistry
             $count    = $this->intAttr($attrs, 'variant_count', 20, 10, 50);
 
             return $this->joinLines([
-                "Task: Generate {$count} relevant hashtags for {$platform} to promote \"{$product}\".",
+                '## CONTEXT',
+                "Sản phẩm: \"{$product}\"",
+                "Platform: {$platform}",
                 '',
-                'Requirements:',
-                '- Mix of broad, niche, and purchase-intent hashtags.',
-                '- Optimized for high reach and engagement.',
-                '- No duplicates, no explanations.',
+                '## OBJECTIVE',
+                "Tạo {$count} hashtag tối ưu reach + engagement cho {$platform}.",
                 '',
-                'Format:',
-                '- Single hashtag per line, no numbering.',
+                '## CONSTRAINTS',
+                '- Phân loại rõ 3 tier:',
+                '  Tier 1 (Broad reach, 1M+ posts): ~30% tổng số.',
+                '  Tier 2 (Niche, 10K-1M posts): ~50% tổng số.',
+                '  Tier 3 (Purchase-intent/Long-tail, <10K posts): ~20% tổng số.',
+                '- KHÔNG dùng #fyp #foryou #viral (noise, không signal).',
+                '- KHÔNG trùng lặp.',
+                '- PHẢI include ít nhất 3 hashtag tiếng Việt.',
+                '',
+                '## OUTPUT FORMAT',
+                'Mỗi hashtag 1 dòng, không đánh số, không giải thích.',
+                'Nhóm theo tier với header: [BROAD], [NICHE], [PURCHASE INTENT].',
             ]);
         }, 'generic');
 
+        // ─── IMAGE TEMPLATES ───────────────────────────────────────────────────
+
         /**
-         * IMAGE: Facebook ad image
+         * Facebook Ad Image
          */
         $this->register('fb_post_image', 'Facebook ad image', ['image'], function (array $attrs): string {
             $product      = $this->stringAttr($attrs, 'product_title', 'product');
@@ -198,73 +305,87 @@ class PromptTemplateRegistry
             $price        = $this->stringAttr($attrs, 'product_price');
             $aspectRatio  = $this->stringAttr($attrs, 'aspect_ratio', '4:5');
             $visualStyle  = $this->stringAttr($attrs, 'visual_style', 'Studio-quality commercial photography');
+            $imgRef       = $this->imageReferenceBlock($attrs, 'image');
 
             return $this->joinLines([
-                "Create a high-converting social ad image for the product \"{$product}\".",
-                "Campaign goal: {$goal}.",
-                "Target audience: {$audience}.",
-                "Overall tone: {$tone}.",
-                "Visual style: {$visualStyle}.",
-                $usp !== '' ? "Key selling point: {$usp}." : '',
+                '## CONTEXT',
+                "Product: \"{$product}\"" . $this->priceHint($price),
+                $usp !== '' ? "Key selling point: {$usp}" : '',
+                "Campaign goal: {$goal}. Target audience: {$audience}.",
+                $imgRef,
                 '',
-                'Composition requirements:',
-                '- One clear hero product as the main subject.',
+                '## VISUAL DIRECTION',
+                "Style: {$visualStyle}. Tone: {$tone}.",
+                '',
+                'Composition:',
+                '- ONE clear hero product — the undeniable focal point. Product occupies 40-60% of frame.',
                 '- Clean, premium layout with strong visual hierarchy.',
-                '- Studio-quality lighting and sharp focus.',
-                '- Background should support the product.',
-                '- Leave clean negative space for overlays.',
+                '- Studio-quality lighting with controlled shadows.',
+                '- Background supports product context (lifestyle or neutral) — never competes.',
+                '- Negative space preserved for potential text overlay zones (top 20%, bottom 20%).',
+                '',
+                'Color Psychology:',
+                '- Warm tones for lifestyle/beauty. Cool tones for tech. Vibrant for fashion/food.',
+                '- Ensure product colors are true-to-life and saturated.',
                 '',
                 'Text handling:',
-                $headline !== '' ? "- Allowed headline text: {$headline}" : '- Minimal or no embedded text.',
-                $price !== '' ? "- Allowed price text: {$price}" : '',
+                $headline !== '' ? "- Allowed headline: \"{$headline}\" (clean, sans-serif, high contrast)" : '- NO embedded text. Clean product photography only.',
+                $price !== '' ? "- Price tag: {$price} (if visually appropriate)" : '',
                 '',
-                "Format: {$aspectRatio}, optimized for Facebook ads.",
+                "## FORMAT: {$aspectRatio}, optimized for Facebook Feed/Ads.",
             ]);
         }, 'facebook');
 
+        // ─── VIDEO TEMPLATES ───────────────────────────────────────────────────
+
         /**
-         * VIDEO: generic short ad
+         * Short Video Ad — generic
          */
         $this->register('short_video_ad', 'Short product ad video', ['video'], function (array $attrs): string {
-            return $this->buildShortVideoPrompt($attrs, 'UGC-style commercial realism');
+            return $this->buildStructuredVideoPrompt($attrs, 'UGC-style commercial realism');
         }, 'generic');
 
         /**
-         * VIDEO: product story format
+         * Product Story Video
          */
         $this->register('product_story_video', 'Product story video', ['video'], function (array $attrs): string {
             $style = $this->stringAttr($attrs, 'visual_style', 'cinematic product storytelling');
 
-            return $this->buildShortVideoPrompt($attrs, $style, [
-                '- Scene 1: problem context in daily life (first 2 seconds).',
-                '- Scene 2: introduce the product as the turning point.',
-                '- Scene 3: show transformation with before/after contrast.',
-                '- Scene 4: close with confident CTA frame and packshot.',
+            return $this->buildStructuredVideoPrompt($attrs, $style, [
+                '- Scene 1 (0-2s): PROBLEM — relatable daily life frustration. Viewer thinks "that\'s me".',
+                '- Scene 2 (2-5s): REVEAL — product enters as the turning point. Clean product hero shot.',
+                '- Scene 3 (5-8s): TRANSFORMATION — before/after contrast with emotional payoff.',
+                '- Scene 4 (8-10s): CTA — confident closing frame with product packshot and call-to-action.',
             ]);
         }, 'generic');
 
         /**
-         * VIDEO: UGC review style
+         * UGC Review Video
          */
         $this->register('ugc_review_video', 'UGC review-style video ad', ['video'], function (array $attrs): string {
             $style = $this->stringAttr($attrs, 'visual_style', 'authentic UGC review, handheld but stable');
 
-            return $this->buildShortVideoPrompt($attrs, $style, [
-                '- Scene 1: creator-style hook and quick product reveal.',
-                '- Scene 2: first-person usage demo with natural reactions.',
-                '- Scene 3: concrete benefit/result proof shot.',
-                '- Scene 4: CTA frame with product close-up.',
+            return $this->buildStructuredVideoPrompt($attrs, $style, [
+                '- Scene 1 (0-2s): HOOK — creator-style "wait till you see this" and quick product reveal.',
+                '- Scene 2 (2-5s): DEMO — first-person usage with natural, genuine reactions.',
+                '- Scene 3 (5-8s): PROOF — concrete benefit/result shown (close-up, comparison).',
+                '- Scene 4 (8-10s): CTA — product close-up with enthusiastic recommendation.',
             ], [
-                '- Include natural face/hand movement consistency.',
-                '- Keep pacing energetic but believable like real UGC.',
+                '- Natural face/hand movement consistency throughout all scenes.',
+                '- Pacing: energetic but believable — real UGC, not scripted commercial.',
+                '- Imperfect framing is OK — adds authenticity.',
             ]);
         }, 'tiktok');
 
         // Media enrichment for fb_post when user requests video in addition to text.
         $this->register('fb_post_video', 'Facebook post video enrichment', ['video'], function (array $attrs): string {
-            return $this->buildShortVideoPrompt($attrs, 'clean social commercial realism');
+            return $this->buildStructuredVideoPrompt($attrs, 'clean social commercial realism');
         }, 'facebook');
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PUBLIC API
+    // ═══════════════════════════════════════════════════════════════════════════
 
     /**
      * @param  list<string> $types
@@ -345,6 +466,10 @@ class PromptTemplateRegistry
         )));
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HELPER METHODS
+    // ═══════════════════════════════════════════════════════════════════════════
+
     private function stringAttr(array $attrs, string $key, string $default = ''): string
     {
         $value = $attrs[$key] ?? $default;
@@ -364,14 +489,9 @@ class PromptTemplateRegistry
         return (bool) ($attrs[$key] ?? false);
     }
 
-    private function maxVariants(): int
-    {
-        return max(1, (int) config('ai.features.max_variants', 5));
-    }
-
     private function priceHint(string $price): string
     {
-        return $price !== '' ? " (priced at {$price})" : '';
+        return $price !== '' ? " (Giá: {$price})" : '';
     }
 
     /**
@@ -379,54 +499,115 @@ class PromptTemplateRegistry
      */
     private function joinLines(array $lines): string
     {
-        $filtered = array_values(array_filter(
-            array_map(
-                fn ($line) => is_string($line) ? rtrim($line) : '',
-                $lines
-            ),
-            fn (string $line) => $line !== ''
-        ));
-
-        return implode("\n", $filtered);
-    }
-
-    private function toneGuide(string $tone, string $mode): string
-    {
-        if ($mode === 'text') {
-            return match ($tone) {
-                'hype'         => 'High energy, emotional, fast-paced, social-media oriented.',
-                'professional' => 'Polite, clear, authoritative, and trustworthy.',
-                'minimalist'   => 'Concise, direct, fewer exclamation marks.',
-                'friendly'     => 'Warm, approachable, conversational, and natural.',
-                default        => $tone,
-            };
+        // Filter empty lines but preserve intentional blank lines ('')
+        $result = [];
+        foreach ($lines as $line) {
+            if (!is_string($line)) continue;
+            $trimmed = rtrim($line);
+            // Keep empty strings as blank separator lines
+            if ($trimmed === '' && !empty($result)) {
+                $result[] = '';
+                continue;
+            }
+            if ($trimmed !== '') {
+                $result[] = $trimmed;
+            }
         }
 
-        return $tone;
+        return implode("\n", $result);
+    }
+
+    // ─── PERSUASION & CONTENT HELPERS ──────────────────────────────────────────
+
+    /**
+     * Select the optimal persuasion framework based on campaign goal.
+     */
+    private function selectPersuasionFramework(string $goal): string
+    {
+        return match ($goal) {
+            'conversion', 'sales' => 'PAS (Problem → Agitate → Solve)',
+            'traffic'             => 'AIDA (Attention → Interest → Desire → Action)',
+            'awareness', 'brand'  => 'BAF (Before → After → Bridge)',
+            'engagement'          => 'Story Arc (Hook → Conflict → Resolution → CTA)',
+            default               => 'AIDA (Attention → Interest → Desire → Action)',
+        };
+    }
+
+    /**
+     * Generate image reference instructions based on attached product images.
+     */
+    private function imageReferenceBlock(array $attrs, string $modality): string
+    {
+        $images = $attrs['images'] ?? [];
+        if (empty($images) || !is_array($images)) {
+            return '';
+        }
+
+        $count = count($images);
+        $noun  = $count === 1 ? '1 ảnh sản phẩm tham khảo' : "{$count} ảnh sản phẩm tham khảo";
+
+        return match ($modality) {
+            'text' => implode("\n", [
+                '',
+                "## ẢNH THAM KHẢO ({$noun} đính kèm)",
+                "Đã đính kèm {$noun} để bạn hiểu rõ sản phẩm.",
+                '- Quan sát kỹ: màu sắc, hình dáng, bao bì, kích thước, chất liệu thực tế.',
+                '- Sử dụng chi tiết từ ảnh để viết mô tả chính xác, cụ thể.',
+                '- Nêu các đặc điểm NHÌN THẤY ĐƯỢC trong ảnh (ví dụ: "chai thủy tinh trong suốt", "bao bì màu hồng pastel").',
+                '- KHÔNG bịa đặt chi tiết không có trong ảnh.',
+            ]),
+            'image' => implode("\n", [
+                '',
+                "## REFERENCE IMAGES ({$noun} attached)",
+                "Use the {$count} attached product image(s) as the primary visual reference.",
+                '- Match the EXACT product appearance: shape, color, packaging, branding, labels.',
+                '- The generated image must feature THIS specific product — not a generic version.',
+                '- Maintain accurate proportions and real-world scale.',
+                '- You may enhance lighting, background, and composition — but the product itself must be faithful to the reference.',
+            ]),
+            'video' => implode("\n", [
+                '',
+                "## REFERENCE IMAGES ({$noun} attached)",
+                "Use the {$count} attached product image(s) as visual reference for the video.",
+                '- The product in every scene must match the reference: shape, color, packaging, branding.',
+                '- Maintain visual consistency of the product across ALL scenes.',
+                '- Use the reference to determine realistic product scale and proportions.',
+                '- You may create dynamic angles and contexts — but the product identity must remain unmistakably the same.',
+            ]),
+            default => '',
+        };
+    }
+
+    private function toneGuide(string $tone): string
+    {
+        return match ($tone) {
+            'hype'         => 'Năng lượng cao, cảm xúc, nhanh, social-media native. Dùng emoji chiến lược.',
+            'professional' => 'Lịch sự, rõ ràng, đáng tin cậy, uy tín. Hạn chế emoji.',
+            'minimalist'   => 'Ngắn gọn, trật tự, ít dấu chấm than. Elegant.',
+            'friendly'     => 'Ấm áp, gần gũi, hội thoại tự nhiên. Như nói chuyện với bạn thân.',
+            default        => $tone,
+        };
     }
 
     private function lengthGuide(string $length): string
     {
         return match ($length) {
-            'short'  => 'Approximately 40-80 words.',
-            'long'   => 'Approximately 120-220 words.',
-            default  => 'Approximately 80-140 words.',
+            'short'  => '40-80 từ. Ngắn gọn, mỗi từ đều quan trọng.',
+            'long'   => '120-220 từ. Chi tiết, storytelling, nhiều social proof.',
+            default  => '80-140 từ. Cân bằng giữa thông tin và engagement.',
         };
     }
+
+    // ─── VIDEO PROMPT BUILDER ─────────────────────────────────────────────────
 
     /**
      * @param  list<string> $videoStructure
      * @param  list<string> $extraDirection
      */
-    private function buildShortVideoPrompt(
+    private function buildStructuredVideoPrompt(
         array $attrs,
         string $defaultVisualStyle,
-        array $videoStructure = [
-            '- Scene 1: strong visual hook in the first 2 seconds.',
-            '- Scene 2: show the product clearly in use or in context.',
-            '- Scene 3: emphasize the main benefit or transformation.',
-            '- Scene 4: end with a clear CTA frame.',
-        ],
+        array $videoStructure = [],
         array $extraDirection = [],
     ): string {
         $product      = $this->stringAttr($attrs, 'product_title', 'product');
@@ -437,43 +618,75 @@ class PromptTemplateRegistry
         $goal         = $this->stringAttr($attrs, 'goal', 'conversion');
         $durationSec  = $this->intAttr($attrs, 'duration_sec', $this->intAttr($attrs, 'duration', 10, 4, 30), 4, 30);
         $aspectRatio  = $this->stringAttr($attrs, 'aspect_ratio', '9:16');
-        $ctaText      = $this->stringAttr($attrs, 'cta_text', 'Shop now');
         $visualStyle  = $this->stringAttr($attrs, 'visual_style', $defaultVisualStyle);
         $offers       = $this->stringAttr($attrs, 'offers');
         $expiration   = $this->stringAttr($attrs, 'expiration');
+        $imgRef       = $this->imageReferenceBlock($attrs, 'video');
+
+        if (empty($videoStructure)) {
+            $videoStructure = $this->buildAdaptiveScenes($durationSec);
+        }
 
         return $this->joinLines([
-            "Create a {$durationSec}-second vertical product ad video for \"{$product}\"" . ($price !== '' ? " (priced at {$price})" : "") . ".",
-            "Campaign goal: {$goal}.",
-            "Target audience: {$audience}.",
-            "Overall tone: {$tone}.",
-            "Visual style: {$visualStyle}.",
-            $usp !== '' ? "Core message: {$usp}." : '',
-            $offers !== '' ? "Current Promotions: {$offers}." : '',
-            $expiration !== '' ? "Deadline/Urgency: {$expiration}." : '',
+            '## CONTEXT',
+            "Product: \"{$product}\"" . ($price !== '' ? " (Giá: {$price})" : ""),
+            $usp !== '' ? "Core message/USP: {$usp}" : '',
+            $offers !== '' ? "Current promotions: {$offers}" : '',
+            $expiration !== '' ? "Deadline/Urgency: {$expiration}" : '',
+            "Campaign goal: {$goal}. Target audience: {$audience}.",
+            $imgRef,
             '',
-            'Video structure:',
+            '## VISUAL DIRECTION',
+            "Duration: {$durationSec} seconds. Format: {$aspectRatio} (vertical, short-form social).",
+            "Style: {$visualStyle}. Tone: {$tone}.",
+            '',
+            '## SCENE BREAKDOWN',
             ...$videoStructure,
             '',
-            'Direction:',
-            '- Fast-paced but clean editing.',
-            '- Clear product visibility in every important shot.',
-            '- Realistic motion and consistent product appearance across scenes.',
-            '- Natural camera movement.',
-            '- Commercial-quality lighting.',
-            '- No messy background.',
+            '## PRODUCTION STANDARDS',
+            '- Fast-paced but clean editing — no jarring cuts.',
+            '- Product must be clearly visible and consistent across all scenes.',
+            '- Realistic motion and physics. Natural camera movement.',
+            '- Commercial-quality lighting. No messy backgrounds.',
+            '- Color grading should be consistent and platform-appropriate.',
+            '- NO text, NO captions, NO overlays — pure visual storytelling only.',
             ...$extraDirection,
-            '',
-            'Text and overlays:',
-            "- Final CTA text: {$ctaText}.",
-            '- Keep on-screen text minimal and readable.',
-            '',
-            "Format: {$aspectRatio}, optimized for short-form social video.",
         ]);
     }
 
     /**
-     * Fallback high-quality visual brief builder for requesting image output from a text preset.
+     * Build adaptive scene breakdown based on video duration.
+     * Short videos (≤6s) get 3 scenes, longer videos get 4 scenes.
+     *
+     * @return list<string>
+     */
+    private function buildAdaptiveScenes(int $duration): array
+    {
+        if ($duration <= 6) {
+            // Short video: 3 scenes (Hook → Showcase+Benefit → Closing)
+            $mid = max(2, (int) round($duration * 0.5));
+            return [
+                "- Scene 1 (0-2s): HOOK — strong visual hook that stops the scroll immediately.",
+                "- Scene 2 (2-{$mid}s): SHOWCASE — product in use, highlighting main benefit visually.",
+                "- Scene 3 ({$mid}-{$duration}s): CLOSING — product hero shot with confident framing.",
+            ];
+        }
+
+        // Longer video: 4 scenes with proper distribution
+        $s2End = (int) round($duration * 0.4);
+        $s3End = (int) round($duration * 0.7);
+        return [
+            "- Scene 1 (0-2s): HOOK — strong visual hook that stops the scroll immediately.",
+            "- Scene 2 (2-{$s2End}s): SHOWCASE — product clearly in use or context.",
+            "- Scene 3 ({$s2End}-{$s3End}s): BENEFIT — the main benefit or transformation.",
+            "- Scene 4 ({$s3End}-{$duration}s): CLOSING — product hero shot with confident framing.",
+        ];
+    }
+
+    // ─── FALLBACK BUILDERS ────────────────────────────────────────────────────
+
+    /**
+     * Fallback image prompt for text presets requesting an image.
      */
     private function buildFallbackImagePrompt(array $attrs): string
     {
@@ -488,36 +701,39 @@ class PromptTemplateRegistry
         $expiration   = $this->stringAttr($attrs, 'expiration');
         $aspectRatio  = $this->stringAttr($attrs, 'aspect_ratio', '1:1');
         $visualStyle  = $this->stringAttr($attrs, 'visual_style', 'High-quality studio commercial photography');
+        $imgRef       = $this->imageReferenceBlock($attrs, 'image');
 
         return $this->joinLines([
-            "Create a high-converting social ad image for the product \"{$product}\"" . $this->priceHint($price) . ".",
-            "Campaign goal: {$goal}.",
-            "Target audience: {$audience}.",
-            "Overall tone: {$tone}.",
-            "Visual style: {$visualStyle}.",
-            $usp !== '' ? "Core message/USP: {$usp}." : '',
-            $offers !== '' ? "Current Promotions: {$offers}." : '',
-            $expiration !== '' ? "Deadline/Urgency: {$expiration}." : '',
+            '## CONTEXT',
+            "Product: \"{$product}\"" . $this->priceHint($price),
+            "Campaign goal: {$goal}. Audience: {$audience}.",
+            $usp !== '' ? "Core USP: {$usp}" : '',
+            $offers !== '' ? "Promotions: {$offers}" : '',
+            $expiration !== '' ? "Deadline: {$expiration}" : '',
+            $imgRef,
             '',
-            'Composition requirements:',
-            '- One clear hero product as the main subject.',
+            '## VISUAL DIRECTION',
+            "Style: {$visualStyle}. Tone: {$tone}.",
+            '',
+            'Composition:',
+            '- ONE clear hero product — 40-60% of frame.',
             '- Clean, premium layout with strong visual hierarchy.',
-            '- Studio-quality lighting and sharp focus.',
-            '- Background should support the product and fit the commercial tone.',
-            '- Leave clean negative space for textual overlays.',
+            '- Studio-quality lighting with controlled, natural shadows.',
+            '- Background supports product context, never competes.',
+            '- Reserve 20% top/bottom for potential text overlays.',
             '',
             'Text handling:',
-            $headline !== '' ? "- Allowed headline text: {$headline}" : '- Minimal or no embedded text.',
+            $headline !== '' ? "- Headline: \"{$headline}\" (clean sans-serif)" : '- No embedded text. Clean product photography only.',
             '',
-            "Format: {$aspectRatio}, optimized for social media ads.",
+            "## FORMAT: {$aspectRatio}, optimized for social media ads.",
         ]);
     }
 
     /**
-     * Fallback video brief builder for requesting video output from a text preset.
+     * Fallback video prompt for text presets requesting a video.
      */
     private function buildFallbackVideoPrompt(array $attrs): string
     {
-        return $this->buildShortVideoPrompt($attrs, 'High-energy commercial realism');
+        return $this->buildStructuredVideoPrompt($attrs, 'High-energy commercial realism');
     }
 }

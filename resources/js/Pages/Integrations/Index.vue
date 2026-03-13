@@ -509,7 +509,7 @@ const addConnectionLabel = computed(() => isEmpty.value ? 'Kết nối đầu ti
 const platformAvailability = computed(() => {
     return platformConfigs.value.map((platform) => ({
         ...platform,
-        ready: platform.id === 'shopee' && platform.supported,
+        ready: ['shopee', 'lazada'].includes(platform.id) && platform.supported,
     }));
 });
 

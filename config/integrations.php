@@ -40,6 +40,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Lazada Affiliate Integration
+    |--------------------------------------------------------------------------
+    */
+
+    'lazada' => [
+        // Region code: VN, MY, SG, PH, TH, ID
+        'region'          => env('LAZADA_REGION', 'VN'),
+
+        // Backfill window (days) — how far back to pull orders on each sync
+        'backfill_days'   => (int) env('LAZADA_BACKFILL_DAYS', 14),
+
+        // Hard limit — maximum backfill depth to avoid dashboard rate-limiting
+        'hard_limit_days' => (int) env('LAZADA_HARD_LIMIT_DAYS', 30),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sync Scheduler Settings
     |--------------------------------------------------------------------------
     */

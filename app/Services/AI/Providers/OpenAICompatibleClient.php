@@ -213,4 +213,20 @@ class OpenAICompatibleClient implements AIProviderClient
             model:    (string) $payload['model'],
         );
     }
+
+    /**
+     * Not supported by OpenAI-compatible providers.
+     */
+    public function checkTaskStatus(string $taskId): array
+    {
+        throw new RuntimeException("Provider '{$this->provider}' does not support async video polling.");
+    }
+
+    /**
+     * Not supported by OpenAI-compatible providers (they use text generation for health-check).
+     */
+    public function checkCredits(): array
+    {
+        throw new RuntimeException("Provider '{$this->provider}' does not support checkCredits.");
+    }
 }

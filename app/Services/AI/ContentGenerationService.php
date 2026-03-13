@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use App\Jobs\AI\PollSeedanceTaskJob;
+use App\Jobs\AI\PollGeminiVideoJob;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 /**
@@ -46,6 +47,86 @@ class ContentGenerationService
         private readonly AiStatisticsCacheService $statisticsCache,
         private readonly \App\Actions\AI\PersistGeneratedMediaAction $persistAction,
     ) {}
+
+    /**
+     * Preview the prompt plan for a tracking link.
+     */
+    public function preview(TrackingLink $link, User $user, array $payload): array
+    {
+        $templateId = $payload['preset_id'] ?? 'fb_post';
+        $preset     = $this->registry->get($templateId);
+        $platform   = $preset['platform'] ?? 'generic';
+        $options     = $payload['options']  ?? [];
+        $imageUrls   = $payload['image_urls'] ?? [];
+
+        // 1. Fetch images for reference
+        $base64Images = [];
+        if (!empty($imageUrls)) {
+            $base64Images = $this->imageFetcher->fetchAsBase64($imageUrls);
+        }
+
+        // 2. Build canonical attributes
+        $attributes = array_merge($options, [
+            'platform'      => $platform,
+            'tracking_url'  => route('redirect', $link->short_code),
+            'product_title' => $options['product_title'] ?? $link->offer?->title ?? '',
+            'product_price' => $options['product_price'] ?? '',
+            'images'        => $base64Images,
+            'variant_count' => $payload['variant_count'] ?? 1
+        ]);
+        ksort($attributes);
+
+        // 3. System context
+        $language = $payload['language'] ?? 'Vietnamese';
+        $policyFlags = [
+            'safety_no_absolute'  => (bool) ($payload['options']['safety_no_absolute'] ?? false),
+            'safety_no_medical'   => (bool) ($payload['options']['safety_no_medical'] ?? false),
+            'safety_no_sensitive' => (bool) ($payload['options']['safety_no_sensitive'] ?? false),
+        ];
+        $sysContext = [
+            'platform'     => $platform,
+            'language'     => $language,
+            'policy_flags' => $policyFlags,
+        ];
+
+        // 4. Determine requested outputs
+        $requestedTypes = [];
+        if ($payload['generate_text'] ?? false)  $requestedTypes[] = 'text';
+        if ($payload['generate_image'] ?? false) $requestedTypes[] = 'image';
+        if ($payload['generate_video'] ?? false) $requestedTypes[] = 'video';
+        if (empty($requestedTypes)) {
+            $type = $preset['default_type'] ?? ($preset['types'][0] ?? 'text');
+            $requestedTypes = [$type];
+        }
+        sort($requestedTypes);
+
+        // 5. Build Execution Plan
+        $plan = [];
+        foreach ($requestedTypes as $modality) {
+            $renderedPrompt = null;
+            $systemPrompt = null;
+
+            try {
+                $renderedPrompt = $this->registry->render($templateId, $attributes, $modality);
+                $systemPrompt = $this->systemPrompts->getSystemPrompt($modality, $sysContext);
+            } catch (\Exception $e) {
+                Log::warning("content_generation.preview_resolve_failed", [
+                    'modality' => $modality,
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            $plan[$modality] = [
+                'prompt'         => $renderedPrompt,
+                'system_prompt'  => $systemPrompt,
+            ];
+        }
+
+        return [
+            'template_id' => $templateId,
+            'plan' => $plan,
+        ];
+    }
 
     /**
      * Generate content for a tracking link.
@@ -267,10 +348,17 @@ class ContentGenerationService
             }
         }
 
-        // 13. Async finalize
+        // 13. Async finalize — route to provider-specific polling job
         if ($isAsyncVideo) {
             $generation->update($asyncTaskData);
-            PollSeedanceTaskJob::dispatch($generation->id)->delay(now()->addSeconds(10));
+
+            $providerKey = $asyncTaskData['ai_provider'] ?? 'seedance';
+            if ($providerKey === 'gemini') {
+                PollGeminiVideoJob::dispatch($generation->id)->delay(now()->addSeconds(15));
+            } else {
+                PollSeedanceTaskJob::dispatch($generation->id)->delay(now()->addSeconds(10));
+            }
+
             $this->statisticsCache->bumpFor((int) $user->id, (int) $link->id);
             return $generation->refresh();
         }

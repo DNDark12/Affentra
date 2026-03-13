@@ -36,26 +36,28 @@
                 <Cpu :size="16" :stroke-width="1.75" />
                 <span>AI Provider</span>
             </Link>
-            <Link
-                :href="route('logout')"
-                method="post"
-                as="button"
+            <button
+                type="button"
                 class="af-nav-item w-full text-left"
+                @click="confirmLogout"
             >
                 <LogOut :size="16" :stroke-width="1.75" />
                 <span>Đăng xuất</span>
-            </Link>
+            </button>
         </div>
     </aside>
 </template>
 
 <script setup>
-import { Link } from '@inertiajs/vue3';
+import { Link, router } from '@inertiajs/vue3';
 import {
     Settings,
     LogOut,
     Cpu,
 } from 'lucide-vue-next';
+import { useDialog } from '@/Composables/useDialog';
+
+const { confirmDialog } = useDialog();
 
 defineProps({
     navigation: {
@@ -78,6 +80,20 @@ function isActive(routeName) {
         return false;
     } catch {
         return false;
+    }
+}
+
+async function confirmLogout() {
+    const confirmed = await confirmDialog({
+        variant: 'danger',
+        title: 'Xác nhận đăng xuất',
+        description: 'Bạn có chắc chắn muốn đăng xuất khỏi hệ thống?',
+        confirmText: 'Đăng xuất',
+        cancelText: 'Hủy'
+    });
+
+    if (confirmed) {
+        router.post(route('logout'));
     }
 }
 </script>

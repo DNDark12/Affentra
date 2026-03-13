@@ -34,10 +34,11 @@
 
             <Link
                     :href="route('profile.edit')"
-                    class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+                    class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white overflow-hidden bg-zinc-200 dark:bg-zinc-800"
                     title="Hồ sơ tài khoản"
                     style="background-color: var(--color-primary-500)">
-                {{ initials }}
+                <img v-if="user?.avatar" :src="user.avatar" alt="Avatar" class="w-full h-full object-cover" />
+                <span v-else>{{ initials }}</span>
             </Link>
         </div>
     </header>

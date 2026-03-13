@@ -129,14 +129,19 @@
                                         Lệnh cURL (Copy as cURL - bash)
                                         <span v-if="editConnection" class="text-xs opacity-70 font-normal ml-1">(Chỉ cần dán nếu muốn đổi Cookie)</span>
                                     </label>
-                                    <textarea v-model="form.curl_command" placeholder="Có thể dán nhiều block cURL. Khuyến nghị: billing + payout_record + service_fee_invoice + offer/product_offer." rows="6" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
+                                    <textarea v-model="form.curl_command" :placeholder="curlPlaceholder" rows="6" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
                                     <p class="text-[11px] text-zinc-500 dark:text-zinc-400">
-                                        Để đồng bộ Finance đầy đủ, hãy dán cURL từ cả 3 trang:
-                                        <code>/payment/billing</code>,
-                                        <code>/payment/payout_record</code>,
-                                        <code>/payment/service_fee_invoice</code>.
-                                        Để làm mới thông tin sản phẩm ổn định, dán thêm cURL từ:
-                                        <code>/offer/product_offer/{item_id}</code>.
+                                        <template v-if="form.platform === 'lazada'">
+                                            Mở <b>Lazada Affiliate Dashboard → Report</b>, bật DevTools (F12) → Network tab → lọc XHR/Fetch → chuột phải vào request → <b>Copy as cURL (bash)</b>.
+                                        </template>
+                                        <template v-else>
+                                            Để đồng bộ Finance đầy đủ, hãy dán cURL từ cả 3 trang:
+                                            <code>/payment/billing</code>,
+                                            <code>/payment/payout_record</code>,
+                                            <code>/payment/service_fee_invoice</code>.
+                                            Để làm mới thông tin sản phẩm ổn định, dán thêm cURL từ:
+                                            <code>/offer/product_offer/{item_id}</code>.
+                                        </template>
                                     </p>
                                     <span v-if="form.errors.curl_command" class="text-xs text-red-500">{{ form.errors.curl_command }}</span>
                                 </div>
@@ -146,7 +151,7 @@
                                         Cookie String
                                         <span v-if="editConnection" class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
                                     </label>
-                                    <textarea v-model="form.cookie_header" placeholder="SPC_EC=...; SPC_F=...;" rows="4" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
+                                    <textarea v-model="form.cookie_header" :placeholder="cookiePlaceholder" rows="4" class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full font-mono text-xs"></textarea>
                                     <span v-if="form.errors.cookie_header" class="text-xs text-red-500">{{ form.errors.cookie_header }}</span>
                                 </div>
 
@@ -289,6 +294,20 @@ const methodOptions = computed(() => {
             value: method,
             label: methodLabelMap[method] || method,
         }));
+});
+
+const curlPlaceholder = computed(() => {
+    if (form.platform === 'lazada') {
+        return 'Dán cURL từ Lazada Affiliate Dashboard → Report page (DevTools → Network → Copy as cURL bash).';
+    }
+    return 'Có thể dán nhiều block cURL. Khuyến nghị: billing + payout_record + service_fee_invoice + offer/product_offer.';
+});
+
+const cookiePlaceholder = computed(() => {
+    if (form.platform === 'lazada') {
+        return '_lzd_=...; hng=VN...; t_uid=...;';
+    }
+    return 'SPC_EC=...; SPC_F=...;';
 });
 
 function isConfigured(method) {

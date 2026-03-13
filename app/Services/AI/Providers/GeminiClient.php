@@ -67,14 +67,22 @@ class GeminiClient implements AIProviderClient
         return $this->model;
     }
 
+    /**
+     * Veo models require async polling; text/image models are synchronous.
+     */
     public function supportsAsyncMedia(): bool
     {
-        return false;
+        return $this->isVeoModel($this->model);
     }
 
     public function supportsCapability(string $capability): bool
     {
-        return in_array($capability, ['text', 'image'], true);
+        return in_array($capability, ['text', 'image', 'video'], true);
+    }
+
+    private function isVeoModel(string $model): bool
+    {
+        return str_starts_with($model, 'veo-');
     }
 
     public function supportsNativeSystemPrompt(string $modality): bool
@@ -243,9 +251,7 @@ class GeminiClient implements AIProviderClient
     public function generateMedia(string $prompt, string $type = 'image', array $options = []): GeneratedMediaResult
     {
         if ($type === 'video') {
-            throw new \RuntimeException(
-                "Provider 'gemini' không hỗ trợ tạo video. Hãy sử dụng Seedance."
-            );
+            return $this->generateVideoAsyncDispatch($prompt, $options);
         }
 
         // Detection for custom endpoints (Proxy/Localhost)
@@ -380,6 +386,155 @@ class GeminiClient implements AIProviderClient
             tokensCompletion: (int) data_get($body, 'usage.completion_tokens', 0),
         );
     }
+
+    // ── Video Generation (Veo) ────────────────────────────────────────────────
+
+    /**
+     * Dispatch an async Veo video generation request.
+     * Returns a GeneratedMediaResult with meta['task_id'] = operation name.
+     * The caller (ContentGenerationService) will dispatch PollGeminiVideoJob.
+     */
+    private function generateVideoAsyncDispatch(string $prompt, array $options = []): GeneratedMediaResult
+    {
+        // Smart model swap: if current model is not Veo, use default Veo model.
+        $targetModel = $this->isVeoModel($this->model)
+            ? $this->model
+            : 'veo-3.1-generate-001';
+
+        $config = [
+            'durationSeconds'  => (int) ($options['duration_sec'] ?? $options['duration'] ?? 5),
+            'aspectRatio'      => $options['aspect_ratio'] ?? '9:16',
+            'numberOfVideos'   => 1,
+            'personGeneration' => 'dont_allow',
+        ];
+
+        if (! empty($options['resolution'])) {
+            $config['resolution'] = $options['resolution'];
+        }
+
+        if (! empty($options['generate_audio'])) {
+            $config['generateAudio'] = (bool) $options['generate_audio'];
+        }
+
+        try {
+            $requestUrl = $this->baseUrl . "/models/{$targetModel}:generateVideos?key=" . $this->apiKey;
+
+            $response = Http::timeout(30)
+                ->retry(1, 1000)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($requestUrl, [
+                    'prompt' => $prompt,
+                    'config' => $config,
+                ])
+                ->throw();
+        } catch (RequestException $e) {
+            throw new RuntimeException(
+                'Veo video generation failed: ' . $e->response->json('error.message', $e->getMessage()),
+                $e->getCode(),
+                $e,
+            );
+        }
+
+        $body = $response->json();
+        $operationName = $body['name'] ?? null;
+
+        if (empty($operationName)) {
+            throw new RuntimeException('Veo API trả về thành công nhưng thiếu operation name.');
+        }
+
+        return new GeneratedMediaResult(
+            media:    [],
+            provider: $this->providerKey(),
+            model:    $targetModel,
+            meta:     ['task_id' => $operationName],
+        );
+    }
+
+    /**
+     * Poll the status of a Veo video generation operation.
+     *
+     * @return array{status: string, video_url: ?string, progress: ?int, error: ?string}
+     */
+    public function checkTaskStatus(string $operationName): array
+    {
+        try {
+            $requestUrl = $this->baseUrl . "/{$operationName}?key=" . $this->apiKey;
+
+            $response = Http::timeout(15)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->get($requestUrl)
+                ->throw();
+        } catch (RequestException $e) {
+            throw new RuntimeException(
+                'Veo poll failed: ' . $e->response->json('error.message', $e->getMessage()),
+                $e->getCode(),
+                $e,
+            );
+        }
+
+        $body = $response->json();
+        $done = (bool) ($body['done'] ?? false);
+
+        if (! $done) {
+            return [
+                'status'    => 'processing',
+                'video_url' => null,
+                'progress'  => null,
+                'error'     => null,
+            ];
+        }
+
+        // Check for error
+        if (isset($body['error'])) {
+            return [
+                'status'    => 'failed',
+                'video_url' => null,
+                'progress'  => null,
+                'error'     => $body['error']['message'] ?? 'Veo generation failed.',
+            ];
+        }
+
+        // Extract video URI — must append API key for download
+        $videoUri = data_get($body, 'response.generatedVideos.0.video.uri');
+
+        if (empty($videoUri)) {
+            return [
+                'status'    => 'failed',
+                'video_url' => null,
+                'progress'  => null,
+                'error'     => 'Operation completed but no video URI returned.',
+            ];
+        }
+
+        // Append API key so PersistGeneratedMediaAction can download the file
+        $downloadUrl = $videoUri . '&key=' . $this->apiKey;
+
+        return [
+            'status'    => 'completed',
+            'video_url' => $downloadUrl,
+            'progress'  => 100,
+            'error'     => null,
+        ];
+    }
+
+    /**
+     * Health-check method required by AiSettingsService::testConnection()
+     * for providers where supportsAsyncMedia() may return true.
+     *
+     * Veo models only support /generateVideos — NOT /generateContent.
+     * We therefore always ping a lightweight text model for the health-check
+     * regardless of which model the user has selected.
+     */
+    public function checkCredits(): array
+    {
+        // Veo models do NOT support generateContent, so we use a cheap text model
+        // to validate the API key, regardless of the user's selected model.
+        $healthClient = new self($this->apiKey, 'gemini-2.0-flash-lite');
+        $healthClient->generateText('Reply with only the word: OK', ['max_tokens' => 5]);
+        return ['status' => 'ok'];
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
      * Helper to cleanly extract text error messages from Proxy's plain text responses.

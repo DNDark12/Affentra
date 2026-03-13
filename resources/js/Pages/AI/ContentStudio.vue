@@ -310,25 +310,38 @@
                                         {{ selectedLink.shop_label }}
                                     </p>
                                 </div>
-                                <div v-if="lastGeneration" class="text-right">
-                                    <p class="text-[10px] text-zinc-400">Tokens used</p>
-                                    <p class="text-xs font-mono text-zinc-600 dark:text-zinc-300">
-                                        {{ (lastGeneration.usage?.tokens_prompt || 0) + (lastGeneration.usage?.tokens_completion || 0) }}
-                                        <span v-if="lastGeneration.from_cache" class="ml-1 text-amber-500">⚡ cache</span>
-                                    </p>
+                                <div class="flex items-center gap-4">
+                                    <div v-if="lastGeneration" class="text-right">
+                                        <p class="text-[10px] text-zinc-400">Tokens used</p>
+                                        <p class="text-xs font-mono text-zinc-600 dark:text-zinc-300">
+                                            {{ (lastGeneration.usage?.tokens_prompt || 0) + (lastGeneration.usage?.tokens_completion || 0) }}
+                                            <span v-if="lastGeneration.from_cache" class="ml-1 text-amber-500">⚡ cache</span>
+                                        </p>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-bold text-zinc-600 dark:text-zinc-300 transition-all duration-200"
+                                        @click="showStatsWidget = !showStatsWidget"
+                                    >
+                                        <div class="w-1.5 h-1.5 rounded-full" :class="showStatsWidget ? 'bg-indigo-500 shadow-sm shadow-indigo-500/50' : 'bg-zinc-300 dark:bg-zinc-600'"></div>
+                                        <span>Thống kê</span>
+                                        <ChevronUp v-if="showStatsWidget" :size="12" class="opacity-60" />
+                                        <ChevronDown v-else :size="12" class="opacity-60" />
+                                    </button>
                                 </div>
                             </div>
                             
                             <!-- Statistics Widget -->
-                            <div class="grid gap-2">
+                            <div v-show="showStatsWidget" class="grid gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
                                 <div v-if="accountStatsCards.length > 0" class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5">
                                     <div class="flex items-center justify-between gap-2">
-                                        <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                        <p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                                             Thống kê theo tài khoản
                                         </p>
                                         <button
                                             type="button"
-                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors"
                                             @click="accountStatsExpanded = !accountStatsExpanded"
                                         >
                                             <span>{{ accountStatsExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
@@ -337,30 +350,15 @@
                                         </button>
                                     </div>
 
-                                    <div v-if="!accountStatsExpanded" class="mt-2 flex flex-wrap gap-1.5">
-                                        <div
-                                            v-for="statCard in accountStatsCards"
-                                            :key="'summary-account-' + statCard.key"
-                                            class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60"
-                                        >
-                                            <span class="text-[10px]">{{ statCard.icon }}</span>
-                                            <span class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{{ statCard.label }}</span>
-                                            <span class="text-[10px] font-mono font-semibold" :class="statCard.color">
-                                                {{ statCard.stats?.tokens?.toLocaleString() || 0 }} tk
-                                            </span>
-                                            <span class="text-[10px] text-zinc-400">· {{ statCard.stats?.requests_total?.toLocaleString() || 0 }} req</span>
-                                        </div>
-                                    </div>
-
-                                    <div v-if="accountStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2">
+                                    <div v-show="accountStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                         <div
                                             v-for="statCard in accountStatsCards"
                                             :key="'detail-account-' + statCard.key"
-                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2"
+                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2 shadow-sm"
                                         >
                                             <div class="flex items-center gap-1.5 mb-1.5">
                                                 <span class="text-[10px]">{{ statCard.icon }}</span>
-                                                <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                <span class="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                                                     {{ statCard.label }}
                                                 </span>
                                             </div>
@@ -400,12 +398,12 @@
 
                                 <div v-if="linkStatsCards.length > 0" class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 p-2.5">
                                     <div class="flex items-center justify-between gap-2">
-                                        <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                        <p class="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                                             Thống kê theo link hiện tại
                                         </p>
                                         <button
                                             type="button"
-                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                                            class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors"
                                             @click="linkStatsExpanded = !linkStatsExpanded"
                                         >
                                             <span>{{ linkStatsExpanded ? 'Thu gọn' : 'Chi tiết' }}</span>
@@ -414,30 +412,15 @@
                                         </button>
                                     </div>
 
-                                    <div v-if="!linkStatsExpanded" class="mt-2 flex flex-wrap gap-1.5">
-                                        <div
-                                            v-for="statCard in linkStatsCards"
-                                            :key="'summary-link-' + statCard.key"
-                                            class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60"
-                                        >
-                                            <span class="text-[10px]">{{ statCard.icon }}</span>
-                                            <span class="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{{ statCard.label }}</span>
-                                            <span class="text-[10px] font-mono font-semibold" :class="statCard.color">
-                                                {{ statCard.stats?.tokens?.toLocaleString() || 0 }} tk
-                                            </span>
-                                            <span class="text-[10px] text-zinc-400">· {{ statCard.stats?.requests_total?.toLocaleString() || 0 }} req</span>
-                                        </div>
-                                    </div>
-
-                                    <div v-if="linkStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2">
+                                    <div v-show="linkStatsExpanded" class="mt-2 grid gap-2 md:grid-cols-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                         <div
                                             v-for="statCard in linkStatsCards"
                                             :key="'detail-link-' + statCard.key"
-                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2"
+                                            class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-white/80 dark:bg-zinc-800/60 p-2 shadow-sm"
                                         >
                                             <div class="flex items-center gap-1.5 mb-1.5">
                                                 <span class="text-[10px]">{{ statCard.icon }}</span>
-                                                <span class="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                <span class="text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                                                     {{ statCard.label }}
                                                 </span>
                                             </div>
@@ -590,14 +573,38 @@
                                         </label>
 
                                         <!-- Video Duration Selector -->
-                                        <div v-if="form.generate_video && form.provider_key === 'seedance'" class="mt-1 ml-5.5 flex flex-col gap-1">
-                                            <div class="flex items-center gap-2">
-                                                <span class="text-[10px] text-zinc-500">Thời lượng:</span>
-                                                <select v-model="form.video_duration" :disabled="generating" class="text-[10px] h-6 px-1.5 py-0 border-zinc-200 rounded-md bg-white dark:bg-zinc-800 dark:border-zinc-700">
-                                                    <option v-for="s in [4,5,6,7,8,9,10,11,12]" :key="s" :value="s">{{ s }} giây</option>
-                                                </select>
+                                        <!-- Image Aspect Ratio -->
+                                        <div v-if="form.generate_image" class="mt-1 ml-5.5 flex items-center gap-2">
+                                            <span class="text-[10px] text-zinc-500">Tỷ lệ ảnh:</span>
+                                            <select v-model="form.image_aspect_ratio" :disabled="generating" class="text-[10px] h-6 px-1.5 py-0 border-zinc-200 rounded-md bg-white dark:bg-zinc-800 dark:border-zinc-700">
+                                                <option value="1:1">1:1 (Vuông)</option>
+                                                <option value="4:5">4:5 (Feed)</option>
+                                                <option value="9:16">9:16 (Story)</option>
+                                                <option value="16:9">16:9 (Banner)</option>
+                                                <option value="3:4">3:4 (Portrait)</option>
+                                            </select>
+                                        </div>
+
+                                        <!-- Video Duration + Aspect Ratio -->
+                                        <div v-if="form.generate_video" class="mt-1 ml-5.5 flex flex-col gap-1">
+                                            <div class="flex items-center gap-3">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-[10px] text-zinc-500">Tỷ lệ:</span>
+                                                    <select v-model="form.video_aspect_ratio" :disabled="generating" class="text-[10px] h-6 px-1.5 py-0 border-zinc-200 rounded-md bg-white dark:bg-zinc-800 dark:border-zinc-700">
+                                                        <option value="9:16">9:16 (Dọc)</option>
+                                                        <option value="16:9">16:9 (Ngang)</option>
+                                                        <option value="1:1">1:1 (Vuông)</option>
+                                                        <option value="4:5">4:5 (Feed)</option>
+                                                    </select>
+                                                </div>
+                                                <div v-if="form.provider_key === 'seedance'" class="flex items-center gap-2">
+                                                    <span class="text-[10px] text-zinc-500">Thời lượng:</span>
+                                                    <select v-model="form.video_duration" :disabled="generating" class="text-[10px] h-6 px-1.5 py-0 border-zinc-200 rounded-md bg-white dark:bg-zinc-800 dark:border-zinc-700">
+                                                        <option v-for="s in [4,5,6,7,8,9,10,11,12]" :key="s" :value="s">{{ s }} giây</option>
+                                                    </select>
+                                                </div>
                                             </div>
-                                            <p class="text-[9px]" :class="form.video_duration > 5 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-zinc-400'">
+                                            <p v-if="form.provider_key === 'seedance'" class="text-[9px]" :class="form.video_duration > 5 ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-zinc-400'">
                                                 Tiêu tốn {{ form.video_duration * 5 }} credits
                                             </p>
                                         </div>
@@ -718,22 +725,65 @@
                             </div>
 
                             <!-- Generate button -->
-                            <button
-                                @click="generate(false)"
-                                :disabled="generating || !form.product_title"
-                                class="af-btn-primary h-10 flex items-center justify-center gap-2 text-sm font-semibold mt-1"
-                            >
-                                <Loader2 v-if="generating" :size="16" class="animate-spin" />
-                                <template v-else>
-                                    <Wand2 v-if="selectedPreset?.type === 'image'" :size="16" />
-                                    <Sparkles v-else :size="16" />
-                                </template>
-                                {{ 
-                                    generating 
-                                    ? 'Đang phân tích & tạo nội dung...' 
-                                    : 'Bắt đầu tạo nội dung'
-                                }}
-                            </button>
+                            <!-- Prompt Preview Area -->
+                            <div v-if="isPreviewingPrompt" class="flex flex-col gap-2 p-4 rounded-xl bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100 dark:border-indigo-500/20 animate-in zoom-in-95 duration-200">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <div class="p-1 rounded bg-indigo-100 dark:bg-indigo-500/20">
+                                            <Wand2 :size="12" class="text-indigo-600 dark:text-indigo-400" />
+                                        </div>
+                                        <span class="text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-tight">Kiểm tra Prompts</span>
+                                    </div>
+                                    <button @click="isPreviewingPrompt = false" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                                        <X :size="14" />
+                                    </button>
+                                </div>
+                                
+                                <p class="text-[11px] text-zinc-500 leading-tight">
+                                    Đây là prompt cuối cùng sẽ được gửi cho AI. Bạn có thể chỉnh sửa trực tiếp bên dưới.
+                                </p>
+
+                                <textarea
+                                    v-model="form.custom_prompt"
+                                    class="w-full mt-1 p-3 text-sm font-mono border border-indigo-200 dark:border-indigo-800 rounded-lg bg-white dark:bg-zinc-900 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 min-h-[160px] resize-y"
+                                    placeholder="Nhập prompt của bạn tại đây..."
+                                ></textarea>
+
+                                <div class="flex items-center gap-2 mt-1">
+                                    <button
+                                        @click="generate(false)"
+                                        :disabled="generating"
+                                        class="flex-1 af-btn-primary h-10 flex items-center justify-center gap-2 text-sm font-bold shadow-indigo-500/20 shadow-lg"
+                                    >
+                                        <Loader2 v-if="generating" :size="16" class="animate-spin" />
+                                        <Sparkles v-else :size="16" />
+                                        {{ generating ? 'Đang tạo nội dung...' : 'Bắt đầu tạo nội dung' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Initial Actions -->
+                            <div v-else class="flex flex-col gap-3">
+                                <button
+                                    @click="previewPrompt"
+                                    :disabled="previewLoading || generating || !form.product_title"
+                                    class="af-btn-primary h-10 flex items-center justify-center gap-2 text-sm font-semibold mt-1"
+                                >
+                                    <Loader2 v-if="previewLoading" :size="16" class="animate-spin" />
+                                    <template v-else>
+                                        <Search :size="16" />
+                                    </template>
+                                    {{ 
+                                        previewLoading 
+                                        ? 'Đang chuẩn bị prompt...' 
+                                        : 'Kiểm tra prompt'
+                                    }}
+                                </button>
+                                
+                                <p class="text-[10px] text-center text-zinc-400 italic">
+                                    Hệ thống sẽ render prompt từ thông tin sản phẩm để bạn kiểm tra trước khi gửi cho AI.
+                                </p>
+                            </div>
                         </div>
 
                         <!-- ── Product Image picker ── -->
@@ -874,25 +924,34 @@
                         <p v-if="!historyLoading && history.length === 0" class="text-xs text-zinc-400 px-4 py-4 text-center">
                             Chưa có lịch sử cho link này
                         </p>
-                        <button
+                        <div
                             v-for="item in history"
                             :key="item.id"
                             @click="selectHistoryItem(item)"
-                            class="w-full text-left px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 transition-colors"
+                            class="w-full text-left px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 transition-colors relative group cursor-pointer"
                             :class="selectedHistoryItem?.id === item.id
                                 ? 'bg-indigo-50 dark:bg-indigo-500/10'
                                 : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60'"
                         >
-                            <div class="flex items-center gap-1.5 mb-0.5">
-                                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" :class="platformBadgeClass(item.platform)">{{ item.platform }}</span>
-                                <span class="text-[9px] px-1 py-0.5 rounded" :class="item.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'">{{ item.status }}</span>
+                            <div class="flex items-center justify-between mb-0.5">
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide" :class="platformBadgeClass(item.platform)">{{ item.platform }}</span>
+                                    <span class="text-[9px] px-1 py-0.5 rounded" :class="item.status === 'succeeded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400'">{{ item.status }}</span>
+                                </div>
+                                <button
+                                    @click.stop="deleteHistoryItem(item.id)"
+                                    class="opacity-0 group-hover:opacity-100 p-1 -mr-1 rounded hover:bg-red-100 dark:hover:bg-red-500/20 text-zinc-400 hover:text-red-600 transition-all"
+                                    title="Xoá bản ghi"
+                                >
+                                    <Trash2 :size="13" />
+                                </button>
                             </div>
-                            <p class="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-1">{{ item.preview || '—' }}</p>
+                            <p class="text-[11px] text-zinc-600 dark:text-zinc-300 line-clamp-1 pr-4">{{ item.preview || '—' }}</p>
                             <p v-if="item.shop_label" class="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1 mt-0.5">
                                 {{ item.shop_label }}
                             </p>
                             <p class="text-[10px] text-zinc-400 mt-0.5">{{ formatRelative(item.created_at) }}</p>
-                        </button>
+                        </div>
                     </div>
 
                     <div class="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40">
@@ -919,10 +978,11 @@ import axios from 'axios';
 import {
     Sparkles, Search, Link2, Loader2,
     AlertTriangle, CheckCircle2, RefreshCw,
-    Copy, Check, Plus, X, ChevronDown, ChevronUp, Wand2, Upload, Pin
+    Copy, Check, Plus, X, ChevronDown, ChevronUp, Wand2, Upload, Pin, Trash2
 } from 'lucide-vue-next';
 import AppShell from '@/Layouts/AppShell.vue';
 import { useToast } from '@/Composables/useToast';
+import { useDialog } from '@/Composables/useDialog';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 const props = defineProps({
@@ -935,7 +995,7 @@ const GOAL_PRESET_IDS = new Set(['fb_post', 'carousel_ad_copy', 'short_video_ad'
 const AUDIENCE_PRESET_IDS = new Set(['fb_post', 'carousel_ad_copy', 'short_video_ad', 'product_story_video', 'ugc_review_video', 'seo_description']);
 
 const toast = useToast();
-
+const { confirmDialog } = useDialog();
 // ── State ────────────────────────────────────────────────────────────────────
 const linkSearch     = ref('');
 const selectedLink   = ref(null);
@@ -955,6 +1015,7 @@ const accountStatisticsLoading = ref(false);
 const linkStatisticsLoading = ref(false);
 const accountStatsExpanded = ref(false);
 const linkStatsExpanded = ref(false);
+const showStatsWidget = ref(false);
 
 const generating     = ref(false);
 const outputVariants = ref([]);
@@ -975,12 +1036,14 @@ const isRestoring    = ref(false);
 const imageUrlInput    = ref('');
 const isUploadingImage = ref(false);
 
+const isPreviewingPrompt = ref(false);
+const previewData        = ref(null);
+const previewLoading     = ref(false);
+
 let idempotencyKey = crypto.randomUUID();
 
 // ── Form ─────────────────────────────────────────────────────────────────────
-const form = ref({
-    provider_key:  '',
-    model:         '',
+const formDefaults = {
     tone:          'friendly',
     goal:          'traffic',
     audience:      '',
@@ -1000,6 +1063,13 @@ const form = ref({
     generate_image: false,
     generate_video: false,
     video_duration: 5,
+    image_aspect_ratio: '4:5',
+    video_aspect_ratio: '9:16',
+};
+const form = ref({
+    provider_key:  '',
+    model:         '',
+    ...structuredClone(formDefaults),
 });
 
 // ── Computed ─────────────────────────────────────────────────────────────────
@@ -1139,22 +1209,24 @@ watch([selectedLink, selectedPreset], () => {
     lastGeneration.value = null;
     errorMsg.value = '';
     errorHint.value = '';
+    isPreviewingPrompt.value = false;
+    previewData.value = null;
 });
 
 watch(selectedLink, (newLink) => {
     accountStatsExpanded.value = false;
     linkStatsExpanded.value = false;
+
+    // Reset all user-editable fields to defaults
+    const keep = { provider_key: form.value.provider_key, model: form.value.model };
+    Object.assign(form.value, structuredClone(formDefaults), keep);
+
+    // Pre-fill from link's product data
     if (newLink) {
-        if (newLink.product_name) {
-            form.value.product_title = newLink.product_name;
-        }
-        if (newLink.product_price) {
-            form.value.product_price = newLink.product_price;
-        }
+        if (newLink.product_name)  form.value.product_title = newLink.product_name;
+        if (newLink.product_price) form.value.product_price = newLink.product_price;
         if (Array.isArray(newLink.product_image_urls) && newLink.product_image_urls.length > 0) {
             form.value.image_urls = [...newLink.product_image_urls];
-        } else {
-            form.value.image_urls = [];
         }
     }
 });
@@ -1448,18 +1520,69 @@ async function selectHistoryItem(item) {
     }
 }
 
-async function generate(forceNewSeed = false) {
-    if (!selectedLink.value || !selectedPreset.value || generating.value) return;
-    idempotencyKey = crypto.randomUUID();
+async function deleteHistoryItem(id) {
+    const confirmed = await confirmDialog({
+        variant:     'danger',
+        title:       'Xóa bản ghi lịch sử',
+        description: 'Bạn chắc chắn muốn xóa bản ghi lịch sử này? Thao tác không thể hoàn tác.',
+        confirmText: 'Xóa',
+        cancelText:  'Hủy',
+    });
+    
+    if (!confirmed) return;
 
-    generating.value = true;
-    centerViewMode.value = 'editor';
+    try {
+        const res = await axios.delete(route('api.content-generations.destroy', { id }));
+        if (res.data?.ok) {
+            toast.success('Đã xoá bản ghi lịch sử.');
+            history.value = history.value.filter(h => h.id !== id);
+            if (selectedHistoryItem.value && selectedHistoryItem.value.id === id) {
+                selectedHistoryItem.value = null;
+                selectedHistoryDetail.value = null;
+                centerViewMode.value = 'editor';
+            }
+        }
+    } catch (e) {
+        toast.error('Không thể xoá bản ghi này.');
+    }
+}
+
+async function previewPrompt() {
+    if (!selectedLink.value || !selectedPreset.value || previewLoading.value) return;
+    
+    previewLoading.value = true;
     errorMsg.value = '';
     errorHint.value = '';
-    outputVariants.value = [];
-    lastGeneration.value = null;
 
-    // Build options object
+    const options = buildGenerationOptions();
+    const payload = buildGenerationPayload(options);
+
+    try {
+        const res = await axios.post(
+            route('api.content.preview', { trackingLink: selectedLink.value.id }),
+            payload
+        );
+
+        if (res.data?.ok) {
+            previewData.value = res.data.data;
+            isPreviewingPrompt.value = true;
+            
+            // Auto-populate custom prompt if multiple outputs or primary text
+            const firstPlan = Object.values(previewData.value.plan || {})[0];
+            if (firstPlan && firstPlan.prompt && !form.value.custom_prompt) {
+                form.value.custom_prompt = firstPlan.prompt;
+            }
+            
+            toast.success('Đã tạo bản xem trước prompt.');
+        }
+    } catch (e) {
+        errorMsg.value = e.response?.data?.message || 'Không thể tạo bản xem trước prompt.';
+    } finally {
+        previewLoading.value = false;
+    }
+}
+
+function buildGenerationOptions() {
     const options = { variant_count: form.value.variant_count };
     
     if (selectedPreset.value.id !== 'hashtags_pack') options.tone = form.value.tone;
@@ -1472,29 +1595,49 @@ async function generate(forceNewSeed = false) {
     if (form.value.offers) options.offers = form.value.offers;
     if (form.value.expiration) options.expiration = form.value.expiration;
     if (form.value.policy) options.policy = form.value.policy;
-    if (selectedPreset.value.type === 'image') options.aspect_ratio = '4:5';
-    if (selectedPreset.value.type === 'video') options.aspect_ratio = '9:16';
+    if (selectedPreset.value.type === 'image' || form.value.generate_image) options.aspect_ratio = form.value.image_aspect_ratio;
+    if (selectedPreset.value.type === 'video' || form.value.generate_video) options.aspect_ratio = form.value.video_aspect_ratio;
     if (form.value.custom_prompt) options.custom_prompt = form.value.custom_prompt;
     if (form.value.generate_video) options.duration = form.value.video_duration;
 
     options.safety_no_absolute = form.value.safety_no_absolute;
     options.safety_no_medical = form.value.safety_no_medical;
     options.safety_no_sensitive = form.value.safety_no_sensitive;
+    
+    return options;
+}
 
+function buildGenerationPayload(options) {
     const payload = {
         preset_id:      selectedPreset.value.id,
         variant_count:  form.value.variant_count,
         options,
-        force_new_seed: true, // Always generate fresh content
+        force_new_seed: true,
     };
 
-    // Optional overrides
     if (form.value.provider_key) payload.provider_key  = form.value.provider_key;
     if (form.value.model)        payload.model          = form.value.model;
     if (form.value.image_urls.length) payload.image_urls = form.value.image_urls;
     if (form.value.generate_text)  payload.generate_text  = true;
     if (form.value.generate_image) payload.generate_image = true;
     if (form.value.generate_video) payload.generate_video = true;
+    
+    return payload;
+}
+
+async function generate(forceNewSeed = false) {
+    if (!selectedLink.value || !selectedPreset.value || generating.value) return;
+    idempotencyKey = crypto.randomUUID();
+
+    generating.value = true;
+    centerViewMode.value = 'editor';
+    errorMsg.value = '';
+    errorHint.value = '';
+    outputVariants.value = [];
+    lastGeneration.value = null;
+
+    const options = buildGenerationOptions();
+    const payload = buildGenerationPayload(options);
 
     try {
         const res = await axios.post(

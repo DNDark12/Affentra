@@ -55,4 +55,21 @@ interface AIProviderClient
      * Check if this provider supports native system prompt for a modality.
      */
     public function supportsNativeSystemPrompt(string $modality): bool;
+
+    /**
+     * Poll the status of an async media generation task.
+     *
+     * Only required for providers where supportsAsyncMedia() returns true.
+     *
+     * @return array{status: string, video_url: ?string, progress: ?int, error: ?string}
+     */
+    public function checkTaskStatus(string $taskId): array;
+
+    /**
+     * Verify API key and connection health.
+     *
+     * Only required for providers where supportsAsyncMedia() may return true.
+     * Used by AiSettingsService::testConnection().
+     */
+    public function checkCredits(): array;
 }

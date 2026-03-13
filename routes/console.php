@@ -42,3 +42,8 @@ Schedule::command('analytics:clean-clicks --days=60')
 Schedule::command('ai:cleanup-zombies --hours=4')
     ->hourly()
     ->onOneServer();
+
+// Clean up stale Integration Sync Runs hourly
+Schedule::command('integrations:cleanup-zombies --hours=4')
+    ->hourly()
+    ->onOneServer();

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Integration;
 
 use App\Contracts\Services\IntegrationContract;
+use App\Services\Integration\Lazada\LazadaIntegration;
 use App\Services\Integration\Shopee\ShopeeIntegration;
 
 /**
@@ -20,9 +21,9 @@ class IntegrationFactory
      */
     private static array $adapters = [
         'shopee' => ShopeeIntegration::class,
+        'lazada' => LazadaIntegration::class,
         // Future:
-        // 'lazada'  => LazadaIntegration::class,
-        // 'tiktok'  => TiktokIntegration::class,
+        // 'tiktok' => TiktokIntegration::class,
     ];
 
     /**

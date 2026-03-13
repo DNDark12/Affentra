@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Audit\AuditLogger;
 use App\Services\Integration\IntegrationFactory;
 use App\Services\Integration\Parsers\CurlCookieParserService;
+use App\Services\Integration\Parsers\LazadaCurlCookieParserService;
 use Illuminate\Database\Eloquent\Collection;
 use RuntimeException;
 
@@ -175,7 +176,7 @@ class IntegrationService
         } elseif ($payload['method'] === 'cookie') {
             $payload['consent_acknowledged_at'] = now();
             if (!empty($data['curl_command'])) {
-                $parser = new CurlCookieParserService();
+                $parser = $this->resolveParser($data['platform'] ?? 'shopee');
                 $parsedBlocks = $parser->parseMany((string) $data['curl_command']);
                 if ($parsedBlocks === []) {
                     throw new RuntimeException('Không parse được cURL command.');
@@ -187,6 +188,7 @@ class IntegrationService
                     $mergedCookieHeader = $this->mergeCookieCredentialsPayload(
                         parsed: $parsed,
                         existingCookieHeader: $mergedCookieHeader,
+                        platform: $data['platform'] ?? 'shopee',
                     );
                     $resolvedUserAgent = $parsed['user_agent'] ?? $resolvedUserAgent;
                 }
@@ -251,7 +253,7 @@ class IntegrationService
         if ($targetMethod === 'cookie') {
             if (!empty($data['cookie_header']) || !empty($data['curl_command'])) {
                 if (!empty($data['curl_command'])) {
-                    $parser = new \App\Services\Integration\Parsers\CurlCookieParserService();
+                    $parser = $this->resolveParser($connection->platform);
                     $parsedBlocks = $parser->parseMany((string) $data['curl_command']);
                     if ($parsedBlocks === []) {
                         throw new RuntimeException('Không parse được cURL command.');
@@ -263,6 +265,7 @@ class IntegrationService
                         $mergedCookieHeader = $this->mergeCookieCredentialsPayload(
                             parsed: $parsed,
                             existingCookieHeader: $mergedCookieHeader,
+                            platform: $connection->platform,
                         );
                         $resolvedUserAgent = $parsed['user_agent'] ?? $resolvedUserAgent;
                     }
@@ -431,20 +434,24 @@ class IntegrationService
             syncRunId: $syncRun->id,
         );
 
-        $paymentSyncRun = SyncRun::create([
-            'user_id' => $actor->id,
-            'platform_connection_id' => $connection->id,
-            'integration' => $connection->platform,
-            'type' => 'payment_sync',
-            'status' => 'pending',
-            'started_at' => now(),
-        ]);
+        // Payment sync is only supported for Shopee (cookie-based finance endpoints).
+        // Lazada and future platforms do not have equivalent payment sync capabilities yet.
+        if ($connection->platform === 'shopee') {
+            $paymentSyncRun = SyncRun::create([
+                'user_id' => $actor->id,
+                'platform_connection_id' => $connection->id,
+                'integration' => $connection->platform,
+                'type' => 'payment_sync',
+                'status' => 'pending',
+                'started_at' => now(),
+            ]);
 
-        SyncPaymentDataJob::dispatch(
-            platformConnection: $connection, 
-            triggerType: 'payment_sync', 
-            syncRunId: $paymentSyncRun->id
-        );
+            SyncPaymentDataJob::dispatch(
+                platformConnection: $connection,
+                triggerType: 'payment_sync',
+                syncRunId: $paymentSyncRun->id
+            );
+        }
 
         if ($connection->platform === 'shopee') {
             $campaignSyncRun = SyncRun::create([
@@ -517,7 +524,62 @@ class IntegrationService
     /**
      * @param  array<string, mixed>  $parsed
      */
-    private function mergeCookieCredentialsPayload(array $parsed, ?string $existingCookieHeader): string
+    private function mergeCookieCredentialsPayload(array $parsed, ?string $existingCookieHeader, string $platform = 'shopee'): string
+    {
+        if ($platform === 'lazada') {
+            return $this->mergeLazadaCookieCredentialsPayload($parsed, $existingCookieHeader);
+        }
+
+        return $this->mergeShopeeCoookieCredentialsPayload($parsed, $existingCookieHeader);
+    }
+
+    /**
+     * Build the stored cookie_header JSON for a Lazada connection.
+     * Simpler than Shopee — no Shopee-specific tokens, just Cookie + standard request headers.
+     *
+     * @param  array<string, mixed>  $parsed
+     */
+    private function mergeLazadaCookieCredentialsPayload(array $parsed, ?string $existingCookieHeader): string
+    {
+        $base = [
+            'cookie'          => (string) ($parsed['cookie'] ?? ''),
+            'user_agent'      => (string) ($parsed['user_agent'] ?? ''),
+            'accept_language' => (string) ($parsed['accept_language'] ?? ''),
+            'csrf_token'      => (string) ($parsed['csrf_token'] ?? ''),
+            'x_csrf_token'    => (string) ($parsed['x_csrf_token'] ?? ''),
+            'authorization'   => (string) ($parsed['authorization'] ?? ''),
+            'referer'         => (string) ($parsed['referer'] ?? ''),
+            'origin'          => (string) ($parsed['origin'] ?? ''),
+            'request_url'     => (string) ($parsed['request_url'] ?? ''),
+            'raw_headers'     => is_array($parsed['raw_headers'] ?? null) ? $parsed['raw_headers'] : [],
+            'raw_header_lines' => is_array($parsed['raw_header_lines'] ?? null) ? $parsed['raw_header_lines'] : [],
+        ];
+
+        // Preserve existing values if new cURL omitted them.
+        if ($existingCookieHeader !== null && str_starts_with(trim($existingCookieHeader), '{')) {
+            $existing = json_decode($existingCookieHeader, true);
+            if (is_array($existing)) {
+                foreach (['cookie', 'user_agent', 'accept_language', 'csrf_token', 'x_csrf_token', 'authorization', 'referer', 'origin'] as $key) {
+                    if ($base[$key] === '' && isset($existing[$key])) {
+                        $base[$key] = (string) $existing[$key];
+                    }
+                }
+                if (($base['raw_headers'] ?? []) === [] && is_array($existing['raw_headers'] ?? null)) {
+                    $base['raw_headers'] = $existing['raw_headers'];
+                }
+                if (($base['raw_header_lines'] ?? []) === [] && is_array($existing['raw_header_lines'] ?? null)) {
+                    $base['raw_header_lines'] = $existing['raw_header_lines'];
+                }
+            }
+        }
+
+        return json_encode($base, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
+    }
+
+    /**
+     * @param  array<string, mixed>  $parsed
+     */
+    private function mergeShopeeCoookieCredentialsPayload(array $parsed, ?string $existingCookieHeader): string
     {
         $base = [
             'cookie' => (string) ($parsed['cookie'] ?? ''),
@@ -668,4 +730,19 @@ class IntegrationService
             'last_sync_status' => $connection->last_sync_status,
         ];
     }
+
+    /**
+     * Resolve the correct cURL cookie parser for a given platform.
+     *
+     * Each platform has its own domain constraints and session token
+     * patterns, so they use separate parser classes.
+     */
+    private function resolveParser(string $platform): CurlCookieParserService|LazadaCurlCookieParserService
+    {
+        return match ($platform) {
+            'lazada' => new LazadaCurlCookieParserService(),
+            default  => new CurlCookieParserService(),
+        };
+    }
 }
+

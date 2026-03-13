@@ -271,6 +271,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/generate', [ContentGenerationController::class, 'generate'])
             ->name('generate')
             ->middleware('throttle:10,1');
+        Route::post('/preview', [ContentGenerationController::class, 'preview'])
+            ->name('preview')
+            ->middleware('throttle:30,1');
         Route::get('/history', [ContentGenerationController::class, 'history'])
             ->name('history');
         Route::get('/statistics', [ContentGenerationController::class, 'statistics'])
@@ -291,6 +294,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('content-generations/{id}/status', [ContentGenerationController::class, 'status'])
         ->name('api.content-generations.status')
         ->middleware('throttle:120,1');
+
+    Route::delete('content-generations/{id}', [ContentGenerationController::class, 'destroy'])
+        ->name('api.content-generations.destroy');
 
     Route::get('content/statistics/account', [ContentGenerationController::class, 'accountStatistics'])
         ->name('api.content.statistics.account');

@@ -100,6 +100,27 @@ class ContentGenerationController
     }
 
     /**
+     * POST /api/links/{trackingLink}/content/preview
+     */
+    public function preview(GenerateContentRequest $request, TrackingLink $trackingLink): JsonResponse
+    {
+        if ((int) $trackingLink->user_id !== (int) $request->user()->id) {
+            abort(404);
+        }
+
+        $preview = $this->service->preview(
+            link:    $trackingLink,
+            user:    $request->user(),
+            payload: $request->validated(),
+        );
+
+        return response()->json([
+            'ok'   => true,
+            'data' => $preview,
+        ]);
+    }
+
+    /**
      * GET /api/content-generations/{id}/status
      *
      * Lightweight polling endpoint for async generation status.
@@ -246,6 +267,25 @@ class ContentGenerationController
         return response()->json([
             'ok' => true,
             'data' => $stats,
+        ]);
+    }
+
+    /**
+     * DELETE /api/content-generations/{id}
+     * Delete a generation record.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $generation = \App\Models\ContentGeneration::findOrFail($id);
+
+        if ((int) $generation->user_id !== (int) $request->user()->id) {
+            abort(404);
+        }
+
+        $generation->delete();
+
+        return response()->json([
+            'ok' => true,
         ]);
     }
 
