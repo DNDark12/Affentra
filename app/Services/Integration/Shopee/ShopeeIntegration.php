@@ -3147,7 +3147,7 @@ JSON;
         }
     }
 
-    public function generateShortLink(PlatformConnection $connection, string $originalUrl, ?string $subId = null): ?string
+    public function generateShortLink(PlatformConnection $connection, string $originalUrl, array $context = []): ?string
     {
         if (in_array($connection->method, ['cookie', 'portal_export'])) {
             // These methods don't currently support short link generation seamlessly.
@@ -3168,6 +3168,8 @@ JSON;
             }
         }
         GRAPHQL;
+
+        $subId = $context['sub_id'] ?? null;
 
         $result = $this->graphql($connection, $query, [
             'originUrl' => $originalUrl,

@@ -8,6 +8,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\ConfirmPartnerController;
 use App\Http\Controllers\Auth\ResetPasswordController;
 use App\Http\Controllers\Auth\SocialAuthController;
+use App\Http\Controllers\API\TikTokAuthController;
 use App\Http\Controllers\ContentStudioController;
 use App\Http\Controllers\CampaignController;
 use App\Http\Controllers\ClickAnalyticsController;
@@ -86,6 +87,7 @@ Route::middleware(['auth', HandleInertiaRequests::class])->group(function () {
     Route::get('/partners', [PartnerController::class, 'index'])->name('partners.index');
     Route::get('/partners/{partner}', [PartnerController::class, 'show'])->name('partners.show');
     Route::get('/integrations', [IntegrationController::class, 'index'])->name('integrations.index');
+    Route::get('/integrations/{connection}', [IntegrationController::class, 'show'])->name('integrations.show');
     Route::get('/offers', [OfferController::class, 'index'])->name('offers.index');
     Route::get('/offers/{offerId}', [OfferController::class, 'showPage'])->name('offers.show');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -124,6 +126,12 @@ Route::middleware(['auth', HandleInertiaRequests::class])->group(function () {
         ->name('finance.payout-batches.index');
     Route::get('/finance/payout-batches/{payoutBatch}', [PayoutBatchController::class, 'show'])
         ->name('finance.payout-batches.show');
+
+    // ─── TikTok OAuth (needs session for state) ───
+    Route::prefix('integrations/tiktok')->name('integrations.tiktok.')->group(function () {
+        Route::get('/authorize', [TikTokAuthController::class, 'redirectToTikTok'])->name('authorize');
+        Route::get('/callback', [TikTokAuthController::class, 'callback'])->name('callback');
+    });
 });
 
 /*

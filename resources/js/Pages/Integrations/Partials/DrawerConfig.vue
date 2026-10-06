@@ -74,22 +74,33 @@
 
                             <!-- OPEN API Flow -->
                             <template v-if="form.method === 'open_api'">
-                                <div class="flex flex-col gap-2">
-                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
-                                        App ID <span v-if="!editConnection" class="text-zinc-900 dark:text-white">*</span>
-                                        <span v-else class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
-                                    </label>
-                                    <input type="text" v-model="form.app_id" :required="!editConnection && form.method === 'open_api'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
-                                    <span v-if="form.errors.app_id" class="text-xs text-red-500">{{ form.errors.app_id }}</span>
-                                </div>
-                                <div class="flex flex-col gap-2">
-                                    <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
-                                        App Secret <span v-if="!editConnection" class="text-zinc-900 dark:text-white">*</span>
-                                        <span v-else class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
-                                    </label>
-                                    <input type="password" v-model="form.app_secret" :required="!editConnection && form.method === 'open_api'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
-                                    <span v-if="form.errors.app_secret" class="text-xs text-red-500">{{ form.errors.app_secret }}</span>
-                                </div>
+                                <template v-if="form.platform !== 'tiktok'">
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                                            App ID <span v-if="!editConnection" class="text-zinc-900 dark:text-white">*</span>
+                                            <span v-else class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
+                                        </label>
+                                        <input type="text" v-model="form.app_id" :required="!editConnection && form.method === 'open_api' && form.platform !== 'tiktok'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
+                                        <span v-if="form.errors.app_id" class="text-xs text-red-500">{{ form.errors.app_id }}</span>
+                                    </div>
+                                    <div class="flex flex-col gap-2">
+                                        <label class="text-[13px] font-medium text-zinc-900 dark:text-zinc-100">
+                                            App Secret <span v-if="!editConnection" class="text-zinc-900 dark:text-white">*</span>
+                                            <span v-else class="text-xs opacity-70 font-normal ml-1">(Bỏ trống nếu không đổi)</span>
+                                        </label>
+                                        <input type="password" v-model="form.app_secret" :required="!editConnection && form.method === 'open_api' && form.platform !== 'tiktok'" class="h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent text-sm focus:ring-1 focus:ring-indigo-500 w-full" />
+                                        <span v-if="form.errors.app_secret" class="text-xs text-red-500">{{ form.errors.app_secret }}</span>
+                                    </div>
+                                </template>
+                                <template v-else>
+                                    <div class="p-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg text-sm border border-indigo-100 dark:border-indigo-800/50">
+                                        <p class="font-medium mb-1 flex items-center gap-1.5">
+                                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                            Xác thực tự động (OAuth 2.0)
+                                        </p>
+                                        <p class="opacity-90">Hệ thống sử dụng luồng Authorization tự động của TikTok. Nhấn nút bên dưới để chuyển hướng đến trang đăng nhập TikTok Shop và cấp quyền truy cập cửa hàng.</p>
+                                    </div>
+                                </template>
                             </template>
 
                             <!-- PORTAL EXPORT Flow -->
@@ -219,7 +230,7 @@
                             Hủy bỏ
                         </button>
                         <button form="configForm" type="submit" :disabled="form.processing" class="h-10 px-6 rounded-lg bg-[#6366F1] hover:bg-indigo-600 text-white text-sm font-medium flex justify-center items-center transition-colors disabled:opacity-50">
-                            {{ form.processing ? '...' : (editConnection ? 'Lưu cấu hình' : 'Lưu kết nối') }}
+                            {{ form.processing ? '...' : (editConnection ? 'Lưu cấu hình' : (form.platform === 'tiktok' ? 'Ủy quyền TikTok' : 'Lưu kết nối')) }}
                         </button>
 
                         <div class="flex-1"></div>
@@ -402,6 +413,12 @@ function close() {
 async function submit() {
     form.clearErrors();
     form.processing = true;
+
+    // TikTok OAuth Flow Intercept
+    if (!props.editConnection && form.platform === 'tiktok') {
+        window.location.href = route('integrations.tiktok.authorize');
+        return;
+    }
 
     try {
         const payload = { ...form.data() };

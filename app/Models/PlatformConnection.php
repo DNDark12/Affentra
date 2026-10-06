@@ -34,6 +34,10 @@ class PlatformConnection extends Model
         'access_token',
         'refresh_token',
         'token_expires_at',
+        'shop_id',
+        'shop_cipher',
+        'market',
+        'token_refreshed_at',
         'status',
         'sync_mode',
         'sync_interval',
@@ -56,6 +60,7 @@ class PlatformConnection extends Model
         'app_secret',
         'access_token',
         'refresh_token',
+        'shop_cipher',
         'cookie_header',
         'cookie_user_agent',
     ];
@@ -67,6 +72,7 @@ class PlatformConnection extends Model
     {
         return [
             'token_expires_at'          => 'datetime',
+            'token_refreshed_at'        => 'datetime',
             'last_sync_at'              => 'datetime',
             'last_campaign_sync_at'     => 'datetime',
             'last_error_at'             => 'datetime',
@@ -139,6 +145,24 @@ class PlatformConnection extends Model
      * Decrypt refresh_token when reading.
      */
     public function getRefreshTokenAttribute(?string $value): ?string
+    {
+        return $value !== null ? Crypt::decryptString($value) : null;
+    }
+
+    /**
+     * Encrypt shop_cipher before storing.
+     */
+    public function setShopCipherAttribute(?string $value): void
+    {
+        $this->attributes['shop_cipher'] = $value !== null
+            ? Crypt::encryptString($value)
+            : null;
+    }
+
+    /**
+     * Decrypt shop_cipher when reading.
+     */
+    public function getShopCipherAttribute(?string $value): ?string
     {
         return $value !== null ? Crypt::decryptString($value) : null;
     }

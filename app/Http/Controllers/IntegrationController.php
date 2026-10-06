@@ -43,6 +43,33 @@ class IntegrationController extends Controller
         ]);
     }
 
+    public function show(Request $request, PlatformConnection $connection): Response
+    {
+        /** @var User $auth */
+        $auth = $request->user();
+
+        if (! $this->integrationService->canManageConnections($auth)) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        if (! $this->integrationService->isOwnedBy($auth, $connection)) {
+            abort(404, 'Not found.');
+        }
+
+        $connectionPayload = collect($this->integrationService->listConnectionsForIndex($auth))
+            ->first(static fn (array $item): bool => (int) ($item['id'] ?? 0) === (int) $connection->id);
+
+        if (! is_array($connectionPayload)) {
+            abort(404, 'Not found.');
+        }
+
+        return Inertia::render('Integrations/Detail', [
+            'connections' => [$connectionPayload],
+            'supportedPlatforms' => IntegrationFactory::supportedPlatforms(),
+            'allowedMethods' => $this->integrationService->availableMethodsForUser($auth),
+        ]);
+    }
+
     public function store(StoreConnectionRequest $request): JsonResponse
     {
         /** @var User $auth */

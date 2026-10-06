@@ -22,9 +22,15 @@ class StoreConnectionRequest extends FormRequest
             'method'     => ['required', 'string', Rule::in($this->allowedMethods())],
             'label'      => ['nullable', 'string', 'max:100'],
             
-            // Open API Rules
-            'app_id'     => ['required_if:method,open_api', 'nullable', 'string', 'max:255'],
-            'app_secret' => ['required_if:method,open_api', 'nullable', 'string', 'max:255'],
+            // Open API Rules — TikTok uses global OAuth credentials, not per-connection app_id/app_secret
+            'app_id'     => [
+                Rule::requiredIf(fn (): bool => $this->input('method') === 'open_api' && $this->input('platform') !== 'tiktok'),
+                'nullable', 'string', 'max:255',
+            ],
+            'app_secret' => [
+                Rule::requiredIf(fn (): bool => $this->input('method') === 'open_api' && $this->input('platform') !== 'tiktok'),
+                'nullable', 'string', 'max:255',
+            ],
 
             // Cookie Rules
             'cookie_header'        => [
@@ -41,6 +47,22 @@ class StoreConnectionRequest extends FormRequest
             'sync_interval'        => ['nullable', 'string', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled'), Rule::in(['15m', '1h', '3h', '8h', 'daily'])],
             'sync_time'            => ['nullable', 'string', 'date_format:H:i', Rule::requiredIf(fn (): bool => $this->input('sync_mode') === 'scheduled' && $this->input('sync_interval') === 'daily')],
         ];
+    }
+
+    /**
+     * Add platform-method cross-validation.
+     */
+    public function withValidator(\Illuminate\Contracts\Validation\Validator $validator): void
+    {
+        $validator->after(function (\Illuminate\Contracts\Validation\Validator $v): void {
+            $platform = $this->input('platform');
+            $method   = $this->input('method');
+
+            // TikTok only supports open_api (OAuth-based, global credentials)
+            if ($platform === 'tiktok' && $method !== 'open_api') {
+                $v->errors()->add('method', 'TikTok chỉ hỗ trợ phương thức Open API.');
+            }
+        });
     }
 
     /**

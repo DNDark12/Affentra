@@ -68,7 +68,9 @@ class IntegrationService
                     'platform'         => $connection->platform,
                     'method'           => $connection->method,
                     'app_id'           => $connection->app_id,
-                    'has_open_api'     => !empty($connection->app_id) && !empty($connection->app_secret),
+                    'has_open_api'     => $this->isConnectionConfigured($connection),
+                    'is_configured'    => $this->isConnectionConfigured($connection),
+                    'is_valid_now'     => $this->isConnectionValid($connection),
                     'has_cookie'       => !empty($connection->cookie_header),
                     'cookie_source'    => $connection->cookie_source,
                     'status'           => $connection->status,
@@ -116,15 +118,13 @@ class IntegrationService
                     return false;
                 }
 
-                if ($connection->platform !== 'shopee') {
-                    return false;
-                }
-
                 if ($connection->status !== 'active') {
                     return false;
                 }
 
-                return in_array($connection->method, ['open_api', 'cookie'], true);
+                // Capability-based gating: only platforms that support short links
+                $adapter = IntegrationFactory::make($connection->platform);
+                return $adapter->capabilities()->supportsShortLink;
             })
             ->map(static fn (PlatformConnection $connection): array => [
                 'id'           => $connection->id,
@@ -152,6 +152,12 @@ class IntegrationService
 
         if ($method === 'cookie' && ! $this->canUseCookieMethod($user)) {
             throw new RuntimeException('Cookie method is currently disabled for your account.');
+        }
+
+        // Dual-layer method enforcement: TikTok only supports open_api
+        $platform = $data['platform'] ?? '';
+        if ($platform === 'tiktok' && $method !== 'open_api') {
+            throw new RuntimeException('TikTok chỉ hỗ trợ phương thức Open API.');
         }
 
         $payload = [
@@ -738,6 +744,36 @@ class IntegrationService
             'lazada' => new LazadaCurlCookieParserService(),
             default  => new CurlCookieParserService(),
         };
+    }
+
+    // ─── Readiness Helpers ────────────────────────────────────────────────────
+
+    /**
+     * Whether connection has enough metadata to make API calls.
+     * Does NOT guarantee the token is still valid.
+     */
+    private function isConnectionConfigured(PlatformConnection $connection): bool
+    {
+        return match ($connection->platform) {
+            'tiktok' => filled($connection->access_token) && filled($connection->shop_id),
+            default  => ! empty($connection->app_id) && ! empty($connection->app_secret),
+        };
+    }
+
+    /**
+     * Whether connection is configured AND token is currently valid.
+     */
+    private function isConnectionValid(PlatformConnection $connection): bool
+    {
+        if (! $this->isConnectionConfigured($connection)) {
+            return false;
+        }
+
+        if ($connection->token_expires_at !== null && $connection->token_expires_at->isPast()) {
+            return false;
+        }
+
+        return true;
     }
 }
 

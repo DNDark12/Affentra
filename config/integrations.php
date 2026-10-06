@@ -57,6 +57,41 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | TikTok Shop Affiliate Integration
+    |--------------------------------------------------------------------------
+    */
+
+    'tiktok' => [
+        // Global Custom App credentials (NOT per-connection)
+        'app_key'       => env('TIKTOK_APP_KEY', ''),
+        'app_secret'    => env('TIKTOK_APP_SECRET', ''),
+
+        // OAuth endpoints
+        'auth_url'      => env('TIKTOK_AUTH_URL', 'https://auth.tiktok-shops.com/oauth/authorize'),
+        'token_url'     => env('TIKTOK_TOKEN_URL', 'https://auth.tiktok-shops.com/api/v2/token/get'),
+        'refresh_url'   => env('TIKTOK_REFRESH_URL', 'https://auth.tiktok-shops.com/api/v2/token/refresh'),
+        'redirect_uri'  => env('TIKTOK_REDIRECT_URI', ''),
+
+        // Open API base URL
+        'base_url'      => env('TIKTOK_API_BASE_URL', 'https://open-api.tiktokglobalshop.com'),
+
+        // API versions — config-driven, not hardcoded
+        'api_versions'  => [
+            'authorized_shop'  => env('TIKTOK_API_VER_AUTH_SHOP', '202309'),
+            'orders_search'    => env('TIKTOK_API_VER_ORDERS', '202309'),
+            'promotion_link'   => env('TIKTOK_API_VER_PROMO_LINK', '202405'),
+        ],
+
+        // Sync defaults
+        'backfill_days'   => (int) env('TIKTOK_BACKFILL_DAYS', 14),
+        'hard_limit_days' => (int) env('TIKTOK_HARD_LIMIT_DAYS', 30),
+
+        // Temp auth key TTL (seconds) for multi-shop selection
+        'tmp_auth_ttl'  => (int) env('TIKTOK_TMP_AUTH_TTL', 600), // 10 minutes
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sync Scheduler Settings
     |--------------------------------------------------------------------------
     */

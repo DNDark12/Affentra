@@ -32,6 +32,23 @@ class UpdateConnectionRequest extends FormRequest
     }
 
     /**
+     * Add platform-method cross-validation.
+     * Reads platform from route model, not from payload.
+     */
+    public function withValidator(\Illuminate\Contracts\Validation\Validator $validator): void
+    {
+        $validator->after(function (\Illuminate\Contracts\Validation\Validator $v): void {
+            $connection = $this->route('connection');
+            $platform   = $connection?->platform;
+            $method     = $this->input('method');
+
+            if ($platform === 'tiktok' && $method !== null && $method !== 'open_api') {
+                $v->errors()->add('method', 'TikTok chỉ hỗ trợ phương thức Open API.');
+            }
+        });
+    }
+
+    /**
      * @return list<string>
      */
     private function allowedMethods(): array

@@ -49,6 +49,22 @@ class IntegrationControllerTest extends TestCase
         ]);
     }
 
+    public function test_tiktok_authorize_redirects_back_when_oauth_not_configured(): void
+    {
+        $user = User::factory()->create(['role' => 'owner']);
+
+        config([
+            'integrations.tiktok.app_key' => '',
+            'integrations.tiktok.redirect_uri' => '',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('integrations.tiktok.authorize'));
+
+        $response->assertRedirect(route('integrations.index'));
+        $response->assertSessionHas('error');
+    }
+
     public function test_user_can_sync_own_connection()
     {
         Queue::fake();
@@ -97,7 +113,7 @@ class IntegrationControllerTest extends TestCase
         $user = User::factory()->create(['role' => 'owner']);
 
         $response = $this->actingAs($user)->postJson('/api/integrations', [
-            'platform'   => 'tiktok', // 'tiktok' is not a supported platform
+            'platform'   => 'amazon', // truly unsupported platform
             'method'     => 'open_api',
             'app_id'     => 'test_app',
             'app_secret' => 'test_secret',

@@ -213,7 +213,10 @@ class OfferService
         $shortLink = null;
         if ($adapter->capabilities()->supportsShortLink) {
             try {
-                $shortLink = $adapter->generateShortLink($connection, (string) $validated['offer_link'], $subId);
+                $shortLink = $adapter->generateShortLink($connection, (string) $validated['offer_link'], [
+                    'sub_id'     => $subId,
+                    'product_id' => $validated['item_id'] ?? null,
+                ]);
             } catch (\RuntimeException $e) {
                 Log::warning('ShortLink generation failed, using local fallback', [
                     'connection_id' => $connection->id,

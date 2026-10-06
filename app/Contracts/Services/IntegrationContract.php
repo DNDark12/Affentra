@@ -81,7 +81,8 @@ interface IntegrationContract
     /**
      * Generate a short affiliate link (if supported).
      *
+     * @param  array<string, mixed>  $context  Platform-specific params (e.g. 'sub_id', 'product_id')
      * @return string|null  The generated short URL, or null if unsupported
      */
-    public function generateShortLink(PlatformConnection $connection, string $originalUrl, ?string $subId = null): ?string;
+    public function generateShortLink(PlatformConnection $connection, string $originalUrl, array $context = []): ?string;
 }

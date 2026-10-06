@@ -131,6 +131,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/{connection}/test', [IntegrationController::class, 'testConnection'])
             ->name('test')
             ->middleware('throttle:5,1');
+
+        // TikTok multi-shop selection (stateless, one-time consume)
+        Route::post('/tiktok/select-shop', [\App\Http\Controllers\API\TikTokAuthController::class, 'selectShop'])
+            ->name('tiktok.select-shop')
+            ->middleware('throttle:5,1');
     });
 
     /*

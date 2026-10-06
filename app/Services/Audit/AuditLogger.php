@@ -62,6 +62,8 @@ class AuditLogger
             'curl_command',
             'token',
             'secret',
+            'shop_cipher',
+            'tmp_auth_key',
         ];
 
         $sanitize = function (mixed $value) use (&$sanitize, $sensitiveKeys): mixed {

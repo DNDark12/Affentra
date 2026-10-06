@@ -7,6 +7,7 @@ namespace App\Services\Integration;
 use App\Contracts\Services\IntegrationContract;
 use App\Services\Integration\Lazada\LazadaIntegration;
 use App\Services\Integration\Shopee\ShopeeIntegration;
+use App\Services\Integration\TikTok\TikTokIntegration;
 
 /**
  * Factory that resolves the correct IntegrationContract adapter
@@ -22,8 +23,7 @@ class IntegrationFactory
     private static array $adapters = [
         'shopee' => ShopeeIntegration::class,
         'lazada' => LazadaIntegration::class,
-        // Future:
-        // 'tiktok' => TiktokIntegration::class,
+        'tiktok' => TikTokIntegration::class,
     ];
 
     /**

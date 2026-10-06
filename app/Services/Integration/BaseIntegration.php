@@ -95,7 +95,7 @@ abstract class BaseIntegration implements IntegrationContract
         );
     }
 
-    public function generateShortLink(PlatformConnection $connection, string $originalUrl, ?string $subId = null): ?string
+    public function generateShortLink(PlatformConnection $connection, string $originalUrl, array $context = []): ?string
     {
         if (! $this->capabilities()->supportsShortLink) {
             return null;
